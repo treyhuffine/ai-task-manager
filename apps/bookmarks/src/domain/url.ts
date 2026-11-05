@@ -4,6 +4,8 @@
  */
 const TRACKING = /^(utm_[a-z_]+|fbclid|gclid|gbraid|wbraid|dclid|msclkid|yclid|twclid|igshid|igsh|mc_cid|mc_eid|_hsenc|_hsmi|mkt_tok|vero_id|oly_anon_id|oly_enc_id|rb_clickid|s_cid|ncid)$/i;
 
+const MAX_LINK = 4096;
+
 export interface ParsedLink {
   url: string;
   key: string;
@@ -13,7 +15,7 @@ export interface ParsedLink {
 /** The link as a record, or null when it is not a saveable http or https address. */
 export function parseLink(raw: string): ParsedLink | null {
   const text = raw.trim();
-  if (!text || text.length > 4096) return null;
+  if (!text || text.length > MAX_LINK) return null;
   let url: URL;
   try {
     url = new URL(text);
@@ -23,6 +25,8 @@ export function parseLink(raw: string): ParsedLink | null {
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   // A link with a password in it should not be stored or requested.
   if (url.username || url.password || !url.hostname) return null;
+  // The address can grow when encoded. A record that couldn't be returned would break every list holding it.
+  if (url.href.length > MAX_LINK || url.hostname.length > 253) return null;
   return { url: url.href, key: linkKey(url), site: url.hostname.replace(/^www\./, "") };
 }
 

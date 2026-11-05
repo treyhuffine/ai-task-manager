@@ -1,10 +1,8 @@
 'use client';
 
-import { useSearchParams } from 'next/navigation';
 import { useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { viewFromSearchParams } from '@/lib/client/active-view';
 import { AppBuilder } from './app-builder';
 import { useLocalApps } from './app-hooks';
 import { AppsLibraryScreen } from './layout-review';
@@ -20,10 +18,11 @@ export { useLocalApps } from './app-hooks';
  */
 export function AppsShell({ route }: { route: string }) {
   const { data, enabled, error, checking } = useLocalApps();
-  const { setActiveView, goHome } = useDashboard();
-  const searchParams = useSearchParams();
-  const currentView = viewFromSearchParams(searchParams, `/apps/${route}`);
-  const appQuery = currentView.kind === 'apps' ? (currentView.query ?? {}) : {};
+  const { activeView, setActiveView, goHome } = useDashboard();
+  // The route and its query come from the same place. The URL's search params
+  // catch up a render later, and a new route paired with the old query looks
+  // like a different location, which reopens the app and loses what it holds.
+  const appQuery = activeView.kind === 'apps' ? (activeView.query ?? {}) : {};
 
   const navigate = useCallback((value: string, options?: { replace?: boolean }) => {
     const location = new URL(value, 'https://app.invalid/');

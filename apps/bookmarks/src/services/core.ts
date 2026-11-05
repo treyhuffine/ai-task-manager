@@ -157,7 +157,7 @@ export function createBookmarks(store: Awaited<ReturnType<typeof openAppDatabase
     const note = patch.note !== undefined ? patch.note?.trim().slice(0, 4000) || null : row.note;
     const tags = patch.tags !== undefined ? cleanTags(patch.tags) : row.tags;
     run("UPDATE bookmarks SET updated_at = ?, revision = revision + 1, title = ?, title_source = ?, note = ?, tags = ? WHERE id = ?",
-      stamp(), title, patch.title !== undefined ? "edited" : row.titleSource, note, JSON.stringify(tags), row.id);
+      stamp(), title, title !== row.title ? "edited" : row.titleSource, note, JSON.stringify(tags), row.id);
     if (patch.tags !== undefined) setTags(row.id, tags);
     index({ seq: row.seq, title, url: row.url, note, tags });
     return bookmark(row.id)!;
@@ -220,13 +220,22 @@ export function createBookmarks(store: Awaited<ReturnType<typeof openAppDatabase
       if (row.pageState !== "waiting") return;
       const time = stamp();
       const title = result.title && TITLE_RANK.page >= TITLE_RANK[row.titleSource] ? result.title : row.title;
+      // The revision guards what a person edits. Reading the page only conflicts with them if it changes the title.
       run(
-        `UPDATE bookmarks SET updated_at = ?, revision = revision + 1, title = ?, title_source = ?, excerpt = ?, page_state = ?, page_source = ?, page_chars = ?, page_at = ?, page_attempts = ?, page_next_at = ? WHERE id = ?`,
-        time, title, title !== row.title ? "page" : row.titleSource, result.excerpt ?? row.excerpt, result.state, result.text ? "home" : row.pageSource,
+        `UPDATE bookmarks SET updated_at = ?, revision = revision + ?, title = ?, title_source = ?, excerpt = ?, page_state = ?, page_source = ?, page_chars = ?, page_at = ?, page_attempts = ?, page_next_at = ? WHERE id = ?`,
+        time, title !== row.title ? 1 : 0, title, title !== row.title ? "page" : row.titleSource, result.excerpt ?? row.excerpt, result.state, result.text ? "home" : row.pageSource,
         result.text?.length ?? row.pageChars, time, result.attempts ?? row.pageAttempts, result.nextAt ?? null, id,
       );
       if (result.text || title !== row.title) index({ seq: row.seq, title, url: row.url, note: row.note, tags: row.tags }, result.text ?? undefined);
     });
+  }
+  /** Note an attempt before it starts, so a read that takes the whole step down isn't due again straight away. */
+  function setAttempt(id: string, attempts: number, nextAt: string | null) {
+    run("UPDATE bookmarks SET page_attempts = ?, page_next_at = ? WHERE id = ? AND page_state = 'waiting'", attempts, nextAt, id);
+  }
+  /** Give up on a page whose attempts all ended without an answer. */
+  function failExhausted(maxAttempts: number) {
+    run("UPDATE bookmarks SET page_state = 'failed', page_next_at = NULL, page_at = ?, updated_at = ? WHERE page_state = 'waiting' AND page_attempts >= ? AND page_next_at <= ?", stamp(), stamp(), maxAttempts, stamp());
   }
   function dataRevision(): number {
     return Number(one("SELECT value FROM bookmarks_meta WHERE id = 'data_revision'")?.value ?? 0);
@@ -234,7 +243,7 @@ export function createBookmarks(store: Awaited<ReturnType<typeof openAppDatabase
 
   const bookmarks = {
     instanceId, store, db, settings, scopes, now, stamp, run, one, all,
-    bookmark, byKey, pageText, saveOne, edit, remove, newest, search, tagCounts, counts, dueForReading, recordPage, dataRevision,
+    bookmark, byKey, pageText, saveOne, edit, remove, newest, search, tagCounts, counts, dueForReading, recordPage, setAttempt, failExhausted, dataRevision,
     lastStepAt: () => settings.get("reading.lastStepAt", z.string().nullable(), null),
     markStep: () => settings.set("reading.lastStepAt", stamp()),
     fixtureSeeded: () => settings.get("fixture.seeded", z.boolean(), false),

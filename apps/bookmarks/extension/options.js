@@ -1,4 +1,4 @@
-import { batches, callHome, CHECK_ACTION, flattenTree, originPattern, parseConnectionCode, SAVE_ACTION } from './lib.js';
+import { batches, callHome, CHECK_ACTION, flattenTree, originPattern, parseConnectionCode, sendItems } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 const plural = (count, one, many) => `${count.toLocaleString()} ${count === 1 ? one : many}`;
@@ -57,16 +57,18 @@ $('import').addEventListener('click', async () => {
   const links = flattenTree(await chrome.bookmarks.getTree());
   $('import').disabled = true;
   $('import').dataset.busy = '1';
-  let sent = 0, problem = null;
+  let sent = 0, dropped = 0, problem = null;
   for (const batch of batches(links)) {
     $('import-status').textContent = `Sending ${sent.toLocaleString()} of ${links.length.toLocaleString()}`;
-    const result = await callHome(fetch, connection, SAVE_ACTION, { via: 'bookmark', items: batch });
+    const result = await sendItems(fetch, connection, 'bookmark', batch);
+    sent += result.done - result.dropped;
+    dropped += result.dropped;
     if (result.outcome !== 'ok') { problem = result.message; break; }
-    sent += batch.length;
   }
   delete $('import').dataset.busy;
   $('import').disabled = false;
-  $('import-status').textContent = problem ? `Stopped after ${sent.toLocaleString()}: ${problem}. Import again to continue. Nothing is duplicated.` : `Sent ${plural(sent, 'bookmark', 'bookmarks')} to Ri.`;
+  const refused = dropped ? ` Your Ri refused ${plural(dropped, 'link', 'links')}.` : '';
+  $('import-status').textContent = problem ? `Stopped after ${sent.toLocaleString()}: ${problem}. Import again to continue. Nothing is duplicated.${refused}` : `Sent ${plural(sent, 'bookmark', 'bookmarks')} to Ri.${refused}`;
 });
 
 chrome.storage.onChanged.addListener(() => void render());

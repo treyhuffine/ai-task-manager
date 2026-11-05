@@ -11,7 +11,7 @@ interface Detail { bookmark: BookmarkRecord; pageText: string | null; pageTextTr
 type UpdateResult = { status: "saved"; record: BookmarkRecord } | { status: "conflict"; current: BookmarkRecord; message: string };
 type DeleteResult = { status: "deleted" } | { status: "conflict"; current: BookmarkRecord; message: string };
 
-export function BookmarkInspector({ id, onClose, onChanged }: { id: string; onClose(): void; onChanged(): void }) {
+export function BookmarkInspector({ id, onClose, onChanged }: { id: string; onClose(): void; onChanged(change: { record?: BookmarkRecord; deleted?: string }): void }) {
   const app = useRiApp();
   const announce = useAnnounce();
   const { data } = useNav();
@@ -21,34 +21,41 @@ export function BookmarkInspector({ id, onClose, onChanged }: { id: string; onCl
   const [title, setTitle] = useState("");
   const [tags, setTags] = useState("");
   const [note, setNote] = useState("");
-  const [loadedRevision, setLoadedRevision] = useState<number | null>(null);
+  // What the form was filled from. The difference is what the person has typed.
+  const [base, setBase] = useState<{ revision: number; title: string; tags: string; note: string } | null>(null);
   const [conflict, setConflict] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState<boolean | null>(null);
   const bookmark = detail.data?.bookmark;
+  const dirty = !!base && (title !== base.title || tags !== base.tags || note !== base.note);
+  const fill = (record: BookmarkRecord) => {
+    const next = { revision: record.revision, title: record.title, tags: record.tags.join(", "), note: record.note ?? "" };
+    setBase(next);
+    setTitle(next.title);
+    setTags(next.tags);
+    setNote(next.note);
+  };
   // Fill the form when the record first arrives or moves on, and never over what is being typed.
   useEffect(() => {
-    if (!bookmark || bookmark.revision === loadedRevision) return;
-    setTitle(bookmark.title);
-    setTags(bookmark.tags.join(", "));
-    setNote(bookmark.note ?? "");
-    setLoadedRevision(bookmark.revision);
-  }, [bookmark?.revision]);
+    if (bookmark && !dirty && bookmark.revision !== base?.revision) fill(bookmark);
+  }, [bookmark?.revision, dirty]);
   if (detail.error && !bookmark) return <ErrorState title="This link could not load" message={detail.error} onRetry={() => void detail.reload()} />;
-  if (!bookmark) return <LoadingState label="Loading link" />;
-  const dirty = title !== bookmark.title || tags !== bookmark.tags.join(", ") || note !== (bookmark.note ?? "");
+  if (!bookmark || !base) return <LoadingState label="Loading link" />;
   const save = async () => {
     setConflict(null);
-    const result = await update.run({ id, expectedRevision: bookmark.revision, title, tags: parseTags(tags), note: note.trim() || null }).catch(() => null);
+    const result = await update.run({ id, expectedRevision: base.revision, title, tags: parseTags(tags), note: note.trim() || null }).catch(() => null);
     update.reset();
     if (!result) return setConflict("This could not be saved. Try again.");
     if (result.status === "conflict") {
-      setConflict(result.message);
+      // Keep what was typed, and let the next save go over the version now showing.
+      setBase({ ...base, revision: result.current.revision });
+      setConflict("This link changed while you were editing. Save again to keep your changes.");
       return void detail.reload();
     }
+    fill(result.record);
     announce("Saved");
     await detail.reload();
-    onChanged();
+    onChanged({ record: result.record });
   };
   const destroy = async () => {
     const result = await remove.run({ id, expectedRevision: bookmark.revision }).catch(() => null);
@@ -56,7 +63,7 @@ export function BookmarkInspector({ id, onClose, onChanged }: { id: string; onCl
     setConfirming(false);
     if (result?.status === "deleted") {
       announce("Deleted");
-      onChanged();
+      onChanged({ deleted: id });
       onClose();
     } else {
       setConflict(result?.message ?? "This could not be deleted. Try again.");

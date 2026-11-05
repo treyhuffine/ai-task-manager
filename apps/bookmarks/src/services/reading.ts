@@ -12,7 +12,7 @@ export const PAGES_PER_STEP = 12;
 const BUDGET_MS = 20_000;
 const CONCURRENT = 4;
 const MAX_ATTEMPTS = 3;
-const BACKOFF_MS = [60 * 60_000, 6 * 60 * 60_000];
+const BACKOFF_MS = [60 * 60_000, 6 * 60 * 60_000, 24 * 60 * 60_000];
 
 interface WebPage { outcome: string; status: number | null; contentType: string | null; text: string | null }
 export interface StepResult { status: "idle" | "worked" | "not_allowed"; read: number; waiting: number; summary: string }
@@ -36,6 +36,7 @@ export function createReading(t: Bookmarks) {
   }
 
   async function step(invocation: AppInvocation): Promise<StepResult> {
+    t.failExhausted(MAX_ATTEMPTS);
     const due = t.dueForReading(PAGES_PER_STEP);
     t.markStep();
     if (!due.length) return { status: "idle", read: 0, waiting: t.counts().waiting, summary: "Nothing is due to be read" };
@@ -45,14 +46,19 @@ export function createReading(t: Bookmarks) {
     let notAllowed = false;
     const worker = async () => {
       for (let row = queue.shift(); row && !notAllowed && Date.now() < stopAt && !invocation.signal.aborted; row = queue.shift()) {
+        // A hostile page can take the whole step down while it is parsed, and nothing after this line would run.
+        t.setAttempt(row.id, row.pageAttempts + 1, new Date(t.now().getTime() + BACKOFF_MS[Math.min(row.pageAttempts, BACKOFF_MS.length - 1)]).toISOString());
         try {
           apply(row, await invocation.capability("read_web_page", { url: row.url }) as WebPage);
           read++;
         } catch (error) {
           const code = error instanceof AppError ? error.code : null;
-          if (code === "forbidden" || code === "revoked") notAllowed = true;
-          else if (code === "interrupted") return;
-          else apply(row, { outcome: "unreachable", status: null, contentType: null, text: null });
+          if (code === "forbidden" || code === "revoked" || code === "interrupted") {
+            // Not the page's fault, so it doesn't count against it.
+            t.setAttempt(row.id, row.pageAttempts, row.pageNextAt);
+            if (code === "interrupted") return;
+            notAllowed = true;
+          } else apply(row, { outcome: "unreachable", status: null, contentType: null, text: null });
         }
       }
     };

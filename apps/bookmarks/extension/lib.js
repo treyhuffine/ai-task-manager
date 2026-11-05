@@ -3,6 +3,9 @@
 export const MAX_PAGE_CHARS = 200_000;
 export const QUEUED_PAGE_CHARS = 50_000;
 export const BATCH_SIZE = 100;
+/** The Home takes 1 MiB in one request, and leaves room for the envelope. */
+export const BATCH_BYTES = 900_000;
+const LIMITS = { url: 4096, title: 2000, note: 8000, excerpt: 2000, tag: 200, tags: 50 };
 export const SAVE_ACTION = 'save_bookmarks';
 export const CHECK_ACTION = 'describe_connection';
 
@@ -33,12 +36,26 @@ const ROOT_FOLDERS = new Set([
 ]);
 export const tagsFromFolders = (folders) => folders.filter((name) => !ROOT_FOLDERS.has(String(name).trim().toLowerCase())).map((name) => String(name).trim()).slice(0, 20);
 
+/**
+ * Fit an item to what the Home accepts, or null when its link can't be kept. One
+ * odd field would otherwise make the Home refuse the whole request it arrived in.
+ */
+export function fitItem(item) {
+  if (!saveable(item.url) || item.url.length > LIMITS.url) return null;
+  const fitted = { ...item };
+  for (const field of ['title', 'note', 'excerpt']) if (fitted[field]) fitted[field] = fitted[field].slice(0, LIMITS[field]);
+  if (fitted.tags) fitted.tags = fitted.tags.slice(0, LIMITS.tags).map((tag) => tag.slice(0, LIMITS.tag));
+  if (fitted.pageText) fitted.pageText = fitted.pageText.slice(0, MAX_PAGE_CHARS);
+  return fitted;
+}
+
 /** Every web link in a bookmarks tree, with its folders as tags. */
 export function flattenTree(nodes, folders = []) {
   const links = [];
   for (const node of nodes) {
     if (node.url) {
-      if (saveable(node.url)) links.push({ url: node.url, title: node.title || null, savedAt: node.dateAdded ?? null, tags: tagsFromFolders(folders) });
+      const link = fitItem({ url: node.url, title: node.title || null, savedAt: node.dateAdded ?? null, tags: tagsFromFolders(folders) });
+      if (link) links.push(link);
     } else if (node.children) {
       links.push(...flattenTree(node.children, [...folders, node.title ?? '']));
     }
@@ -46,9 +63,21 @@ export function flattenTree(nodes, folders = []) {
   return links;
 }
 
-export function batches(items, size = BATCH_SIZE) {
+const bytesOf = (item) => new TextEncoder().encode(JSON.stringify(item)).length;
+
+/** The most items from the start of a list that fit in one request. Always at least one. */
+export function firstBatch(items) {
+  let bytes = 0, count = 0;
+  for (const item of items) {
+    bytes += bytesOf(item);
+    if (count && (count >= BATCH_SIZE || bytes > BATCH_BYTES)) break;
+    count++;
+  }
+  return items.slice(0, count);
+}
+export function batches(items) {
   const out = [];
-  for (let index = 0; index < items.length; index += size) out.push(items.slice(index, index + size));
+  for (let rest = items; rest.length; rest = rest.slice(out.at(-1).length)) out.push(firstBatch(rest));
   return out;
 }
 
@@ -81,4 +110,25 @@ export async function callHome(fetcher, connection, action, input) {
   if (response.status === 401 || response.status === 403) return { outcome: 'disconnected', message: body?.message ?? body?.error ?? 'Your Ri no longer accepts this connection' };
   if (response.status === 400 || response.status === 413) return { outcome: 'rejected', message: body?.error ?? 'Your Ri refused this link' };
   return { outcome: 'retry', message: body?.error ?? `Your Ri answered ${response.status}` };
+}
+
+/**
+ * Send items, keeping every one the Home will take. If it refuses a request, it
+ * might be over one item, so they go one at a time and only that item is dropped.
+ * `done` counts the items from the start that need no more attention.
+ */
+export async function sendItems(fetcher, connection, via, items) {
+  const result = await callHome(fetcher, connection, SAVE_ACTION, { via, items });
+  if (result.outcome === 'ok') return { outcome: 'ok', done: items.length, dropped: 0, message: null };
+  if (result.outcome !== 'rejected') return { outcome: result.outcome, done: 0, dropped: 0, message: result.message };
+  if (items.length === 1) return { outcome: 'ok', done: 1, dropped: 1, message: result.message };
+  let done = 0, dropped = 0, message = null;
+  for (const item of items) {
+    const single = await sendItems(fetcher, connection, via, [item]);
+    if (single.outcome !== 'ok') return { ...single, done, dropped };
+    done++;
+    dropped += single.dropped;
+    message = single.message ?? message;
+  }
+  return { outcome: 'ok', done, dropped, message };
 }

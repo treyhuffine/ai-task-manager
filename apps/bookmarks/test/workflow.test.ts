@@ -49,7 +49,8 @@ describe("saving", () => {
     expect(await h.call("save_bookmarks", { via: "bookmark", items: [{ url: "chrome://settings" }, { url: "https://example.test/ok" }] })).toEqual({ saved: 1, invalid: 1 });
     expect(await h.call("save_link", { url: "not a link" })).toEqual({ status: "invalid" });
     expect(await h.call("save_link", { url: "https://example.test/phone" })).toEqual({ status: "saved" });
-    expect((await h.call("list_bookmarks", {})).items[0]).toMatchObject({ via: "shortcut" });
+    // Both were saved in the same instant of the test's clock, so find it by its link.
+    expect((await h.call("list_bookmarks", {})).items.find((item: { url: string }) => item.url === "https://example.test/phone")).toMatchObject({ via: "shortcut" });
   });
   it("retries the same write once", async () => {
     const h = await harness();
@@ -65,6 +66,17 @@ describe("saving", () => {
     const repeat = await h.call("save_bookmarks", { via: "extension", items: [{ url: "https://example.test/a" }] });
     expect(repeat).toEqual(fresh);
     expect(await h.call("describe_connection", {})).toEqual({ app: "Bookmarks", ok: true });
+  });
+  it("treats a title as edited only when it changed, so tagging a link leaves it free to get the page's title", async () => {
+    const h = await harness();
+    const { record } = await h.call("save_bookmark", { url: "https://example.test/a" });
+    await h.call("update_bookmark", { id: record.id, expectedRevision: record.revision, title: record.title, tags: ["x"], note: "n" });
+    await h.call("run_background_step", {}, job(), { capability: async (_name, input) => page(String(input.url), "Text", "The real title") });
+    expect((await h.call("get_bookmark", { id: record.id })).bookmark.title).toBe("The real title");
+    const other = (await h.call("save_bookmark", { url: "https://example.test/b" })).record;
+    await h.call("update_bookmark", { id: other.id, expectedRevision: other.revision, title: "Mine" });
+    await h.call("run_background_step", {}, job(), { capability: async (_name, input) => page(String(input.url), "Text", "The real title") });
+    expect((await h.call("get_bookmark", { id: other.id })).bookmark.title).toBe("Mine");
   });
   it("edits with a revision check and returns the current record on conflict", async () => {
     const h = await harness();
@@ -217,6 +229,39 @@ describe("reading pages", () => {
     expect((await h.call("list_bookmarks", { query: "marmalade" })).items).toHaveLength(1);
     expect((await step(h, reader(() => { throw new Error("no"); }))).status).toBe("idle");
   });
+  it("doesn't get in the way of someone editing while the page is read", async () => {
+    const h = await harness();
+    const { record } = await h.call("save_bookmark", { url: "https://example.test/given", title: "Mine" });
+    await step(h, reader((url) => page(url, "The page text", "Page title")));
+    const read = (await h.call("get_bookmark", { id: record.id })).bookmark;
+    expect(read).toMatchObject({ revision: record.revision, page: { state: "read" } });
+    expect(await h.call("update_bookmark", { id: record.id, expectedRevision: record.revision, note: "Typed meanwhile" })).toMatchObject({ status: "saved" });
+    // A new title is a real change to what's on screen, so that one does move the revision.
+    const named = (await h.call("save_bookmark", { url: "https://example.test/unnamed" })).record;
+    await step(h, reader((url) => page(url, "Text", "Page title")));
+    expect((await h.call("get_bookmark", { id: named.id })).bookmark).toMatchObject({ title: "Page title", revision: named.revision + 1 });
+  });
+  it("gives up on a page that keeps taking the whole step down, instead of retrying forever", async () => {
+    const h = await harness();
+    const { record } = await h.call("save_bookmark", { url: "https://example.test/poison" });
+    const hang = reader(() => new Promise(() => undefined));
+    const killedStep = () => { void step(h, hang); return new Promise((resolve) => setTimeout(resolve, 20)); };
+    await killedStep();
+    const row = () => instance().bookmark(record.id)!;
+    expect(row()).toMatchObject({ pageAttempts: 1, pageState: "waiting" });
+    expect(row().pageNextAt! > "2026-10-15T12:30:00.000Z").toBe(true);
+    await killedStep();
+    expect(hang.urls).toHaveLength(1);
+    h.setNow("2026-10-15T14:00:00.000Z");
+    await killedStep();
+    h.setNow("2026-10-16T00:00:00.000Z");
+    await killedStep();
+    expect(hang.urls).toHaveLength(3);
+    h.setNow("2026-10-18T00:00:00.000Z");
+    await killedStep();
+    expect(hang.urls).toHaveLength(3);
+    expect(row().pageState).toBe("failed");
+  });
   it("keeps a title someone gave and leaves browser text alone", async () => {
     const h = await harness();
     await h.call("save_bookmark", { url: "https://example.test/given", title: "Mine" });
@@ -297,6 +342,10 @@ describe("reading pages", () => {
     const denied = reader(() => new AppError("forbidden", "Not granted"));
     expect(await step(h, denied)).toMatchObject({ status: "not_allowed", read: 0, waiting: 5 });
     expect(denied.urls.length).toBeLessThanOrEqual(4);
+    expect((await h.call("list_bookmarks", {})).items.every((item: { page: { state: string } }) => item.page.state === "waiting")).toBe(true);
+    // Being refused says nothing about the pages, so it doesn't count against them.
+    expect(instance().dueForReading(10)).toHaveLength(5);
+    expect(instance().dueForReading(10).every((row) => row.pageAttempts === 0)).toBe(true);
   });
   it("says when reading is running, from when a step last ran", async () => {
     const h = await harness();

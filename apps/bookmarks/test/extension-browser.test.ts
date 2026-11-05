@@ -45,8 +45,11 @@ beforeAll(async () => {
       if (request.headers.authorization !== `Bearer ${KEY}` || status === 401) { response.statusCode = 401; return response.end('{"error":"unauthorized"}'); }
       auth.push(request.headers.authorization);
       if (status !== 200) { response.statusCode = status; return response.end('{"error":"busy"}'); }
+      // The real route's limits: 1 MiB in one request, and one field over its limit refuses the whole request.
+      if (Buffer.byteLength(text) > 1024 * 1024) { response.statusCode = 413; return response.end('{"error":"This request is too large"}'); }
       if (action === "describe_connection") return response.end('{"app":"Bookmarks","ok":true}');
       const body = JSON.parse(text) as Saved;
+      if (body.items?.some((item) => item.url.length > 4096 || (item.title?.length ?? 0) > 2000)) { response.statusCode = 400; return response.end('{"error":"The action input is invalid"}'); }
       received.push(body);
       response.end(JSON.stringify({ saved: body.items.length, invalid: 0 }));
     });
@@ -203,6 +206,19 @@ describe("normal bookmarks", () => {
     await expect.poll(() => received.flatMap((batch) => batch.items).map((item) => item.title), { timeout: 90_000 }).toContain("Fine");
     await expect.poll(async () => (await stored<unknown[]>("queue") ?? []).length).toBe(0);
   }, 120_000);
+  it("sends every page saved while the Home was away, however much they add up to", async () => {
+    await connect();
+    answer = () => 503;
+    const pages = Array.from({ length: 30 }, (_, index) => ({ via: "extension", url: `https://example.test/page/${index}`, title: `Page ${index}`, pageText: "word ".repeat(9000) }));
+    await worker.evaluate((items: Record<string, unknown>[]) => chrome.storage.local.set({ queue: items.map((item) => ({ ...item, queueId: crypto.randomUUID() })) }), pages);
+    expect((await stored<unknown[]>("queue")).length).toBe(30);
+    answer = () => 200;
+    await worker.evaluate(() => chrome.alarms.create("flush", { when: Date.now() + 10, periodInMinutes: 5 }));
+    await expect.poll(() => received.flatMap((batch) => batch.items).length, { timeout: 90_000 }).toBe(30);
+    expect(new Set(received.flatMap((batch) => batch.items).map((item) => item.url)).size).toBe(30);
+    expect(received.length).toBeGreaterThan(1);
+    await expect.poll(async () => (await stored<unknown[]>("queue") ?? []).length).toBe(0);
+  }, 120_000);
 });
 
 describe("the toolbar button", () => {
@@ -255,6 +271,19 @@ describe("the toolbar button", () => {
     await popup.getByText("Saved", { exact: true }).waitFor();
     expect(received[0].items[0]).toMatchObject({ url: "https://chromewebstore.google.com/detail/x", title: "A store page", pageText: null });
   });
+  it("finishes saving when the popup is closed straight away", async () => {
+    await connect();
+    answer = () => 503;
+    const tab = await context.newPage();
+    await tab.goto(`${home}/clicked-away`);
+    const target = await worker.evaluate(async (address) => (await chrome.tabs.query({})).find((item: { url?: string }) => item.url === address), `${home}/clicked-away`);
+    const popup = await context.newPage();
+    await popup.addInitScript((active) => { chrome.tabs.query = (async () => [active]) as unknown as typeof chrome.tabs.query; }, target);
+    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+    await popup.close();
+    // The save carries on without the popup, and here that means it waits in the queue for the Home.
+    await expect.poll(async () => (await stored<{ url: string }[]>("queue") ?? []).map((item) => item.url)).toEqual([`${home}/clicked-away`]);
+  });
   it("keeps the page for later when the Home can't be reached", async () => {
     await connect();
     answer = () => 503;
@@ -270,6 +299,20 @@ describe("the toolbar button", () => {
 });
 
 describe("importing", () => {
+  it("isn't stopped by a bookmark with an enormous address", async () => {
+    const page = await connect();
+    await page.getByLabel("Copy bookmarks I make to Ri").uncheck();
+    await worker.evaluate(async () => {
+      await chrome.bookmarks.create({ parentId: "1", title: "Before", url: "https://example.test/before" });
+      await chrome.bookmarks.create({ parentId: "1", title: "Playground link", url: `https://example.test/#code/${"a".repeat(6000)}` });
+      await chrome.bookmarks.create({ parentId: "1", title: "t".repeat(2500), url: "https://example.test/long-title" });
+      await chrome.bookmarks.create({ parentId: "1", title: "After", url: "https://example.test/after" });
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "Import 3 bookmarks" }).click();
+    await expect.poll(() => page.locator("#import-status").textContent()).toBe("Sent 3 bookmarks to Ri.");
+    expect(received.flatMap((batch) => batch.items).map((item) => item.url)).toEqual(["https://example.test/before", "https://example.test/long-title", "https://example.test/after"]);
+  }, 60_000);
   it("sends every bookmark in batches, with folders as tags, and can repeat", async () => {
     const page = await connect();
     await page.getByLabel("Copy bookmarks I make to Ri").uncheck();

@@ -3,6 +3,7 @@ import { bookmarkletFor, connectionCode } from "../src/domain/client.js";
 import { readHtml, readPlainText, MAX_PAGE_CHARS } from "../src/domain/page.js";
 import { mergeDuplicates, parseBrowserHtml, parseCsv, parseCsvRows, parseImport, parseLinkList, toBrowserHtml, MAX_IMPORT } from "../src/domain/parse.js";
 import { cleanTags, parseLink, parseSavedAt } from "../src/domain/url.js";
+import { readSelectedFile, splitParts } from "../src/view/util.js";
 
 describe("links", () => {
   const key = (url: string) => parseLink(url)?.key;
@@ -17,6 +18,11 @@ describe("links", () => {
   });
   it("keeps the link as saved for opening", () => {
     expect(parseLink("https://www.example.test/guide/?utm_source=x")).toMatchObject({ url: "https://www.example.test/guide/?utm_source=x", site: "example.test" });
+  });
+  it("refuses a link that grows past what a record can hold once encoded", () => {
+    expect(parseLink(`https://example.test/${"\u6f22".repeat(900)}`)).toBeNull();
+    expect(parseLink(`https://${"a".repeat(60)}.${"b".repeat(60)}.${"c".repeat(60)}.${"d".repeat(60)}.${"e".repeat(60)}.example/`)).toBeNull();
+    expect(parseLink(`https://example.test/${"\u6f22".repeat(100)}`)).not.toBeNull();
   });
   it("refuses anything that is not a plain web link", () => {
     for (const bad of ["javascript:alert(1)", "chrome://settings", "file:///etc/hosts", "place:sort=8", "about:blank", "not a link", "", "https://user:secret@example.test/", `https://example.test/${"a".repeat(5000)}`]) expect(parseLink(bad), bad).toBeNull();
@@ -77,6 +83,13 @@ describe("bookmark files", () => {
     expect(parsed.links[1]).toMatchObject({ note: "Check before the trip", savedAt: "2023-03-28T10:40:00.000Z" });
     expect(parsed.links[0].note).toBeNull();
   });
+  it("keeps a title that talks about markup", () => {
+    const titled = (title: string) => parseBrowserHtml(`<dt><a href="https://example.test/">${title}</a>`).links[0].title;
+    expect(titled("&lt;a&gt;: The Anchor element - HTML | MDN")).toBe("<a>: The Anchor element - HTML | MDN");
+    expect(titled("Array&lt;T&gt; in TypeScript")).toBe("Array<T> in TypeScript");
+    expect(titled("if a &lt; b and c &gt; d")).toBe("if a < b and c > d");
+    expect(titled("<b>Bold</b> title")).toBe("Bold title");
+  });
   it("survives a file with no doctype and unbalanced lists", () => {
     const parsed = parseImport('<dl></dl></dl><dt><a href="https://example.test/a">A</a><dt><a href=https://example.test/b>B</a><dt><a>no link</a>');
     expect(parsed.links.map((link) => link.url)).toEqual(["https://example.test/a", "https://example.test/b"]);
@@ -111,7 +124,7 @@ describe("bookmark files", () => {
   });
   it("writes a file that reads back the same", () => {
     const html = toBrowserHtml([{ url: "https://example.test/a?x=1&y=2", title: 'A "title" <b>', note: "A note\nwith lines", tags: ["one", "two"], savedAt: "2023-03-28T10:40:00.000Z" }]);
-    expect(parseImport(html).links[0]).toMatchObject({ url: "https://example.test/a?x=1&y=2", title: 'A "title"', note: "A note with lines", tags: ["one", "two"], savedAt: "2023-03-28T10:40:00.000Z" });
+    expect(parseImport(html).links[0]).toMatchObject({ url: "https://example.test/a?x=1&y=2", title: 'A "title" <b>', note: "A note with lines", tags: ["one", "two"], savedAt: "2023-03-28T10:40:00.000Z" });
   });
 });
 
@@ -137,6 +150,24 @@ describe("pages", () => {
   });
   it("finds nothing in a page drawn entirely by scripts", () => {
     expect(readHtml('<html><head><title>App</title></head><body><div id="root"></div><script src="/a.js"></script></body></html>').text).toBe("");
+  });
+});
+
+describe("reading a chosen file", () => {
+  const encoded = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
+  const CSV = "title,url\nCaf\u00e9,https://example.test/a\n";
+  it("reads UTF-8, UTF-16 and Windows-1252", () => {
+    expect(readSelectedFile(encoded(Buffer.from(CSV, "utf8")))).toBe(CSV);
+    expect(readSelectedFile(encoded(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(CSV, "utf16le")])))).toBe(CSV);
+    expect(readSelectedFile(encoded(Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(CSV, "utf16le").swap16()])))).toBe(CSV);
+    expect(readSelectedFile(encoded(Buffer.from(CSV, "latin1")))).toBe(CSV);
+    expect(parseImport(readSelectedFile(encoded(Buffer.from(CSV, "latin1")))).links[0].title).toBe("Caf\u00e9");
+  });
+  it("drops inline favicons and splits into parts under the action limit, in any script", () => {
+    expect(readSelectedFile(encoded(Buffer.from('<A HREF="https://example.test/" ICON="data:image/png;base64,AAAA" ICON_URI="x">A</A>')))).toBe('<A HREF="https://example.test/">A</A>');
+    const parts = splitParts("\u6f22".repeat(700_000));
+    expect(parts).toHaveLength(3);
+    for (const part of parts) expect(Buffer.byteLength(JSON.stringify({ text: part }))).toBeLessThan(1024 * 1024);
   });
 });
 

@@ -47,7 +47,7 @@ function decodeEntities(text: string): string {
   });
 }
 const cleanText = (text: string | null | undefined) => {
-  const value = decodeEntities(text ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const value = decodeEntities((text ?? "").replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
   return value || null;
 };
 function attribute(attributes: string, name: string): string | null {
