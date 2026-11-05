@@ -1,6 +1,6 @@
 # Always on, always current: installing, running and updating Ri
 
-**Status:** decided 2026-10-27, revised after three passes of an independent review (section 13.3 lists what changed). Phases A and B are built on the `always-on` branch, reviewed and repaired 2026-11-05, not yet merged. Phases C to E are not built. Every choice phases A and B need is settled, and what stays open belongs to later phases or future work. Section 11 lists what changes in the current code, and section 12 the order to build it in.
+**Status:** decided 2026-10-27, revised after three passes of an independent review (section 13.3 lists what changed). Phases A and B are on `main`, reviewed, repaired and qualified on a real release 2026-11-05. The owner's cutover in section 10.2 has not run yet. Phases C to E are not built. Every choice phases A and B need is settled, and what stays open belongs to later phases or future work. Section 11 lists what changes in the current code, and section 12 the order to build it in.
 
 **Promise:** once Ri is installed and a Home is created, it is running whenever its computer is on. It updates itself, along with everything it installs (its skills included), and a person never has to restart, babysit or rebuild it. An update that won't start puts the old version back by itself, exactly as it was. Once a new version has started working, going back is the owner's call, because undoing it could lose what it wrote. This holds for the desktop app and the CLI, on a laptop, a Mac Mini in a closet, or a Linux server reached only over SSH. The standard case takes no flags.
 
@@ -298,7 +298,7 @@ The existing preference allows `stable` and `beta` (`src/lib/service/update-sett
 
 The steps build on `UpdateCoordinator.apply` today. Each Home's own controller runs them for that Home, with its own journal.
 
-1. **Wait and drain.** Wait for the quiet stretch and the heads-up (section 7.2), which Update now and `ri update` skip. Then drain new work and in-flight requests, and close idle agent processes (existing).
+1. **Wait and drain.** Wait for the quiet stretch and the heads-up (section 7.2), which Update now and `ri update` skip. While chats, background tasks or questions to a person are running, it only waits: the Home stays open and nothing is hashed, so `ri update --now` can act at any moment. Then drain new work and in-flight requests, and close idle agent processes (existing).
 2. **Stop the server** (existing).
 3. **Snapshot the config folder and the database, every time.**
    - **Why every time.** A release changes stored data at startup even without migrations: `initDatabase` rebuilds search tables and triggers and runs backfills (`src/lib/db/index.ts`), and `migrateIntegrationStorage` converts the connector settings folder (`src/lib/integrations/storage.ts`). So "no new migrations" doesn't mean the old release can read what the new one leaves behind, and only a snapshot makes going back exact.
@@ -416,7 +416,7 @@ No such folders exist on the owner's Mini. A packaged desktop app on another com
 
 All three Homes move once phases A and B (section 12) are on main. Every step names its folder and the launcher's full path, because bare `ri` isn't the launcher until step 5: a login shell finds Ruby's `/usr/bin/ri` first, and an interactive one finds the checkout's copy in `~/Library/pnpm/bin`.
 
-1. **Install from the checkout.** Run `pnpm cli:dev update --from ~/ai-task-manager`. This builds `main` into a release and installs `~/.local/bin/ri`. A build needs 8 GiB free. All three Homes keep running as they are. From here, stop using `personal/ri-homes.sh`: its `pnpm cli:dev start` would now move `~/ri` under the OS by itself, since plain `ri start` keeps a Home running once a release is installed.
+1. **Install from the checkout.** Run `pnpm cli:dev update --from ~/ai-task-manager`. This builds `main` into a release and installs `~/.local/bin/ri`. A build needs 8 GiB free. All three Homes keep running as they are: `ri update` leaves a Home that hasn't moved to a release alone, and says how to move it. From here, stop using `personal/ri-homes.sh`: its `pnpm cli:dev start` would now move `~/ri` under the OS by itself, since plain `ri start` keeps a Home running once a release is installed.
 2. **Move the team Homes first, as a rehearsal.** Run `$HOME/.local/bin/ri start --root ~/ri-team-huffine`. Its unsupervised controller hands off to a supervised one on the new release, using the handoff `installService` already performs, and keeps `https://localhost:42242`. It refuses while work is running there.
 3. **Move the other team.** Run `$HOME/.local/bin/ri start --root ~/ri-ballcoach`, which keeps `https://localhost:62982` the same way.
 4. **Move the personal Home.** It runs detached, started by `personal/ri-homes.sh`. Run `$HOME/.local/bin/ri stop --root ~/ri`, then `$HOME/.local/bin/ri start --root ~/ri`. It keeps `http://localhost:4224` (section 10.3). This ends every chat running under that server, including any agent chat, so it's for the owner to run, not an agent.
@@ -730,6 +730,14 @@ A sixth pass, focused on the last three commits, confirmed those repairs and fou
 | Finding | Change |
 | --- | --- |
 | A controller started from elsewhere, on a Home whose selection hadn't moved, ran the selected release's server under its own code | Every start compares the selected release with the one the controller was loaded from, whatever moved it, and hands over if they differ |
+
+Rehearsing the order the owner might really take, a restart on the merged code with no release and then the cutover's literal commands, found what no review had, because no test Home had run this way or had work running during an update:
+
+| Finding | Change |
+| --- | --- |
+| Step 1 asked a Home with no release to switch, which it can never do. It waited forever, rehashing the release, and `ri start` refused to move it | `ri update` leaves such a Home alone and says how to move it, and its controller refuses the offer |
+| An update waiting on a running chat rehashed the release every 30 seconds and closed the Home to new work each time, and `ri update --now` usually failed with "Another update action is in progress" | While real work runs it only waits. A release is hashed once per update |
+| One Home refusing stopped `ri update` for the rest, and an idle Home acting on its update was reported as waiting | Each Home reports its own result, and busy doesn't count as waiting |
 
 One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.
 

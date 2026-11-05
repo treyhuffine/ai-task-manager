@@ -39,10 +39,10 @@ it('shows a crash loop with its error and the next try', () => {
 });
 
 it('says what a downloaded update and a planned restart wait for', () => {
-  const busy = { ...running, restartPending: { reason: 'its memory reached 80% of Node\'s limit', waitingFor: '2 executions' },
+  const busy = { ...running, restartPending: { reason: 'its memory reached 80% of Node\'s limit', waitingFor: '2 chats' },
     update: { phase: 'waiting', reason: 'Waiting for 2 chats to finish', release: { version: '0.2.0' } } } as unknown as ServiceStatus;
   const lines = describeHomeStatus(facts({ status: busy }));
-  expect(lines).toContainEqual(['restart', "waiting for 2 executions, then: its memory reached 80% of Node's limit"]);
+  expect(lines).toContainEqual(['restart', "waiting for 2 chats, then: its memory reached 80% of Node's limit"]);
   expect(lines).toContainEqual(['update', 'waiting: Waiting for 2 chats to finish']);
 });
 

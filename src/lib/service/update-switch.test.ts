@@ -8,6 +8,7 @@ import { readActivation } from './activation';
 import { listSnapshots, restoreSnapshot } from './snapshot';
 import { writeRuntimeFixture } from './runtime-fixture';
 import { snapshotsInUse, UpdateCoordinator, type UpdateBackend } from './update';
+import { readMaintenance } from './maintenance';
 
 const mocked = vi.hoisted(() => ({ check: vi.fn(), policy: vi.fn() }));
 vi.mock('./release', () => ({ checkRelease: mocked.check, releasePolicy: mocked.policy, downloadRelease: vi.fn() }));
@@ -246,4 +247,90 @@ it('rolls back on request, listing what it loses, until the snapshot expires', a
   // Nothing left to roll back: the snapshot belonged to the release this Home left.
   expect(coordinator().rollbackStatus().available).toBe(false);
   expect(listSnapshots()).toHaveLength(1);
+});
+
+it('waits for running work with the Home open and nothing hashed, and --now then acts at once', async () => {
+  backend.work = vi.fn(async () => ['1 chat']);
+  backend.verify = vi.fn(async (folder: string) => (await import('./runtime-manifest')).verifyRuntime(folder));
+  backend.prepareIdle = vi.fn(async () => {});
+  const updater = coordinator();
+  await updater.offer(candidate);
+  updater.approve();
+  await updater.tick(); await updater.tick(); await updater.tick();
+  expect(updater.status()).toMatchObject({ phase: 'waiting', approved: true, reason: '1 chat', busy: false });
+  expect(backend.verify).not.toHaveBeenCalled();
+  expect(backend.prepareIdle).not.toHaveBeenCalled();
+  expect(readMaintenance()).toBeNull();
+  // `ri update --now` asks again while it waits, as the waiting message says to.
+  await updater.offer(candidate);
+  updater.approve(undefined, true);
+  await updater.tick();
+  expect(backend.verify).toHaveBeenCalledOnce();
+  expect(backend.stop).toHaveBeenCalledOnce();
+  expect(updater.status().phase).toBe('committed');
+  expect(installedRuntime(directory)!.id).toBe(candidate);
+});
+
+it('switches by itself once the running work finishes', async () => {
+  let running = ['1 chat'];
+  backend.work = vi.fn(async () => running);
+  const updater = coordinator();
+  await updater.offer(candidate);
+  updater.approve();
+  await updater.tick();
+  expect(backend.stop).not.toHaveBeenCalled();
+  running = [];
+  await updater.tick();
+  expect(backend.stop).toHaveBeenCalledOnce();
+  expect(installedRuntime(directory)!.id).toBe(candidate);
+});
+
+it('checks a release in full once per update, however many tries the switch takes', async () => {
+  let blocked = ['A connected device runs an older version'];
+  backend.compatibility = vi.fn(async () => blocked);
+  backend.verify = vi.fn(async (folder: string) => (await import('./runtime-manifest')).verifyRuntime(folder));
+  const updater = coordinator();
+  await updater.offer(candidate);
+  updater.approve();
+  await updater.tick(); await updater.tick();
+  expect(updater.status().phase).toBe('waiting');
+  blocked = [];
+  await updater.tick();
+  expect(backend.verify).toHaveBeenCalledOnce();
+  expect(installedRuntime(directory)!.id).toBe(candidate);
+});
+
+it('refuses a release for a Home with none, so it never waits on a switch it can\'t make', async () => {
+  fs.rmSync(path.join(directory, 'active-release'));
+  const updater = coordinator();
+  await expect(updater.offer(candidate)).rejects.toThrow("doesn't run a release yet");
+  expect(updater.status().phase).not.toBe('waiting');
+  expect(updater.status().approved).toBeFalsy();
+});
+
+it('still drains a Home with only idle agent processes, because draining is what closes them', async () => {
+  let idle = ['1 running process (claude)'];
+  backend.work = vi.fn(async () => []);
+  backend.activity = vi.fn(async () => idle);
+  backend.prepareIdle = vi.fn(async () => { idle = []; });
+  const updater = coordinator();
+  await updater.offer(candidate);
+  updater.approve();
+  await updater.tick();
+  expect(backend.prepareIdle).toHaveBeenCalledOnce();
+  expect(installedRuntime(directory)!.id).toBe(candidate);
+});
+
+it('reopens a Home when a process outlives the drain, and waits without hashing again', async () => {
+  backend.work = vi.fn(async () => []);
+  backend.activity = vi.fn(async () => ['1 running process (sleep)']);
+  backend.verify = vi.fn(async (folder: string) => (await import('./runtime-manifest')).verifyRuntime(folder));
+  const updater = coordinator();
+  await updater.offer(candidate);
+  updater.approve();
+  await updater.tick(); await updater.tick();
+  expect(updater.status()).toMatchObject({ phase: 'waiting', reason: '1 running process (sleep)', busy: false });
+  expect(backend.verify).toHaveBeenCalledOnce();
+  expect(readMaintenance()).toBeNull();
+  expect(backend.stop).not.toHaveBeenCalled();
 });

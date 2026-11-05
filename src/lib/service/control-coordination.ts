@@ -28,7 +28,8 @@ export class ServiceControlCoordination {
   }
 
   async handoff(operation: () => Promise<void>) {
-    if (this.reserved || this.updateBusy()) throw new Error('Service management is already in progress');
+    if (this.reserved) throw new Error('Login supervision is already being installed');
+    if (this.updateBusy()) throw new Error('This Home is working on an update. Try again when it finishes.');
     this.reserved = true;
     try {
       await operation();

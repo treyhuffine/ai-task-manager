@@ -22,8 +22,8 @@ function client(identity: Parameters<typeof withHomeIdentity>[0]): HomeClient {
 }
 
 function describeOrigin(origin: Origin) {
-  const source = origin.source === 'checkout' ? `built from ${displayRoot(origin.checkout!)} when you run \`ri update\`` : `published releases on the ${origin.channel} channel`;
-  return `This computer gets Ri from ${source}. Automatic updates are ${origin.auto ? 'on' : 'off'}${origin.source === 'checkout' ? ' (they apply to published releases only)' : ''}.`;
+  const source = origin.source === 'checkout' ? `builds Ri from ${displayRoot(origin.checkout!)} when you run \`ri update\`` : `gets Ri from published releases on the ${origin.channel} channel`;
+  return `This computer ${source}. Automatic updates are ${origin.auto ? 'on' : 'off'}${origin.source === 'checkout' ? ' (they apply to published releases only)' : ''}.`;
 }
 
 async function rollback(options: UpdateOptions) {

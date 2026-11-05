@@ -35,7 +35,7 @@ export interface UpdateRunDeps {
 }
 export interface UpdateRunOptions { now?: boolean; waitMs?: number }
 export type HomeOutcome =
-  | { root: string; result: 'updated' | 'current' | 'not-running' | 'pending' }
+  | { root: string; result: 'updated' | 'current' | 'not-running' | 'pending' | 'not-moved' }
   | { root: string; result: 'waiting'; reason: string }
   | { root: string; result: 'failed' | 'reverted'; reason: string };
 
@@ -80,7 +80,8 @@ async function waitForSwitch(client: HomeClient, before: HomeStatus, id: string,
     if (!status) continue;
     const update = status.update;
     if (status.runId === before.runId) {
-      if (update?.phase === 'waiting' && update.reason) return { result: 'waiting', reason: update.reason };
+      // Busy means it's acting on the update right now, not waiting on anything.
+      if (update?.phase === 'waiting' && update.reason && !update.busy) return { result: 'waiting', reason: update.reason };
       if (update?.phase === 'failed' || update?.phase === 'recovery-required') return { result: 'failed', reason: update.error ?? 'The update failed' };
       continue;
     }
@@ -96,13 +97,18 @@ async function waitForSwitch(client: HomeClient, before: HomeStatus, id: string,
 async function switchHome(home: InstalledHome & { identity: Identity }, target: Target, options: UpdateRunOptions, deps: UpdateRunDeps): Promise<HomeOutcome> {
   const root = home.identity.root;
   const client = deps.client(home.identity);
-  const status = await client.status();
-  if (!status) return { root, result: 'not-running' };
-  if (status.release?.release.build === target.id) return { root, result: 'current' };
-  if (target.local) await client.request('/update', 'POST', 60_000, { action: 'offer', release: target.id, local: target.local });
-  await client.request('/update', 'POST', 3000, { action: options.now ? 'apply-now' : 'apply' });
-  const outcome = await waitForSwitch(client, status, target.id, deps, options.waitMs ?? 10 * 60_000);
-  return typeof outcome === 'string' ? { root, result: outcome } as HomeOutcome : { root, ...outcome };
+  // One Home that can't switch right now doesn't stop the others.
+  try {
+    const status = await client.status();
+    if (!status) return { root, result: 'not-running' };
+    if (status.release?.release.build === target.id) return { root, result: 'current' };
+    if (target.local) await client.request('/update', 'POST', 60_000, { action: 'offer', release: target.id, local: target.local });
+    await client.request('/update', 'POST', 3000, { action: options.now ? 'apply-now' : 'apply' });
+    const outcome = await waitForSwitch(client, status, target.id, deps, options.waitMs ?? 10 * 60_000);
+    return typeof outcome === 'string' ? { root, result: outcome } as HomeOutcome : { root, ...outcome };
+  } catch (error) {
+    return { root, result: 'failed', reason: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /** Ask a Home's controller for the newest published release and download it. */
@@ -126,8 +132,11 @@ async function publishedTarget(home: InstalledHome & { identity: Identity }, dep
 
 export async function runUpdate(options: UpdateRunOptions, deps: UpdateRunDeps): Promise<HomeOutcome[]> {
   const origin = deps.origin();
-  const homes = deps.homes().filter((home): home is InstalledHome & { identity: Identity } => !!home.identity);
-  const outcomes: HomeOutcome[] = [];
+  const known = deps.homes().filter((home): home is InstalledHome & { identity: Identity } => !!home.identity);
+  const homes = known.filter(home => home.active);
+  // A Home still running from a checkout has no release to switch from. `ri
+  // start` moves it, which also keeps its address and copies its database (10.2).
+  const outcomes: HomeOutcome[] = known.filter(home => !home.active).map(home => ({ root: home.identity.root, result: 'not-moved' }));
   if (origin.source === 'checkout') {
     const choice = deps.select(origin.checkout!);
     const short = choice.commit.slice(0, 8);
@@ -141,7 +150,7 @@ export async function runUpdate(options: UpdateRunOptions, deps: UpdateRunDeps):
     }
     const launcher = deps.launcher();
     if (!launcher.installed) deps.say(launcher.reason);
-    if (!homes.length) { deps.say(`Ri ${target.label} is installed. Run \`ri start\` to create your Home.`); return outcomes; }
+    if (!known.length) { deps.say(`Ri ${target.label} is installed. Run \`ri start\` to create your Home, or to keep one that's running by hand running on it.`); return outcomes; }
     for (const home of homes) outcomes.push(await switchHome(home, target, options, deps));
   } else {
     let configured = false;
@@ -162,7 +171,8 @@ export async function runUpdate(options: UpdateRunOptions, deps: UpdateRunDeps):
     else if (outcome.result === 'current') deps.say(`${root}: already up to date.`);
     else if (outcome.result === 'not-running') deps.say(`${root}: not running. It moves to the new release the next time you run \`ri update\` after it starts.`);
     else if (outcome.result === 'pending') deps.say(`${root}: still switching. Check with \`ri status\`.`);
-    else if (outcome.result === 'waiting') deps.say(`${root}: waiting for ${outcome.reason}. It switches when that finishes. To switch now and end them: ri update --now`);
+    else if (outcome.result === 'not-moved') deps.say(`${root}: keeps running as it is. To move it to this version and keep it running: ri start --root ${root}`);
+    else if (outcome.result === 'waiting') deps.say(`${root}: waiting for ${outcome.reason.replace(/^waiting for /i, '')}. It switches when that finishes. To switch now and end them: ri update --now`);
     else if (outcome.result === 'reverted') deps.say(`${root}: ${outcome.reason}`);
     else if (outcome.result === 'failed') deps.say(`${root}: update failed. ${outcome.reason}`);
   }

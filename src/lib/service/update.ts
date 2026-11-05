@@ -37,6 +37,9 @@ export interface UpdateBackend {
   /** The connected device's journal writer lock, held through validation/recovery. */
   exclusiveStorage?(): Promise<() => void>;
   activity(): Promise<string[]>;
+  /** Work that rules out a switch before draining starts. Unlike `activity`, it
+   * leaves out idle agent processes, which only draining can close. */
+  work?(): Promise<string[]>;
   /** Local formats and unresolved work on peers must remain readable. */
   compatibility?(target: RuntimeTarget): Promise<string[]>;
   verify?(resources: string): Promise<{ id: string }>;
@@ -99,6 +102,8 @@ export function snapshotsInUse(record: Pick<UpdateRecord, 'phase' | 'checkpoint'
  * control socket, so there is no second updater or independent DB migrator. */
 export class UpdateCoordinator {
   private busy = false;
+  /** The release already fully checked: once per update, not once per try. */
+  private verified?: string;
   private record: UpdateRecord;
   private readonly file: string;
   constructor(private backend: UpdateBackend, private directory = getRuntimeInstallDir(), private timing = { drain: 15_000, poll: 500, grace: 2000 }) {
@@ -177,6 +182,8 @@ export class UpdateCoordinator {
   async offer(id: string, local: LocalRelease = {}) {
     return this.exclusive(async () => {
       if (transient.has(this.record.phase) || this.record.phase === 'recovery-required') throw new Error('Resolve the current update before offering another release');
+      // It could never switch, and would sit waiting and refuse to be moved.
+      if (!installedRuntime(this.directory)) throw new Error("This Home doesn't run a release yet. `ri start` moves it to one.");
       const target = await this.target(id);
       const version = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ target.repo, 'package.json'), 'utf8')).version as string;
       const reset = { approved: false, force: false, bytes: 0, error: undefined, reason: undefined, committedAt: undefined, checkpoint: undefined, priorId: undefined, window: undefined };
@@ -231,10 +238,22 @@ export class UpdateCoordinator {
     return this.exclusive(async () => {
       if (!this.record.release || !['ready', 'waiting'].includes(this.record.phase)) throw new Error('No verified update is ready');
       if (this.backend.storage === 'worker' && (!this.backend.checkpoint || !this.backend.restore || !this.backend.verifyDatabase || !this.backend.exclusiveStorage)) throw new Error('Connected-device updates require local journal checkpoint, restore, verification and writer lock support');
-      // The one full check of the release, while the Home still serves.
-      const target = await this.target(this.record.release.runtime.id, true);
       const prior = installedRuntime(this.directory);
       if (!prior) throw new Error('Managed updates require a staged installation');
+      // Update now still drains requests and keeps peers compatible. It only
+      // stops waiting for running chats, which the restart then ends.
+      const force = !!this.record.force;
+      // This runs every 30 seconds for as long as a chat takes. Waiting costs
+      // nothing: the Home stays open, nothing is hashed, and a later `--now` is
+      // free to act.
+      if (!force) {
+        const running = await this.backend.work?.() ?? [];
+        if (running.length) { this.save({ phase: 'waiting', reason: running.join(', ') }); return this.status(); }
+      }
+      // The one full check of the release, while the Home still serves.
+      const id = this.record.release.runtime.id;
+      const target = await this.target(id, this.verified !== id);
+      this.verified = id;
       if (!this.record.local) {
         try {
           const eligible = await checkRelease();
@@ -251,9 +270,6 @@ export class UpdateCoordinator {
       if (blocked.length) { this.save({ phase: 'waiting', reason: blocked.join(', ') }); return this.status(); }
       const token = randomBytes(32).toString('hex');
       const gate = { phase: 'draining' as const, token, startedAt: new Date().toISOString() };
-      // Update now still drains requests and keeps peers compatible. It only
-      // stops waiting for running chats, which the restart then ends.
-      const force = !!this.record.force;
       this.save({ phase: 'draining', priorId: prior.id, checkpoint: undefined, error: undefined, committedAt: undefined });
       let activity: (() => void) | undefined;
       let access: (() => void) | undefined;

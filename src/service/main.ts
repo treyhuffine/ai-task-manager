@@ -315,14 +315,18 @@ async function probeBackend() {
     await killBackendTree('The server stopped answering, so it was restarted');
   } finally { probing = false; }
 }
+const count = (total: number, one: string, many = `${one}s`) => total ? `${total} ${total === 1 ? one : many}` : '';
+/** What a Home is really doing. Idle agent processes aren't work: draining closes them. */
+async function homeWork() {
+  if (!next?.pid) return ['Backend is unavailable'];
+  const state = await backendRequest<{ executions: number; background: number; permissions: number }>('/__ri_activity');
+  return [count(state.executions, 'chat'), count(state.background, 'background task'), count(state.permissions, 'pending permission')].filter(Boolean);
+}
 async function activity() {
   if (!servesHome(role)) return worker ? worker.activity() : [];
   if (!next?.pid) return ['Backend is unavailable'];
-  const [state, children] = await Promise.all([
-    backendRequest<{ executions: number; background: number; permissions: number }>('/__ri_activity'), ownedProcesses(next.pid),
-  ]);
-  return [state.executions && `${state.executions} executions`, state.background && `${state.background} background tasks`,
-    state.permissions && `${state.permissions} pending permissions`, children.length && `${children.length} owned processes (${[...new Set(children)].join(', ')})`].filter(Boolean) as string[];
+  const [work, children] = await Promise.all([homeWork(), ownedProcesses(next.pid)]);
+  return children.length ? [...work, `${count(children.length, 'running process', 'running processes')} (${[...new Set(children)].join(', ')})`] : work;
 }
 
 const control = http.createServer(async (request, response) => {
@@ -489,6 +493,7 @@ async function start() {
     if (isProcessAlive(child.pid)) throw new Error('The previous backend process is still alive. Inspect it before restarting.');
   }
   updater = new UpdateCoordinator({ activity,
+    work: async () => servesHome(role) ? homeWork() : [],
     get storage() { return homeStorage() ? 'home' as const : 'worker' as const; },
     exclusiveStorage: async () => (await acquireWorkerLock()).release,
     assertNoLegacyWriters: () => homeStorage() ? assertNoLegacyWriters() : Promise.resolve(assertWorkerStorage()),

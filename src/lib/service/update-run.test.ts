@@ -35,7 +35,7 @@ function controller(behavior: 'switches' | 'busy' | 'reverts' | 'stopped') {
       const action = (body as { action: string }).action;
       if (action === 'offer') update = { format: 1, phase: 'ready', changedAt: '' };
       if (action === 'apply' || action === 'apply-now') {
-        if (behavior === 'busy' && action === 'apply') update = { format: 1, phase: 'waiting', reason: '1 executions', changedAt: '' };
+        if (behavior === 'busy' && action === 'apply') update = { format: 1, phase: 'waiting', reason: '1 chat', changedAt: '' };
         else if (behavior === 'reverts') { runId = 'run-2'; update = { format: 1, phase: 'failed', error: "The update didn't start, so Ri went back to the version it ran before.", changedAt: '' }; }
         else { runId = 'run-2'; build = NEW; update = { format: 1, phase: 'committed', changedAt: '' }; }
       }
@@ -71,7 +71,7 @@ it('says what a busy Home is waiting for, and switches it at once with --now', a
   const personal = home('personal');
   const busy = controller('busy');
   const first = deps([personal], { [personal.identity!.root]: busy.client });
-  expect((await runUpdate({}, first.value))[0]).toMatchObject({ result: 'waiting', reason: '1 executions' });
+  expect((await runUpdate({}, first.value))[0]).toMatchObject({ result: 'waiting', reason: '1 chat' });
   expect(first.said.at(-1)).toContain('ri update --now');
   const now = deps([personal], { [personal.identity!.root]: busy.client });
   expect((await runUpdate({ now: true }, now.value))[0]).toMatchObject({ result: 'updated' });
@@ -96,4 +96,53 @@ it('installs Ri even before there is a Home, and says how to make one', async ()
   const run = deps([], {});
   expect(await runUpdate({}, run.value)).toEqual([]);
   expect(run.said.at(-1)).toContain('ri start');
+});
+
+it('leaves a Home with no release alone and says how to move it, since it could never switch', async () => {
+  const unmoved = { ...home('team'), active: null };
+  const running = home('personal');
+  const team = controller('switches'); const personal = controller('switches');
+  const run = deps([unmoved, running], { [unmoved.identity!.root]: team.client, [running.identity!.root]: personal.client });
+  const outcomes = await runUpdate({}, run.value);
+  expect(outcomes.map(outcome => outcome.result)).toEqual(['not-moved', 'updated']);
+  expect(team.requests).toEqual([]);
+  expect(run.said.join('\n')).toContain(`keeps running as it is. To move it to this version and keep it running: ri start --root ${unmoved.identity!.root}`);
+  expect(run.said.join('\n')).not.toContain('create your Home');
+});
+
+it('does not stop the other Homes when one refuses, and reports it', async () => {
+  const stuck = home('stuck'); const next = home('next');
+  const refusing: HomeClient = { ...controller('switches').client, request: async () => { throw new Error('Another update action is in progress'); } };
+  const moving = controller('switches');
+  const run = deps([stuck, next], { [stuck.identity!.root]: refusing, [next.identity!.root]: moving.client });
+  const outcomes = await runUpdate({}, run.value);
+  expect(outcomes.map(outcome => outcome.result)).toEqual(['failed', 'updated']);
+  expect(run.said.join('\n')).toContain('update failed. Another update action is in progress');
+});
+
+it('keeps watching a Home acting on its update instead of calling it waiting', async () => {
+  const personal = home('personal');
+  let polls = 0;
+  const acting: HomeClient = {
+    status: async () => {
+      polls++;
+      const base = { protocol: 1, phase: 'running', release: { release: { build: polls > 3 ? NEW : OLD, version: '0.1.0', source: 'packaged' } } };
+      return (polls > 3 ? { ...base, runId: 'run-2', update: { format: 1, phase: 'committed', changedAt: '' } }
+        : { ...base, runId: 'run-1', update: { format: 1, phase: 'waiting', reason: 'Waiting for the service to be idle', busy: polls > 1, changedAt: '' } }) as unknown as HomeStatus;
+    },
+    request: async () => ({}) as never,
+  };
+  const run = deps([personal], { [personal.identity!.root]: acting });
+  expect((await runUpdate({}, run.value))[0]).toMatchObject({ result: 'updated' });
+});
+
+it('says what it waits for once, whatever the Home calls it', async () => {
+  const personal = home('personal');
+  const waiting: HomeClient = {
+    status: async () => ({ protocol: 1, runId: 'run-1', phase: 'running', release: { release: { build: OLD, version: '0.1.0', source: 'packaged' } }, update: { format: 1, phase: 'waiting', reason: 'Waiting for the maintenance window (UTC)', changedAt: '' } }) as unknown as HomeStatus,
+    request: async () => ({}) as never,
+  };
+  const run = deps([personal], { [personal.identity!.root]: waiting });
+  await runUpdate({}, run.value);
+  expect(run.said.at(-1)).toContain(': waiting for the maintenance window (UTC). It switches');
 });

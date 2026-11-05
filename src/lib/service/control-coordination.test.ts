@@ -32,7 +32,7 @@ it('reserves before waiting for activity and blocks a second handoff', async () 
   const dispatch = vi.fn();
   await expect(coordination.dispatchUpdate(body(), dispatch)).rejects.toThrow('Login supervision');
   const second = vi.fn(async () => {});
-  await expect(coordination.handoff(second)).rejects.toThrow('already in progress');
+  await expect(coordination.handoff(second)).rejects.toThrow('already being installed');
   expect(second).not.toHaveBeenCalled();
   expect(dispatch).not.toHaveBeenCalled();
   activity.resolve(); await handoff;
@@ -78,7 +78,7 @@ it('lets an update that started first exclude handoff through its existing updat
   const coordination = new ServiceControlCoordination(() => updateBusy);
   await coordination.dispatchUpdate(body('download'), () => { updateBusy = true; });
   const handoff = vi.fn(async () => {});
-  await expect(coordination.handoff(handoff)).rejects.toThrow('already in progress');
+  await expect(coordination.handoff(handoff)).rejects.toThrow('working on an update');
   expect(handoff).not.toHaveBeenCalled();
   expect(coordination.handingOff).toBe(false);
   updateBusy = false;

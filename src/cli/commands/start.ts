@@ -214,14 +214,14 @@ async function superviseHome(opts: StartOptions, service: NonNullable<Awaited<Re
       sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: Date.now, progress: line => s.start(line),
     });
   } catch (error) {
-    s.stop('Not running');
+    s.stop(service ? 'Still running as it was' : 'Not running');
     if (!(error instanceof AddressError)) throw error;
     log.error(error.message);
     process.exitCode = 1;
     return;
   }
   if (result.result !== 'running') {
-    s.stop('Not running');
+    s.stop(service ? 'Still running as it was' : 'Not running');
     log.error(result.result === 'failed' ? result.reason : 'No Ri release is installed on this computer.');
     if (result.result === 'failed') log.info(pc.dim(`The log: \`${APP_SHORT_ID} logs\``));
     process.exitCode = 1;
