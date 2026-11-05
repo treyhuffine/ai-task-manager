@@ -293,6 +293,16 @@ describe('ri start keeps the Home running', () => {
     expect(mocks.log.success).toHaveBeenCalledWith('Ri now keeps this Home running, across restarts too.');
   });
 
+  it('leaves a new team\'s address to the service, instead of a personal Home\'s 4224', async () => {
+    await createTeam();
+    stageAnyRelease();
+    serviceComesUp('https://localhost:42242');
+    await startCommand({ open: false, pair: false });
+    expect(mocks.install).toHaveBeenCalledOnce();
+    expect(readHomeAddress()).toBeNull();
+    expect(mocks.holder).not.toHaveBeenCalled();
+  });
+
   it('only reports a Home it already supervises', async () => {
     stageAnyRelease();
     fs.mkdirSync(path.dirname(supervisionRecord()), { recursive: true });

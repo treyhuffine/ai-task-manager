@@ -11,6 +11,7 @@ import { hasLoginSupervision } from '@/lib/service/supervision-state';
 import { installService } from '@/lib/service/install';
 import { AddressError, keepRunning, portHolder, releaseAvailable } from '@/lib/service/keep-running';
 import { readOrigin } from '@/lib/service/origin';
+import { readAuthConfig } from '@/lib/auth/config-file';
 import { writeDesktopHomeIntent } from '@/lib/service/desktop-role-intent';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import {
@@ -205,7 +206,10 @@ async function superviseHome(opts: StartOptions, service: NonNullable<Awaited<Re
   }
   let result: Awaited<ReturnType<typeof keepRunning>>;
   try {
-    result = await keepRunning({ port: opts.port === undefined ? undefined : Number(opts.port) }, {
+    // A team that never ran in a terminal has no address of its own to keep, and
+    // `http://localhost:4224` is a personal Home's: the service picks one for it.
+    const address = team && opts.port === undefined && !readAuthConfig()?.lastPort ? 'service' as const : 'terminal' as const;
+    result = await keepRunning({ port: opts.port === undefined ? undefined : Number(opts.port), address }, {
       status: serviceStatus, supervised: hasLoginSupervision, install: () => installService(), holder: portHolder,
       sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: Date.now, progress: line => s.start(line),
     });

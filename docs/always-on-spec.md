@@ -717,6 +717,14 @@ A fifth pass reviewed those repairs. Its checks confirmed that the probe, stagin
 | Lock files kept a wholly new config folder alive, so the next conversion refused to start | A folder none of the restored files live in moves aside whole, locks included |
 | An answer to a permission prompt carries this app's own ID, so that chat wasn't marked as cut off | Only a person's message can count as mirrored from a terminal |
 
+Rehearsing the takeovers on throwaway Homes, started exactly as the owner's script starts the real ones, then moved under real launchd, passed: a team running as an unsupervised service kept its address and data, and a detached personal Home stopped cleanly and kept its plain HTTP address. A Home deliberately left one migration behind took its safety copy first, then migrated. Reading the repairs and running these found three more:
+
+| Finding | Change |
+| --- | --- |
+| The selected release was read before recovery, outside its error handling, so a bad pointer file skipped the recovery that could repair it | The read is guarded |
+| Every start after a finished update rewrote its pointers under the store lock, where Homes booting together could time out | A start with nothing to change takes no lock |
+| `ri start` on a team with no saved address gave it `http://localhost:4224`, a personal Home's address | The service picks one for it |
+
 One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.
 
 ## 14. Prior art
