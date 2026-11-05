@@ -39,8 +39,8 @@ Unblocks all area dropdowns across tasks, notes, and stream.
 - [x] **Area badge click** → opens `AreaSelect` dropdown → PATCH `area_id`
 - [x] **Energy pill click** → cycles: deep → light → unset → deep → PATCH `energy`
 - [x] **Effort pill click** → cycles: trivial → small → medium → large → epic → unset → PATCH `effort`
-- [x] **Deadline click** → native date input → PATCH `hard_deadline`
-- [x] **Boomerang click** → date picker popover → PATCH `resurface_after`
+- [x] **Deadline click** → date picker (type a date or pick a day, `TaskDatePicker`) → PATCH `hard_deadline`
+- [x] **Boomerang click** → same date picker → PATCH `resurface_after`
 
 All mutations use `useUpdateTask()` which auto-invalidates the task list cache.
 

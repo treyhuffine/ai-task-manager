@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   toDateOnly,
-  dateInputToStored,
   parseLocalDate,
   startOfLocalDay,
   calendarDaysUntil,
@@ -26,16 +25,6 @@ describe('toDateOnly', () => {
     expect(toDateOnly(null)).toBeNull();
     expect(toDateOnly(undefined)).toBeNull();
     expect(toDateOnly('')).toBeNull();
-  });
-});
-
-describe('dateInputToStored', () => {
-  it('keeps a date-input value as a bare date (never UTC-pins it)', () => {
-    expect(dateInputToStored('2026-08-25')).toBe('2026-08-25');
-  });
-
-  it('maps an empty input to null', () => {
-    expect(dateInputToStored('')).toBeNull();
   });
 });
 

@@ -30,7 +30,8 @@ import { AreaSelect } from '@/components/shared/area-select';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { TaskBadges } from '@/components/tasks/task-badges';
 import { cn } from '@/lib/utils';
-import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
+import { calendarDaysUntil, formatLocalDate, isPastDate } from '@/lib/dates';
+import { TaskDatePicker } from './task-date-field';
 import type { Energy, Effort, TaskAttentionSignals } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import { Tip } from '@/components/ui/tip';
@@ -91,8 +92,8 @@ export function TaskRow({
   const home = useOptionalHomeContext();
   const space = useSpace();
   const [editingDeadline, setEditingDeadline] = useState(false);
-  const [editingBoomerang, setEditingBoomerang] = useState(false);
   const [blockPopoverOpen, setBlockPopoverOpen] = useState(false);
+  const afterMenu = useRef<(() => void) | null>(null);
   const blockInputRef = useRef<HTMLInputElement>(null);
   const isDone = task.status === 'done';
 
@@ -260,66 +261,44 @@ export function TaskRow({
 
           </>}
           {/* Deadline */}
-          {deadline && !editingDeadline && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setEditingDeadline(true); }}
-              className={cn(
-                'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
-                isPastDate(task.hardDeadline)
-                  ? 'text-destructive'
-                  : 'text-muted-foreground',
-              )}
+          {(deadline || editingDeadline) && (
+            <TaskDatePicker
+              label="Deadline"
+              value={task.hardDeadline}
+              open={editingDeadline}
+              onOpenChange={setEditingDeadline}
+              onChange={(date) => onUpdate(task.id, 'hardDeadline', date)}
             >
-              <Clock size={8} /> {deadline}
-            </button>
-          )}
-          {editingDeadline && (
-            <input
-              type="date"
-              autoFocus
-              defaultValue={task.hardDeadline?.split('T')[0] ?? ''}
-              className="text-[10px] bg-card border border-border rounded px-1 py-0.5"
-              onBlur={(e) => {
-                setEditingDeadline(false);
-                const val = e.target.value;
-                onUpdate(task.id, 'hardDeadline', dateInputToStored(val));
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                if (e.key === 'Escape') setEditingDeadline(false);
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
+              <button
+                onClick={(e) => e.stopPropagation()}
+                className={cn(
+                  'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider transition-colors hover:bg-muted',
+                  isPastDate(task.hardDeadline)
+                    ? 'text-destructive'
+                    : 'text-muted-foreground',
+                )}
+              >
+                <Clock size={8} /> {deadline ?? 'Deadline'}
+              </button>
+            </TaskDatePicker>
           )}
 
           {/* Boomerang */}
-          {boomerang && !editingBoomerang && (
-            <Tip label="Click to edit resurface date">
-              <button
-                onClick={(e) => { e.stopPropagation(); setEditingBoomerang(true); }}
-                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold text-muted-foreground/60 uppercase tracking-wider transition-colors hover:bg-muted"
-              >
-                <Timer size={8} /> {boomerang}
-              </button>
-            </Tip>
-          )}
-          {editingBoomerang && (
-            <input
-              type="date"
-              autoFocus
-              defaultValue={task.resurfaceAfter?.split('T')[0] ?? ''}
-              className="text-[10px] bg-card border border-border rounded px-1 py-0.5"
-              onBlur={(e) => {
-                setEditingBoomerang(false);
-                const val = e.target.value;
-                onUpdate(task.id, 'resurfaceAfter', dateInputToStored(val));
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                if (e.key === 'Escape') setEditingBoomerang(false);
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
+          {boomerang && (
+            <TaskDatePicker
+              label="Snooze until"
+              value={task.resurfaceAfter}
+              onChange={(date) => onUpdate(task.id, 'resurfaceAfter', date)}
+            >
+              <Tip label="Click to edit resurface date">
+                <button
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold text-muted-foreground/60 uppercase tracking-wider transition-colors hover:bg-muted"
+                >
+                  <Timer size={8} /> {boomerang}
+                </button>
+              </Tip>
+            </TaskDatePicker>
           )}
 
           {/* Recurrence */}
@@ -388,7 +367,17 @@ export function TaskRow({
               <MoreHorizontal size={14} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuContent align="end" className="w-40"
+            // A choice in the menu reaches the row through React's portal bubbling, and the row opens the task.
+            onClick={(e) => e.stopPropagation()}
+            // A popover waits for the menu to go. A closing menu moves focus, which the popover would take for leaving.
+            onCloseAutoFocus={(e) => {
+              if (!afterMenu.current) return;
+              e.preventDefault();
+              afterMenu.current();
+              afterMenu.current = null;
+            }}
+          >
             {onPickBucket && (
               <>
                 <DropdownMenuSub>
@@ -431,13 +420,13 @@ export function TaskRow({
             )}
             </>}
             {!task.hardDeadline && (
-              <DropdownMenuItem onClick={() => setEditingDeadline(true)} className="text-xs">
+              <DropdownMenuItem onClick={() => { afterMenu.current = () => setEditingDeadline(true); }} className="text-xs">
                 <Clock size={12} className="mr-2" /> Set deadline
               </DropdownMenuItem>
             )}
             {privatePlanning && !task.blockedOn && (
               <DropdownMenuItem
-                onClick={() => setBlockPopoverOpen(true)}
+                onClick={() => { afterMenu.current = () => setBlockPopoverOpen(true); }}
                 className="text-xs"
               >
                 <Lock size={12} className="mr-2" /> Block
