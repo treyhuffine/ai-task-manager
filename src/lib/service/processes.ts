@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { serviceIdentity } from './paths';
@@ -27,8 +28,13 @@ export async function ownedProcessIds(parent: number): Promise<number[]> {
 /** A legacy binary that predates access leases is not safe to migrate under.
  * lsof is required for managed activation on both supported host platforms. */
 export async function assertNoLegacyWriters() {
+  const database = serviceIdentity().database;
+  // A restore moves the database aside for a moment. With no file there,
+  // nothing holds it, and `lsof` would call the missing path an error, leaving
+  // a crash during a restore unable to finish.
+  if (!fs.existsSync(/* turbopackIgnore: true */ database)) return;
   let stdout = '';
-  try { ({ stdout } = await execute('lsof', ['-t', serviceIdentity().database])); }
+  try { ({ stdout } = await execute('lsof', ['-t', database])); }
   catch (error) {
     const result = error as NodeJS.ErrnoException & { stdout?: string; stderr?: string };
     if (Number(result.code) === 1 && !result.stdout && !result.stderr) return;

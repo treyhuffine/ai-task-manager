@@ -526,7 +526,11 @@ async function start() {
   fs.chmodSync(paths.socket, 0o600);
   // Keep the private recovery/status surface alive without a crash loop.
   try { await updater.recover(); }
-  catch (error) { status.phase = 'failed'; status.error = error instanceof Error ? error.message : 'Recovery required'; return; }
+  catch (error) {
+    status.phase = 'failed'; status.error = error instanceof Error ? error.message : 'Recovery required';
+    console.error(`[service] Recovery needs attention: ${status.error}`);
+    return;
+  }
   const installed = installedRuntime();
   // Recovery can select another release. The launcher starts that release's
   // own controller, instead of this one running its server.
