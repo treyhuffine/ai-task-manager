@@ -80,7 +80,7 @@ export function useWaitingChats({ includeAgents }: { includeAgents: boolean }) {
     return workspaces?.find((w) => w.id === id)?.name;
   };
 
-  return { agents, active, inactive, wsName, openSetup };
+  return { agents, active, inactive, loaded: candidates !== undefined && workspaces !== undefined, workspaces, wsName, openSetup };
 }
 
 /** The waiting chats, each naming its agent, the inactive ones behind the fold. */

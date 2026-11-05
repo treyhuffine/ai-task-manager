@@ -669,6 +669,155 @@ it('peeks the Unread chats from its row, and a chat there shows its latest messa
   }
 });
 
+it('narrows Unread to one agent from the flyout, and lets go when that agent has nothing left', async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    // Waiting: Finances' two, Ri's one, and an inactive one of Website's.
+    const setWaiting = (ids: string[]) => page.evaluate((ids) => {
+      const client = (window as unknown as { queryClient: import('@tanstack/react-query').QueryClient }).queryClient;
+      const { sessions } = client.getQueryData<{ sessions: { id: string }[] }>(['sessions', 'rail'])!;
+      client.setQueryData(['sessions', 'needs-review'], ids.map((id) => sessions.find((s) => s.id === id)));
+    }, ids);
+    await setWaiting(['fin-1', 'fin-2', 'ri-2', 'web-3']);
+
+    // A peek shows every agent's chats, and the filter says so.
+    const row = page.getByRole('button', { name: /^Unread/ });
+    await row.hover();
+    const flyout = page.getByRole('dialog', { name: 'Unread' });
+    await flyout.waitFor();
+    const titles = async () => (await flyout.locator('nav [role="button"][tabindex="0"]').allInnerTexts()).map((t) => t.split('\n')[0]);
+    expect(await titles()).toEqual(['Reconcile Amex', 'Import Chase CSV', 'Fix flaky gallery smoke']);
+    const filter = flyout.getByRole('button', { name: 'Show unread chats from one agent' });
+    expect(await filter.innerText()).toBe('All agents');
+    // A closing list is still the top layer, and still has what you typed.
+    const listClosed = () => page.getByPlaceholder('Find an agent…').waitFor({ state: 'hidden' });
+
+    // Its list has only the agents with a chat here, in the rail's order.
+    await filter.click();
+    const options = page.getByRole('option');
+    await options.first().waitFor();
+    expect((await options.allInnerTexts()).map((t) => t.split('\n').at(-1))).toEqual(['All agents', 'Ri', 'Website', 'Finances']);
+    await page.screenshot({ path: '/tmp/ri-rail-unread-filter-list.png', clip: { x: 0, y: 0, width: 640, height: 400 }, animations: 'disabled' });
+
+    // Esc closes the list and leaves the flyout, which pressing inside it held.
+    await page.keyboard.press('Escape');
+    await listClosed();
+    await page.mouse.move(620, 700, { steps: 4 });
+    await page.waitForTimeout(400);
+    expect(await flyout.isVisible()).toBe(true);
+
+    // Picking one narrows the list and its count, not the row's. The rows
+    // stop repeating the agent the filter names.
+    await filter.click();
+    await page.getByRole('option', { name: 'Finances' }).click();
+    const narrowed = flyout.getByRole('button', { name: 'Showing unread chats from Finances. Change agent' });
+    await narrowed.waitFor();
+    await listClosed();
+    expect(await titles()).toEqual(['Reconcile Amex', 'Import Chase CSV']);
+    const header = narrowed.locator('xpath=..');
+    expect((await header.innerText()).replace(/\s+/g, ' ').trim()).toBe('UNREAD 💵 Finances 2');
+    expect(await flyout.locator('nav').innerText()).not.toContain('· Finances');
+    expect((await row.innerText()).replace(/\s+/g, ' ').trim()).toBe('Unread 3');
+    expect(await flyout.locator('nav').innerText()).not.toContain('inactive');
+    await page.screenshot({ path: '/tmp/ri-rail-unread-filtered.png', clip: { x: 0, y: 0, width: 640, height: 400 } });
+
+    // One click outside closes it, even after pressing inside. It outlives
+    // the flyout and the row, since opening a chat closes one and collapsing
+    // the rail remounts the other.
+    await page.mouse.click(620, 700);
+    await flyout.waitFor({ state: 'hidden' });
+    await page.getByRole('tab', { name: 'Recent' }).click();
+    await row.waitFor({ state: 'detached' });
+    await page.getByRole('tab', { name: 'Agents' }).click();
+    await row.click();
+    await narrowed.waitFor();
+    expect(await titles()).toEqual(['Reconcile Amex', 'Import Chase CSV']);
+
+    // Typing finds an agent, and an inactive-only agent's chats wait behind
+    // the fold, as they do with no filter.
+    await narrowed.click();
+    await page.getByPlaceholder('Find an agent…').fill('web');
+    await page.keyboard.press('Enter');
+    await flyout.getByRole('button', { name: 'Showing unread chats from Website. Change agent' }).waitFor();
+    await listClosed();
+    expect(await titles()).toEqual([]);
+    expect(await flyout.locator('nav').innerText()).toContain('1 inactive');
+
+    // Back to everyone's from the list's top.
+    await flyout.getByRole('button', { name: 'Showing unread chats from Website. Change agent' }).click();
+    await page.getByRole('option', { name: 'All agents' }).click();
+    await filter.waitFor();
+    await listClosed();
+    expect(await titles()).toEqual(['Reconcile Amex', 'Import Chase CSV', 'Fix flaky gallery smoke']);
+
+    // That agent's last chat read, the filter lets go, and doesn't come back
+    // on its own when the agent next has one.
+    await filter.click();
+    await page.getByRole('option', { name: 'Finances' }).click();
+    await narrowed.waitFor();
+    await setWaiting(['ri-2', 'web-3']);
+    await filter.waitFor();
+    expect(await titles()).toEqual(['Fix flaky gallery smoke']);
+    await setWaiting(['fin-1', 'ri-2', 'web-3']);
+    await expect.poll(titles).toEqual(['Reconcile Amex', 'Fix flaky gallery smoke']);
+    expect(await filter.innerText()).toBe('All agents');
+
+    // A long name gives way, so the count stays in the flyout.
+    await page.evaluate(() => {
+      const client = (window as unknown as { queryClient: import('@tanstack/react-query').QueryClient }).queryClient;
+      client.setQueryData<{ id: string; name: string }[]>(['workspaces', { status: 'active' }], (list) =>
+        list!.map((w) => (w.id === 'ri' ? { ...w, name: 'Ri, the app and everything it ships with' } : w)));
+    });
+    await filter.click();
+    await page.getByRole('option', { name: /Ri, the app/ }).click();
+    const long = flyout.getByRole('button', { name: /^Showing unread chats from Ri, the app/ });
+    await long.waitFor();
+    const flyoutBox = (await flyout.boundingBox())!;
+    const countBox = (await long.locator('xpath=following-sibling::span').boundingBox())!;
+    expect(countBox.x + countBox.width).toBeLessThanOrEqual(flyoutBox.x + flyoutBox.width);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it("narrows Unread from the collapsed rail's Agents flyout, and stays narrowed when that closes", async () => {
+  const { page, errors } = await open('agentsOnly', 'dark', { rail: 'strip' });
+  try {
+    await page.evaluate(() => {
+      const client = (window as unknown as { queryClient: import('@tanstack/react-query').QueryClient }).queryClient;
+      const { sessions } = client.getQueryData<{ sessions: { id: string }[] }>(['sessions', 'rail'])!;
+      client.setQueryData(['sessions', 'needs-review'], ['fin-1', 'ri-2'].map((id) => sessions.find((s) => s.id === id)));
+    });
+    const openUnread = async () => {
+      await page.getByRole('button', { name: /^Agents/ }).click();
+      await page.getByRole('dialog', { name: 'Agents' }).getByRole('button', { name: /^Unread/ }).click();
+      const flyout = page.getByRole('dialog', { name: 'Unread' });
+      await flyout.waitFor();
+      return flyout;
+    };
+    const flyout = await openUnread();
+    await flyout.getByRole('button', { name: 'Show unread chats from one agent' }).click();
+    await page.getByRole('option', { name: 'Finances' }).click();
+    const narrowed = flyout.getByRole('button', { name: 'Showing unread chats from Finances. Change agent' });
+    await narrowed.waitFor();
+    await page.getByPlaceholder('Find an agent…').waitFor({ state: 'hidden' });
+    const rows = flyout.locator('nav [role="button"][tabindex="0"]');
+    expect((await rows.allInnerTexts()).map((t) => t.split('\n')[0])).toEqual(['Reconcile Amex']);
+    await page.screenshot({ path: '/tmp/ri-rail-unread-filter-strip.png', clip: { x: 0, y: 0, width: 640, height: 400 } });
+
+    // The list unmounts with the Agents flyout. The filter doesn't.
+    await page.mouse.click(630, 700);
+    await page.getByRole('dialog', { name: 'Agents' }).waitFor({ state: 'hidden' });
+    await openUnread();
+    await narrowed.waitFor();
+    expect((await rows.allInnerTexts()).map((t) => t.split('\n')[0])).toEqual(['Reconcile Amex']);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
 it('shows status lines under chat titles in Unread and Recent, and Mark as read dismisses one', async () => {
   const { page, errors } = await open('agentsOnly');
   try {

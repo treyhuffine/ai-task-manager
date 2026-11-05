@@ -241,8 +241,13 @@ export function RailFlyout({
             cancel();
             dispatch({ type: 'press' });
           }}
-          // Portals still bubble through the agent's draggable header.
-          onPointerDown={(e) => e.stopPropagation()}
+          // Portals still bubble through the agent's draggable header, so
+          // React's bubbling stops here. The browser's carries on: Radix resets
+          // "that press was inside" at the document, and without it the next
+          // click outside only clears the flag and the flyout stays.
+          onPointerDown={(e) => {
+            e.isPropagationStopped = () => true;
+          }}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
           className="z-50 flex h-[var(--radix-popper-anchor-height)] w-[256px] flex-col border-r border-border bg-background shadow-xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-left-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"
