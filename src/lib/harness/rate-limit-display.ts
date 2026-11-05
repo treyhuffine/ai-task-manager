@@ -13,6 +13,7 @@
  * "iguana_necktie" credit) shows once it's in use. Extra usage is one line of
  * state, never a percentage bar.
  */
+import type { UserStateRecord } from '@/db/types';
 import type { StoredRateLimitBucket } from './rate-limits';
 
 export interface RateLimitRow {
@@ -35,8 +36,33 @@ export type RateLimitTone = 'normal' | 'warn' | 'critical';
 /** Old cached readings remain inspectable, but cannot keep a warning lit forever. */
 export const RATE_LIMIT_WARNING_MAX_AGE_MS = 10 * 60_000;
 
-/** The most urgent current allowance, never a sum of independent windows. */
-export function rateLimitWarning(buckets: StoredRateLimitBucket[], now = new Date()): RateLimitRow | undefined {
+/** The levels that can highlight Usage, lowest first. Each is on until someone turns it off. */
+export const USAGE_WARNING_THRESHOLDS = [
+  { percent: 50, field: 'usageWarning50', tone: 'normal' },
+  { percent: 80, field: 'usageWarning80', tone: 'warn' },
+  { percent: 90, field: 'usageWarning90', tone: 'critical' },
+] as const;
+
+export type UsageWarningThreshold = (typeof USAGE_WARNING_THRESHOLDS)[number];
+
+export function enabledUsageWarnings(
+  preference?: Partial<Pick<UserStateRecord, UsageWarningThreshold['field']>>,
+): UsageWarningThreshold[] {
+  return USAGE_WARNING_THRESHOLDS.filter((threshold) => preference?.[threshold.field] ?? true);
+}
+
+/**
+ * The most urgent current allowance, never a sum of independent windows. It
+ * appears at the lowest threshold that's on and takes the tone of the highest
+ * one it has reached, so each button changes something whatever the others
+ * say. Confirmed enforcement isn't a level: any threshold being on shows it.
+ */
+export function rateLimitWarning(
+  buckets: StoredRateLimitBucket[],
+  thresholds: readonly UsageWarningThreshold[],
+  now = new Date(),
+): RateLimitRow | undefined {
+  if (!thresholds.length) return undefined;
   // Normalize duplicates before filtering freshness: an old named window
   // must not make its repeated collection look like a separate allowance.
   const fresh = new Set(buckets.filter((bucket) => {
@@ -44,7 +70,10 @@ export function rateLimitWarning(buckets: StoredRateLimitBucket[], now = new Dat
     return Number.isFinite(age) && age < RATE_LIMIT_WARNING_MAX_AGE_MS;
   }).map((bucket) => bucket.id));
   return rateLimitRows(buckets, now)
-    .filter((row) => fresh.has(row.key) && row.tone !== 'normal')
+    .flatMap((row) => {
+      const tone = row.blocked ? 'critical' : thresholds.findLast(({ percent }) => (row.percent ?? 0) >= percent)?.tone;
+      return tone && fresh.has(row.key) ? [{ ...row, tone }] : [];
+    })
     .sort((a, b) => Number(b.blocked) - Number(a.blocked) || (b.percent ?? 0) - (a.percent ?? 0))[0];
 }
 

@@ -45,12 +45,20 @@ beforeEach(() => {
 });
 
 describe('ensureHarnessSettings', () => {
-  it('keeps the usage warning choice nullable and persists explicit choices', () => {
-    expect(q.getUserState()?.usageWarnings).toBeNull();
-    expect(q.updateUserState({ usageWarnings: false })?.usageWarnings).toBe(false);
-    expect(q.getUserState()?.usageWarnings).toBe(false);
-    expect(q.updateUserState({ usageWarnings: true })?.usageWarnings).toBe(true);
-    expect(q.updateUserState({ usageWarnings: null })?.usageWarnings).toBeNull();
+  it('keeps each usage warning threshold nullable and saves it on its own', () => {
+    const state = () => {
+      const row = q.getUserState();
+      return [row?.usageWarning50, row?.usageWarning80, row?.usageWarning90];
+    };
+    expect(state()).toEqual([null, null, null]);
+    q.updateUserState({ usageWarning50: true });
+    expect(state()).toEqual([true, null, null]);
+    q.updateUserState({ usageWarning80: false });
+    expect(state()).toEqual([true, false, null]);
+    q.updateUserState({ usageWarning90: true });
+    expect(state()).toEqual([true, false, true]);
+    q.updateUserState({ usageWarning50: null, usageWarning80: null, usageWarning90: null });
+    expect(state()).toEqual([null, null, null]);
   });
   it('seeds every Claude tier alias, Fable included', () => {
     // The aliases resolve to whatever the installed CLI ships as that tier, so

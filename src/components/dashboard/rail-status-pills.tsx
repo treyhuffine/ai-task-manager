@@ -21,6 +21,8 @@ import { Tip } from '@/components/ui/tip';
 import Link from 'next/link';
 import { ClipboardCheck, ShieldAlert, Maximize2 } from 'lucide-react';
 import type { RailResponse } from '@/lib/api/sessions';
+import { BackgroundTasksPill } from './background-tasks-pill';
+import { StatusPill } from './status-pill';
 
 // The HUD's compact status overview stays visible regardless of rail collapse.
 // Its popovers and Agent Activity share the same rows. A row opens the chat,
@@ -35,12 +37,13 @@ export function RailStatusPills() {
   return (
     <div className="flex items-center gap-1">
       {BUCKET_ORDER.map((bucketId) => (
-        <StatusPill
+        <ActivityStatusPill
           key={bucketId}
           bucketId={bucketId}
           items={buckets[bucketId]}
         />
       ))}
+      <BackgroundTasksPill chats={data?.backgroundChats ?? []} />
       <ReviewAttentionPill reviews={data?.resultReviewAttention ?? []} pendingSessionIds={data?.pendingSessionIds ?? []} />
     </div>
   );
@@ -70,94 +73,39 @@ export function ReviewAttentionPill({ reviews, pendingSessionIds }: { reviews: N
   );
 }
 
-interface StatusPillProps {
+interface ActivityStatusPillProps {
   bucketId: BucketId;
   items: ActivityItem[];
 }
 
-function StatusPill({ bucketId, items }: StatusPillProps) {
-  const [open, setOpen] = useState(false);
+function ActivityStatusPill({ bucketId, items }: ActivityStatusPillProps) {
   const cfg = BUCKET_CONFIG[bucketId];
-  const count = items.length;
-  const empty = count === 0;
-
-  // Empty pill: dim, non-interactive, no popover. Stable position lets
-  // the eye learn the layout so the strip reads as ambient.
-  if (empty) {
-    return (
-      <span
-        aria-label={`${cfg.label}: 0`}
-        className="flex items-center gap-1 px-1.5 h-[18px] rounded text-[10px] opacity-30 select-none"
-      >
-        <span className="flex items-center justify-center [&_svg]:size-[10px]">
-          {cfg.icon}
-        </span>
-        <span className="font-mono font-semibold tabular-nums text-muted-foreground">0</span>
-      </span>
-    );
-  }
-
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Tip label={cfg.label}>
-          <button
-            aria-label={`${cfg.label}: ${count}`}
-            className={cn(
-              'flex items-center gap-1 px-1.5 h-[18px] rounded text-[10px] transition-[filter]',
-              'hover:brightness-110 dark:hover:brightness-125',
-              'data-[state=open]:brightness-110 dark:data-[state=open]:brightness-125',
-              cfg.countBgClass,
-            )}
-          >
-            <span className="flex items-center justify-center [&_svg]:size-[10px]">
-              {cfg.icon}
-            </span>
-            <span className="font-mono font-semibold tabular-nums">{count}</span>
-          </button>
+    <StatusPill
+      {...cfg}
+      count={items.length}
+      action={(close) => (
+        <Tip label={`Show ${cfg.label} in Agent Activity`}>
+          <button type="button" aria-label={`Expand ${cfg.label} in Board`}
+            className="ml-1 inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={() => {
+              close();
+              // Let the popover restore focus before the Board captures its opener.
+              requestAnimationFrame(() => openBoard({ focusBucket: bucketId }));
+            }}><Maximize2 className="size-3" />Board</button>
         </Tip>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        className="w-72 p-0 overflow-hidden"
-      >
-        <div className={cn(
-          'flex items-center gap-1.5 px-3 py-2 border-b border-border/40',
-          cfg.headerBgClass,
-        )}>
-          <span className="flex items-center justify-center">{cfg.icon}</span>
-          <span className={cn(
-            'flex-1 text-[10.5px] font-bold uppercase tracking-[0.12em]',
-            cfg.accentClass,
-          )}>
-            {cfg.label}
-          </span>
-          <span className={cn(
-            'inline-flex items-center justify-center min-w-[18px] h-[16px] px-1.5 rounded-full text-[9.5px] font-bold font-mono tabular-nums',
-            cfg.countBgClass,
-          )}>
-            {count}
-          </span>
-          <Tip label={`Show ${cfg.label} in Agent Activity`}>
-            <button type="button" aria-label={`Expand ${cfg.label} in Board`}
-              className="ml-1 inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => {
-                setOpen(false);
-                // Let the popover restore focus before the Board captures its opener.
-                requestAnimationFrame(() => openBoard({ focusBucket: bucketId }));
-              }}><Maximize2 className="size-3" />Board</button>
-          </Tip>
-        </div>
-        <div className="max-h-72 overflow-y-auto py-1">
+      )}
+    >
+      {(close) => (
+        <>
           {items.map((row) => row.kind === 'agent' ? (
-            <AgentAttentionRow key={row.id} item={row.item} variant="pill" onPick={() => setOpen(false)} />
+            <AgentAttentionRow key={row.id} item={row.item} variant="pill" onPick={close} />
           ) : (
-            <PillSessionRow key={row.id} session={row.session} onPick={() => setOpen(false)} />
+            <PillSessionRow key={row.id} session={row.session} onPick={close} />
           ))}
-        </div>
-      </PopoverContent>
-    </Popover>
+        </>
+      )}
+    </StatusPill>
   );
 }
 

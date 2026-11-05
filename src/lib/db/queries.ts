@@ -10527,6 +10527,36 @@ export function listRailSessions(): RailSessionRow[] {
 }
 
 /**
+ * Labels for the runtime's live background chats. Unlike the rail, this is
+ * keyed by exact chat ids: a sibling chat or a main chat can keep working
+ * after its turn ends. No transcript reads or inactive-work filtering.
+ */
+export function listBackgroundTaskChats(sessionIds: readonly string[]) {
+  if (!sessionIds.length) return [];
+  const rows = getDb().select({
+    id: chatSessions.id,
+    label: chatSessions.label,
+    executionId: chatSessions.executionId,
+    executionLabel: executions.label,
+    workspaceName: workspaces.name,
+    workspaceEmoji: workspaces.emoji,
+    workspaceAttachments: workspaces.attachments,
+    workspaceAreaId: workspaces.areaId,
+  })
+    .from(chatSessions)
+    .leftJoin(executions, eq(chatSessions.executionId, executions.id))
+    .leftJoin(workspaces, eq(chatSessions.workspaceId, workspaces.id))
+    .where(inArray(chatSessions.id, [...sessionIds]))
+    .orderBy(sql`COALESCE(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}) DESC`)
+    .all();
+  return rows.map(row => ({
+    ...row,
+    workspaceAttachments: row.workspaceAttachments ? camelizeKeys(row.workspaceAttachments) : null,
+    location: row.executionId ? executionLocation(row.executionId) : null,
+  }));
+}
+
+/**
  * Active executions for a single workspace — one row per execution, keyed
  * to its primary chat (most-recently-active non-archived chat), execution
  * state flattened on top. This is the workspace tree's source of truth:

@@ -179,8 +179,11 @@ export const userState = sqliteTable('user_state', {
   // (src/lib/onboarding/progress.ts). On the home so every window agrees.
   // Null → never started, or finished before steps were recorded.
   onboarding: text({ mode: 'json' }).$type<OnboardingRecord>(),
-  // NULL follows the product default (on). A preference, never a DB default.
-  usageWarnings: integer({ mode: 'boolean' }),
+  // Which levels highlight Usage in the top bar (docs/subscription-usage.md).
+  // NULL follows the product default (on). Preferences, never DB defaults.
+  usageWarning50: integer({ mode: 'boolean' }),
+  usageWarning80: integer({ mode: 'boolean' }),
+  usageWarning90: integer({ mode: 'boolean' }),
   // Chats end each turn with a status line (docs/chat-status-lines.md). A
   // trial: NULL follows the product default (on), read through
   // `chatStatusLinesEnabled`. Turning it off clears every status.

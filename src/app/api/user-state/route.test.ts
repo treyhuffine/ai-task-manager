@@ -41,16 +41,20 @@ beforeEach(() => {
   updateUserState.mockClear();
 });
 
-describe('subscription usage warning preference', () => {
-  it.each([true, false, null])('saves %s without changing the main chat', async (usageWarnings) => {
-    const res = await patch({ usageWarnings });
+describe('subscription usage warning thresholds', () => {
+  const fields = ['usageWarning50', 'usageWarning80', 'usageWarning90'];
+  const choices = fields.flatMap((field) => [true, false, null].map((value) => [field, value] as const));
+
+  it.each(choices)('saves %s as %s without changing the main chat', async (field, value) => {
+    const res = await patch({ [field]: value });
     expect(res.status).toBe(200);
-    expect(updateUserState).toHaveBeenCalledWith({ usageWarnings });
+    expect(updateUserState).toHaveBeenCalledWith({ [field]: value });
     expect(recycleAppMainChats).not.toHaveBeenCalled();
   });
 
-  it('rejects a non-boolean preference', async () => {
-    expect((await patch({ usageWarnings: 'off' })).status).toBe(400);
+  it('rejects a non-boolean choice and the retired single switch', async () => {
+    expect((await patch({ usageWarning80: 'off' })).status).toBe(400);
+    expect((await patch({ usageWarnings: false })).status).toBe(400);
     expect(updateUserState).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,5 @@
 import { conversationViews } from '@/lib/sessions/view-state';
-import { currentPrivateMainChat, listAgentMainChats, listRailSessions, listWorkResultReviewAttentionSessions, runningTeamChatTurn, isTeamError } from '@/lib/db/queries';
+import { currentPrivateMainChat, listAgentMainChats, listBackgroundTaskChats, listRailSessions, listWorkResultReviewAttentionSessions, runningTeamChatTurn, isTeamError } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 // Read running/pending state via a leaf snapshot module (globalThis-backed)
@@ -8,7 +8,7 @@ import { z as rpcZ } from 'zod/v4';
 // Turbopack dev is extremely slow to compile — it made this route hang on
 // cold compile. The snapshot reads the same live state with no heavy imports.
 import { toRailSessionDTOs } from '@/lib/api/dto/rail-session';
-import { listForSession } from '@/lib/executor/live-state';
+import { listBackgroundTaskIds, listForSession } from '@/lib/executor/live-state';
 import {
   listBackgroundTaskSessions,
   listRunningSessions,
@@ -57,6 +57,10 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, request: Opera
     const pendingSessionIds = listSessionsWithPending().filter(id => !authority || ids.has(id));
     const runningSessionIds = [...new Set([...listRunningSessions().filter(visible), ...(authority ? [...ids].filter(id => runningTeamChatTurn(id)) : [])])];
     const backgroundSessionIds = listBackgroundTaskSessions().filter(visible);
+    const backgroundChats = listBackgroundTaskChats(backgroundSessionIds).map(chat => ({
+      ...chat,
+      taskCount: listBackgroundTaskIds(chat.id).length,
+    }));
     const pending = new Set(pendingSessionIds);
     // Board context uses live requests after the owning Home's visibility checks.
     const sessions = rows.map(session => {
@@ -72,7 +76,7 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, request: Opera
       || (review.status === 'failed' && (review.lastOutcomeEventAt ?? '') > (review.lastViewedAt ?? ''))));
     const home = authority ? null : currentPrivateMainChat();
     const homeChat = home && { id: home.id, lastOutcomeEventAt: home.lastOutcomeEventAt, unreadMarkerAt: home.unreadMarkerAt, lastViewedAt: home.lastViewedAt, turnStatus: home.turnStatus };
-    return reply({ sessions, pendingSessionIds, runningSessionIds, backgroundSessionIds, mainChats, homeChat, resultReviewAttention });
+    return reply({ sessions, pendingSessionIds, runningSessionIds, backgroundSessionIds, backgroundChats, mainChats, homeChat, resultReviewAttention });
   } catch (err) {
     const denied = executionOperationFailure(err);
     if (denied) return denied;

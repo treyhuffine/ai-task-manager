@@ -8,7 +8,7 @@ import { UsageWarningsSetting } from '@/components/settings/usage-warnings-setti
 import { useHarnessRateLimits } from '@/hooks/use-harness-rate-limits';
 import { useUserState } from '@/hooks/use-user-state';
 import {
-  ageLabel, rateLimitRows, rateLimitStatus, rateLimitWarning, RATE_LIMIT_WARNING_MAX_AGE_MS,
+  ageLabel, enabledUsageWarnings, rateLimitRows, rateLimitStatus, rateLimitWarning, RATE_LIMIT_WARNING_MAX_AGE_MS,
   type RateLimitRow, type RateLimitTone,
 } from '@/lib/harness/rate-limit-display';
 import { type HarnessId } from '@/lib/harness/registry';
@@ -16,12 +16,13 @@ import { cn } from '@/lib/utils';
 import { isDarkBrandMark } from '@/components/integrations/integration-logo';
 
 // One control for account usage: inspect all windows, or see each provider's
-// closest-to-full allowance above 80%. Badges use fresh observations only.
+// closest-to-full allowance past a threshold that's on. Badges use fresh
+// observations only.
 export function RateLimitsPill() {
   const [open, setOpen] = useState(false);
   const preference = useUserState();
-  const warningsEnabled = preference.data?.usageWarnings ?? true;
-  const { data, isPending, isError, updating } = useHarnessRateLimits(open || (preference.isSuccess && warningsEnabled));
+  const thresholds = enabledUsageWarnings(preference.data);
+  const { data, isPending, isError, updating } = useHarnessRateLimits(open || (preference.isSuccess && thresholds.length > 0));
   const harnesses = data?.harnesses;
   const [clock, tick] = useState(0);
   // A reset or expired observation clears its badge even between polls.
@@ -36,12 +37,12 @@ export function RateLimitsPill() {
     return () => clearTimeout(timer);
   }, [harnesses, clock]);
 
-  const warnings = warningsEnabled ? (harnesses ?? []).flatMap((entry) => {
-    const row = rateLimitWarning(entry.buckets);
+  const warnings = (harnesses ?? []).flatMap((entry) => {
+    const row = rateLimitWarning(entry.buckets, thresholds);
     return row ? [{ ...entry, row }] : [];
-  }) : [];
+  });
   const label = warnings.length
-    ? `Usage. ${warnings.map(({ name, row }) => `${name}, ${row.label}, ${row.percent === undefined ? '' : `${Math.round(row.percent)} percent, `}${rateLimitStatus(row)}${row.reset ? `, ${row.reset}` : ''}`).join('. ')}`
+    ? `Usage. ${warnings.map(({ name, row }) => [name, row.label, row.percent === undefined ? undefined : `${Math.round(row.percent)} percent`, rateLimitStatus(row), row.reset].filter(Boolean).join(', ')).join('. ')}`
     : 'Usage';
 
   const pinned = useRef(false);
@@ -82,7 +83,7 @@ export function RateLimitsPill() {
             pinned.current = !pinned.current;
             setOpen(pinned.current);
             if (pinned.current && event.detail === 0) {
-              requestAnimationFrame(() => content.current?.querySelector<HTMLButtonElement>('[role="switch"]')?.focus());
+              requestAnimationFrame(() => content.current?.querySelector<HTMLButtonElement>('button[aria-pressed]')?.focus());
             }
           }}
           className={cn(
