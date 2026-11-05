@@ -324,7 +324,7 @@ The steps build on `UpdateCoordinator.apply` today. Each Home's own controller r
 6. **Refresh what the release installs** (section 9).
 7. **Watch the first 10 minutes.** If the new release crash-loops (section 6.2), section 7.6 applies.
 
-A typical update is a drain, a stop, a WAL checkpoint and clone, the check-only start and the real start: seconds of downtime. Measured while building, on a real release: 4.6 seconds from the request to stop to the first page served, and 2.3 seconds for a rollback. That needs the release hashed once per update, in full, while the Home still serves (about a minute for its 170,000 files). The steps while the Home is offline, and the new controller's own startup, check only the manifest and the files a Home starts from (`checkRuntime` in `src/lib/service/runtime-manifest.ts`). Hashing at each of those steps had made the same switch take 118 seconds. If the two starts turn out to cost too much, a later change can merge them into one start that holds back every outside action until the commit. It isn't built unless the measurement calls for it.
+A typical update is a drain, a stop, a WAL checkpoint and clone, the check-only start and the real start: seconds of downtime. Measured while building, on a real release: 4 to 5 seconds from the request to stop to the first page served, and about 2 seconds for a rollback. The first switch onto a release that has never run, on a busy machine, took 19 seconds. That needs the release hashed once per update, in full, while the Home still serves (about a minute for its 170,000 files). The steps while the Home is offline, and the new controller's own startup, check only the manifest and the files a Home starts from (`checkRuntime` in `src/lib/service/runtime-manifest.ts`). Hashing at each of those steps had made the same switch take 118 seconds. If the two starts turn out to cost too much, a later change can merge them into one start that holds back every outside action until the commit. It isn't built unless the measurement calls for it.
 
 ### 7.5 Keeping releases
 
@@ -683,6 +683,13 @@ A fourth pass, 2026-11-05, reviewed the built code against the Mini as it runs t
 | Config restore left files the newer release added | They are moved aside, not deleted (section 7.4) |
 | `ri service --root` chose its release before its Home, and repeating `ri team create` waited six minutes | Fixed |
 | The cutover used bare `ri` and left out a Home | Rewritten for all three, with the launcher's full path (section 10.2) |
+
+Running those repairs on real releases, with crash states written to disk under the real launcher, found two more that the review and the unit tests had missed:
+
+| Finding | Change |
+| --- | --- |
+| The check that nothing holds the database open ran `lsof` on a path that doesn't exist during a restore, so a crash there could never recover by itself | With no file there, nothing holds it. A failed recovery also says why in the service log |
+| A new import from the store reached the snapshot code, whose runtime paths then matched `src/lib/service` in every server trace, and the build's guard stopped it | The clone check has its own module |
 
 One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.
 

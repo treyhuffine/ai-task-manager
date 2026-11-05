@@ -64,4 +64,6 @@ it('fits a Home on one line for the list of everything on this computer', () => 
   expect(summarizeHome(facts({ homeCommit: 'a8eb63982446'.padEnd(40, '0') }))).toBe('running since 3 h ago at http://localhost:4224, main a8eb6398, kept up by the OS');
   const crashing = { ...running, phase: 'restarting', error: 'Port in use', restarts: { ...running.restarts!, nextAttemptAt: undefined } } as unknown as ServiceStatus;
   expect(summarizeHome(facts({ status: crashing, supervised: false }))).toBe('restarting, Port in use, 0.1.0, not kept up');
+  expect(summarizeHome(facts({ status: null, supervised: false }))).toBe('not running, not kept up');
+  expect(summarizeHome(facts({ status: null, stopped: { at: '2026-10-27T18:00:00Z' } }))).toBe('stopped by you 2 days ago, kept up by the OS');
 });

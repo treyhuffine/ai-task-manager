@@ -45,7 +45,9 @@ export function homeIsDown(facts: Pick<HomeStatusFacts, 'status' | 'stopped' | '
 export function summarizeHome(facts: HomeStatusFacts) {
   const lines = describeHomeStatus(facts);
   const pick = (label: string) => lines.find(([name]) => name === label)?.[1];
-  return [pick('state'), pick('error'), pick('version'), facts.supervised ? 'kept up by the OS' : 'not kept up'].filter(Boolean).join(', ');
+  // The first sentence: the full line's advice belongs to `ri status --root`.
+  const state = pick('state')?.split(/\.(?:\s|$)/)[0];
+  return [state, pick('error'), pick('version'), facts.supervised ? 'kept up by the OS' : 'not kept up'].filter(Boolean).join(', ');
 }
 
 /** Label and value pairs, in the order they print. */
