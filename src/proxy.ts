@@ -26,6 +26,7 @@ import { isSessionToken, sessionMayReach, verifySessionToken } from '@/lib/auth/
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { permitsCookieMutation } from '@/lib/auth/request-origin';
 import { localAppsEnabled } from '@/lib/config/features';
+import { issuerFor, mcpChallenge, OAUTH_PUBLIC_PATHS } from '@/lib/oauth/issuer';
 
 export const config = {
   // `/space/*` is a page: the proxy only marks which team it shows (below).
@@ -34,6 +35,19 @@ export const config = {
 
 function unauthorized() {
   return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+}
+
+/**
+ * A refusal from the MCP endpoint says where to sign in (RFC 9728), which is
+ * how ChatGPT, Claude and other clients start Ri's OAuth (docs/mcp-oauth.md).
+ * Elsewhere a refusal stays plain.
+ */
+function refuse(request: NextRequest, presented: boolean) {
+  const response = unauthorized();
+  if (request.nextUrl.pathname === HOME_MCP_PATH) {
+    response.headers.set('WWW-Authenticate', mcpChallenge(issuerFor(request.headers, request.url), presented ? 'invalid_token' : undefined));
+  }
+  return response;
 }
 
 /** Where a worker key may go, and only a worker key (docs/homes-build.md, P2.2). */
@@ -191,6 +205,8 @@ function teamAiTurnProxy(request: NextRequest, token: string) {
 }
 
 export function proxy(request: NextRequest) {
+  // A Buzz bridge authenticates its own connection-scoped bearer in its protocol route.
+  if (/^\/api\/integrations\/conversations\/acp\/[a-f0-9-]{36}$/.test(request.nextUrl.pathname)) return nextWithoutKeyHeaders(request);
   // A team's space in My Ri (docs/homes-spec.md §3.2, P7.1) is a page of its
   // own. Pages aren't authenticated here: its API calls are, through
   // `/api/space/<team>`. The layout learns which team from this header,
@@ -247,6 +263,13 @@ export function proxy(request: NextRequest) {
     return nextWithoutKeyHeaders(request);
   }
 
+  // An app's OAuth token, registration and revocation requests carry their
+  // own credential (a code with its PKCE verifier, the token being revoked)
+  // or need none, like the provider callbacks below (docs/mcp-oauth.md).
+  if (OAUTH_PUBLIC_PATHS.has(request.nextUrl.pathname)) {
+    return nextWithoutKeyHeaders(request);
+  }
+
   // `/api/integrations/callback` is the OAuth redirect target. The provider
   // (Google, etc.) sends the user's browser here with `?code&state`; that
   // navigation cannot carry the app's Bearer token. The handler's own security
@@ -284,7 +307,7 @@ export function proxy(request: NextRequest) {
   }
 
   const token = extractToken(request);
-  if (!token) return unauthorized();
+  if (!token) return refuse(request, false);
 
   // A session on a connected device speaks with a token of its own, which
   // reaches only that session's servers, in its own scope, as that session
@@ -307,11 +330,11 @@ export function proxy(request: NextRequest) {
 
 
   const found = lookupApiToken(token);
-  if (!found) return unauthorized();
+  if (!found) return refuse(request, true);
   const { key, tokenHash } = found;
   // An outside assistant reaches only the content-scoped MCP, never a viewer route.
   if (key.role === 'ai_client') {
-    if (!isPersonalAiClientKey(key)) return unauthorized();
+    if (!isPersonalAiClientKey(key)) return refuse(request, true);
     if (request.nextUrl.pathname !== HOME_MCP_PATH) return forbidden('ai_client', 'This connection can only use Ri’s MCP tools.');
     touchApiKey(key.id, { ip: request.headers.get('x-forwarded-for'), userAgent: request.headers.get('user-agent') });
     const headers = new Headers(request.headers);

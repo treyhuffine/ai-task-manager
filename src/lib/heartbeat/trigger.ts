@@ -5,7 +5,7 @@
  * cadence (`intervalSeconds`), active hours, timezone, harness, model, effort,
  * and result delivery. Nothing else stores heartbeat state. The scheduler
  * fires it like any `every` trigger; the dispatcher wraps its prompt in the
- * ground rules (prompt.ts) and archives quiet check-ins (quiet.ts).
+ * ground rules (prompt.ts), and a finished check-in settles in settle.ts.
  *
  * Seeded off. The user turns it on from Settings > Heartbeat or the deck chip.
  * See docs/heartbeat-spec.md.
@@ -20,6 +20,7 @@ import {
   findActiveRunForTrigger,
   findTriggerByName,
   getChatSession,
+  getRun,
   getTrigger,
   getUserState,
   listRuns,
@@ -27,23 +28,26 @@ import {
 } from '@/lib/db/queries';
 import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 import { isWithinActiveHours } from '@/lib/scheduler/cron';
-import { isSessionUnread } from '@/lib/utils/session-sort';
 import type { RunRecord, TriggerRecord, UpdateTriggerInput } from '@/db/types';
 import {
-  DEFAULT_HEARTBEAT_ACTIVE_HOURS_END,
-  DEFAULT_HEARTBEAT_ACTIVE_HOURS_START,
   DEFAULT_HEARTBEAT_INSTRUCTIONS,
   DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
   HEARTBEAT_FALLBACK_TRIGGER_NAME,
+  HEARTBEAT_HELD_REASON,
+  HEARTBEAT_QUIET_REASON,
+  HEARTBEAT_TOLD_REASON,
   HEARTBEAT_TIMEOUT_SECONDS,
   HEARTBEAT_TRIGGER_DESCRIPTION,
   HEARTBEAT_TRIGGER_NAME,
 } from './constants';
-import { isQuietHeartbeatRun } from './quiet';
+import { checkInNoteFailed } from './handoff';
 import type { HeartbeatCheckIn, HeartbeatConfig, HeartbeatPatch } from './types';
 import { speedForTriggerModel } from '@/lib/triggers/model-speed';
 
 export const HEARTBEAT_TRIGGER_ID = RESERVED_TRIGGER_IDS.heartbeat;
+
+/** How many past check-ins the settings show before History. */
+const RECENT_CHECK_INS = 5;
 
 function serverTimezone(): string {
   try {
@@ -97,8 +101,8 @@ export async function ensureHeartbeatTrigger(): Promise<TriggerRecord | null> {
     kind: 'every',
     intervalSeconds: DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     timezone: defaultTimezone(),
-    activeHoursStart: DEFAULT_HEARTBEAT_ACTIVE_HOURS_START,
-    activeHoursEnd: DEFAULT_HEARTBEAT_ACTIVE_HOURS_END,
+    activeHoursStart: null,
+    activeHoursEnd: null,
     concurrencyPolicy: 'skip_if_running',
     catchUpPolicy: 'skip_missed',
     timeoutSeconds: HEARTBEAT_TIMEOUT_SECONDS,
@@ -165,16 +169,33 @@ export function nextCheckInAt(trigger: TriggerRecord): string | null {
   return null;
 }
 
+/**
+ * A check-in filing a task isn't anyone touching it, so it keeps its place in
+ * "nobody has touched this in 14 days".
+ */
+export function isCheckInFiling(sessionId: string | null | undefined, patch: Record<string, unknown>): boolean {
+  const fields = Object.keys(patch);
+  if (!sessionId || fields.length !== 1 || fields[0] !== 'areaId') return false;
+  const runId = getChatSession(sessionId)?.createdByRunId;
+  return !!runId && getRun(runId)?.triggerId === HEARTBEAT_TRIGGER_ID;
+}
+
+function outcomeOf(run: RunRecord): HeartbeatCheckIn['outcome'] {
+  if (run.statusReason === HEARTBEAT_QUIET_REASON) return 'quiet';
+  if (run.statusReason === HEARTBEAT_TOLD_REASON) return 'told';
+  if (run.statusReason === HEARTBEAT_HELD_REASON) return 'held';
+  return null;
+}
+
 function toCheckIn(run: RunRecord): HeartbeatCheckIn {
-  const chat = run.chatSessionId ? getChatSession(run.chatSessionId) : undefined;
   return {
     runId: run.id,
     at: run.startedAt ?? run.queuedAt,
     completedAt: run.completedAt ?? null,
     status: run.status,
-    quiet: isQuietHeartbeatRun(run),
+    outcome: outcomeOf(run),
+    handOffFailed: checkInNoteFailed(run),
     chatSessionId: run.chatSessionId ?? null,
-    unread: !!chat && chat.status === 'active' && isSessionUnread(chat),
     changedCount: (run.artifactRefs ?? []).length,
     summary: run.summary ?? null,
     errorMessage: run.errorMessage ?? null,
@@ -186,11 +207,11 @@ export async function getHeartbeatConfig(): Promise<HeartbeatConfig> {
   await ensureHeartbeatTrigger();
   const trigger = getHeartbeatTrigger();
   if (!trigger) throw new Error('The heartbeat trigger could not be created');
-  const [last] = listRuns({
+  const recent = listRuns({
     triggerId: trigger.id,
     status: ['completed', 'failed', 'cancelled'],
-    limit: 1,
-  });
+    limit: RECENT_CHECK_INS,
+  }).map(toCheckIn);
   return {
     triggerId: trigger.id,
     enabled: trigger.enabled,
@@ -204,10 +225,10 @@ export async function getHeartbeatConfig(): Promise<HeartbeatConfig> {
     model: trigger.model ?? null,
     effort: trigger.effort ?? null,
     serviceTier: trigger.serviceTier ?? null,
-    deliverResultTo: trigger.deliverResultTo ?? [],
     nextCheckInAt: nextCheckInAt(trigger),
     running: !!findActiveRunForTrigger(trigger.id),
-    lastCheckIn: last ? toCheckIn(last) : null,
+    lastCheckIn: recent[0] ?? null,
+    recentCheckIns: recent,
     disabledReason: trigger.disabledReason ?? null,
     consecutiveFailures: trigger.consecutiveFailures,
   };
@@ -235,7 +256,6 @@ export async function updateHeartbeat(patch: HeartbeatPatch, now: Date = new Dat
   if (patch.model !== undefined) update.model = patch.model;
   if (patch.effort !== undefined) update.effort = patch.effort;
   if (patch.serviceTier !== undefined) update.serviceTier = patch.serviceTier;
-  if (patch.deliverResultTo !== undefined) update.deliverResultTo = patch.deliverResultTo;
   if (patch.enabled !== undefined) update.enabled = patch.enabled;
 
   const turningOn = patch.enabled === true && !current.enabled;

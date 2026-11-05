@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Search, Zap, X } from 'lucide-react';
+import { MessageSquare, Search, X } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useLatestExecutionId } from '@/hooks/use-latest-execution';
 import { HOTKEYS } from '@/constants/commands';
@@ -11,7 +11,9 @@ import { RateLimitsPill } from './rate-limits-pill';
 import { HudDayButton } from '@/components/calendar/hud-day-button';
 import { WorkHudPill } from '@/components/calendar/work/work-hud-pill';
 import { DesktopNavButtons } from '@/components/desktop/desktop-nav-buttons';
+import { ScratchpadButton } from '@/components/scratchpad/scratchpad-host';
 import { Tip } from '@/components/ui/tip';
+import { useOptionalHomeContext } from '@/components/home/home-context';
 import { Kbd } from '@/components/ui/kbd';
 
 // What's happening, from every view: work by status, the way out of (or
@@ -22,7 +24,8 @@ import { Kbd } from '@/components/ui/kbd';
 // Search.
 
 export function TopHud() {
-  const { activeView, goHome, openExecution, setQuickCaptureOpen } = useDashboard();
+  const team = useOptionalHomeContext()?.home.kind === 'team';
+  const { activeView, goHome, openExecution } = useDashboard();
   // The agent, execution, skill and app views all close back to Home.
   const closeLabel =
     activeView.kind === 'execution'
@@ -51,7 +54,7 @@ export function TopHud() {
         <div className="top-hud-row flex h-full items-center gap-4 whitespace-nowrap [&_svg]:shrink-0">
           <div className="flex shrink-0 items-center gap-1">
             <RailStatusPills />
-            <RateLimitsPill />
+            {!team && <RateLimitsPill />}
           </div>
 
           {closeLabel ? (
@@ -88,15 +91,9 @@ export function TopHud() {
 
           <div className="min-w-4 flex-1" aria-hidden />
 
-          <div className="shrink-0">
-            <WorkHudPill />
-          </div>
+          {!team && <div className="shrink-0"><WorkHudPill /></div>}
 
-          <div className="hud-calendar min-w-0">
-            <HudDayButton />
-          </div>
-
-          <BudgetWarningPill />
+          {!team && <><div className="hud-calendar min-w-0"><HudDayButton /></div><BudgetWarningPill /></>}
 
           <div className="flex shrink-0 items-center gap-2">
             <Tip label="Search tasks, notes and commands" shortcut={HOTKEYS.search.label}>
@@ -109,16 +106,7 @@ export function TopHud() {
                 <Search size={14} />
               </button>
             </Tip>
-            <Tip label="Quick capture">
-              <button
-                type="button"
-                onClick={() => setQuickCaptureOpen(true)}
-                className="hud-quick-capture p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors"
-                aria-label="Quick capture"
-              >
-                <Zap size={14} />
-              </button>
-            </Tip>
+            {!team && <ScratchpadButton />}
             <CreateMenu />
           </div>
         </div>

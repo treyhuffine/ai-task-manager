@@ -78,7 +78,7 @@ describe('listTree conflict detection', () => {
 
   it('flags an unmerged file as conflict and a cleanly-merged file as added', async () => {
     const ws = await open(dir, baseSha);
-    const entries = await listTree(ws);
+    const { entries } = await listTree(ws);
     const byPath = (p: string) => entries.find((e) => e.path === p);
 
     expect(byPath('shared.txt')?.status).toBe('conflict');
@@ -96,7 +96,7 @@ describe('listTree conflict detection', () => {
     expect(onDisk).not.toContain('<<<<<<<');
     expect(git(dir, 'diff', '--name-only', '--diff-filter=U').trim()).toBe('');
 
-    const entries = await listTree(ws);
+    const { entries } = await listTree(ws);
     const shared = entries.find((e) => e.path === 'shared.txt');
     // Still a change vs base, but no longer a conflict → drops to "Clean".
     expect(shared?.status).toBe('modified');
@@ -125,7 +125,7 @@ describe('listTree conflict detection is git-index driven (matches VS Code)', ()
 
       const ws = await open(dir, baseSha);
       expect(git(dir, 'diff', '--name-only', '--diff-filter=U').trim()).toBe('');
-      const entries = await listTree(ws);
+      const { entries } = await listTree(ws);
       // Modified vs base, but not a conflict — no unmerged index entry.
       expect(entries.find((e) => e.path === 'a.txt')?.status).toBe('modified');
     } finally {

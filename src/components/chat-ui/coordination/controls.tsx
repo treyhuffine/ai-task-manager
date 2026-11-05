@@ -2,21 +2,26 @@
 import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import { Pause, Play, MessagesSquare, ChevronDown } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useCoordinationState, useCoordinationHold, useCoordinationPolicy } from '@/hooks/use-coordination';
+import { useCoordinationState, useCoordinationHold, useCoordinationPolicy, useCoordinationDecision } from '@/hooks/use-coordination';
 import { Tip } from '@/components/ui/tip';
 import { ChatMessageLink } from '@/components/chat-ui/messages/chat-message-link';
 import { useQuery } from '@tanstack/react-query';
 import { trpcClient } from '@/lib/trpc/client';
+import type { RouterOutputs } from '@/lib/trpc/router';
+import { CoordinationApprovalCard } from './approval-card';
 
-/** Quiet until a send is approved and in flight, or the human has paused it. */
+/** Pending approvals stay visible alongside active exchanges and incoming pause. */
 export function CoordinationControls({ sessionId }: { sessionId: string }) {
   const enabled = useChatCapabilities().coordination !== false;
   return enabled ? <AvailableCoordinationControls {...{ sessionId }} /> : null;
 }
 function AvailableCoordinationControls({ sessionId }: { sessionId: string }) {
   const { data } = useCoordinationState(sessionId);
-  if (!data || (!data.heldAt && !data.active.starting && data.active.chatIds.length === 0 && data.pending === 0)) return null;
-  return <div aria-label="Chat collaboration" className="flex min-w-0 items-center justify-between gap-3 rounded-t-xl border-b border-border/60 bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground">
+  if (!data) return null;
+  const active = !!data.heldAt || data.active.starting || data.active.chatIds.length > 0 || data.pending > 0;
+  return <>
+    <PendingCoordinationApprovals sessionId={sessionId} approvals={data.approvals} />
+    {active && <div aria-label="Chat collaboration" className="flex min-w-0 items-center justify-between gap-3 rounded-t-xl border-b border-border/60 bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground">
     <div className="min-w-0 flex-1 space-y-0.5 leading-4">
     {data.heldAt ? <span role="status" className="text-amber-700 dark:text-amber-400">Incoming agent messages paused{data.pending > 0 ? ` · ${data.pending} waiting` : ''}</span>
       : data.active.chatIds.length === 1 ? <ChatMessageLink sessionId={data.active.chatIds[0]} label="Working with" direction="outgoing" compact />
@@ -25,7 +30,21 @@ function AvailableCoordinationControls({ sessionId }: { sessionId: string }) {
     {data.heldAt && data.assignmentsWaiting > 0 && <p>{data.assignmentsWaiting} assignment{data.assignmentsWaiting === 1 ? '' : 's'} waiting</p>}
     </div>
     <IncomingPauseButton sessionId={sessionId} />
-  </div>;
+  </div>}
+  </>;
+}
+
+/** Reads pending deliveries, independently of the loaded transcript page. */
+function PendingCoordinationApprovals({ sessionId, approvals }: {
+  sessionId: string;
+  approvals: RouterOutputs['coordination']['state']['approvals'];
+}) {
+  const decide = useCoordinationDecision(sessionId);
+  if (approvals.length === 0) return null;
+  return <section aria-label="Pending coordination approvals" className="max-h-64 space-y-2 overflow-y-auto border-b border-border/60 bg-amber-500/5 p-3">
+    <p className="text-xs font-medium">{approvals.length === 1 ? 'A send needs your approval' : `${approvals.length} sends need your approval`}</p>
+    {approvals.map(delivery => <CoordinationApprovalCard key={delivery.id} compact delivery={delivery} destinationName={delivery.destinationName} launchOptions={delivery.launchOptions ?? undefined} busy={decide.isPending} onDecide={decision => decide.mutate({ deliveryId: delivery.id, decision })} />)}
+  </section>;
 }
 
 function IncomingPauseButton({ sessionId }: { sessionId: string }) {
@@ -57,7 +76,7 @@ function AvailableCoordinationSettings({ sessionId }: { sessionId: string }) {
     })}
     <p className="text-muted-foreground">Applies to new sends. Approved messages keep their authorization.</p>
     </>}
-    {data.unrestricted && data.approvals.length > 0 && <p className="text-muted-foreground">Earlier sends still await your decision. Open their approval cards to approve or decline.</p>}
+    <PendingCoordinationApprovals sessionId={sessionId} approvals={data.approvals} />
     <div className="border-t pt-2"><IncomingPauseButton sessionId={sessionId} /><p className="mt-1 text-muted-foreground">Pause queues incoming agent messages in this chat. Your messages still run. Work already running continues.</p></div>
   </div>;
 }

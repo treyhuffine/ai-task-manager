@@ -15,6 +15,7 @@ import { TASK_STATUSES } from '@/lib/tasks/lifecycle';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
 import { KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
 import type { OnboardingRecord } from '@/lib/onboarding/progress';
+import type { ChatTurnStatus } from '@/lib/sessions/turn-status';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { ExplicitHarnessSelection } from '@/lib/harness/options';
 
@@ -180,6 +181,23 @@ export const userState = sqliteTable('user_state', {
   onboarding: text({ mode: 'json' }).$type<OnboardingRecord>(),
   // NULL follows the product default (on). A preference, never a DB default.
   usageWarnings: integer({ mode: 'boolean' }),
+  // Chats end each turn with a status line (docs/chat-status-lines.md). A
+  // trial: NULL follows the product default (on), read through
+  // `chatStatusLinesEnabled`. Turning it off clears every status.
+  chatStatusLines: integer({ mode: 'boolean' }),
+});
+
+// ─── Scratchpad ───────────────────────────────────────────────
+
+// The person's own scratchpad: working memory beside every screen
+// (docs/scratchpad.md). One row (id 1) in a personal Home, Markdown as the
+// editor wrote it. Its own table, not a user_state column, because
+// get_user_state and the deck read that row, and nothing reads the
+// scratchpad unless the person asks. `updatedAt` is when it last changed.
+export const scratchpad = sqliteTable('scratchpad', {
+  id: integer().primaryKey(),
+  ...timestamps,
+  body: text().notNull(),
 });
 
 // ─── Harness Settings ─────────────────────────────────────────
@@ -1289,7 +1307,7 @@ export const sharedOperationReceipts = sqliteTable(
     idempotencyKey: text().notNull(),
     // A hash of the request, normalized, without its idempotency key.
     intentHash: text().notNull(),
-    entityType: text({ enum: ['task', 'note'] }).notNull(),
+    entityType: text({ enum: ['task', 'note', 'area'] }).notNull(),
     entityId: text().notNull(),
     // What the tool returned the first time.
     outcome: text({ mode: 'json' }).$type<unknown>().notNull(),
@@ -2153,6 +2171,13 @@ export const chatSessions = sqliteTable(
     lastOutcomeEventAt: text(),
     lastViewedAt: text(),
     unreadMarkerAt: text(),
+    // The status line the chat's agent set at the end of its last turn
+    // (`set_chat_status`, docs/chat-status-lines.md): one line, whether it
+    // waits on the person, their part's size and what it unblocks. Null
+    // until set, cleared when a new message reaches the chat or the person
+    // marks it read. A status that waits on the person keeps the chat unread
+    // after it's been looked at.
+    turnStatus: text({ mode: 'json' }).$type<ChatTurnStatus>(),
 
     // Rail sort key: "when did anything last happen here", human OR agent.
     //
@@ -2693,6 +2718,8 @@ export interface AgentCoordinationPayload {
   humanDirected?: boolean;
   /** Saved app decision, supplied only beside a later human message. */
   contextOnly?: boolean;
+  /** A heartbeat check-in's note for the main agent: it gets its own turn, and the reply is pushed. */
+  checkIn?: { runId: string; at: string };
   launch?: { workspaceId: string; provider?: HarnessId; model?: string; modelVariant?: string | null; effort?: typeof chatSessions.$inferSelect.effort; serviceTier?: string | null; permissionMode?: (typeof PERMISSION_MODES)[number]; taskId?: string; deviceId?: string; label?: string };
 }
 
@@ -2753,6 +2780,67 @@ export const agentCoordinationDeliveries = sqliteTable('agent_coordination_deliv
   uniqueIndex('uniq_agent_coordination_initial').on(table.requestId).where(sql`kind = 'request'`),
   uniqueIndex('uniq_agent_coordination_terminal').on(table.requestId).where(sql`kind IN ('answer', 'failed', 'cancelled')`),
 ]);
+
+// ─── External conversations ───────────────────────────────────
+
+/** A named external agent identity with a fixed Ri destination. Secrets stay in .config. */
+export const conversationConnections = sqliteTable('conversation_connections', {
+  id: text().primaryKey(), ...timestamps,
+  provider: text({ enum: ['slack', 'buzz'] }).notNull(),
+  name: text().notNull(),
+  workspaceId: text().references(() => workspaces.id, { onDelete: 'restrict' }),
+  enabled: integer({ mode: 'boolean' }).notNull(),
+  externalWorkspaceId: text().notNull(),
+  externalAgentId: text().notNull(),
+  channels: text({ mode: 'json' }).$type<string[]>().notNull(),
+  error: text(),
+}, t => [uniqueIndex('uniq_conversation_identity').on(t.provider, t.externalWorkspaceId, t.externalAgentId)]);
+
+/** A self-linked external user, bound to the sign-in that authorized it. */
+export const conversationIdentities = sqliteTable('conversation_identities', {
+  id: text().primaryKey(), ...timestamps,
+  connectionId: text().notNull().references(() => conversationConnections.id, { onDelete: 'cascade' }),
+  apiKeyId: text().notNull().references(() => apiKeys.id, { onDelete: 'cascade' }),
+  memberId: text().references(() => members.id, { onDelete: 'cascade' }),
+  externalUserId: text(),
+  codeHash: text(),
+  expiresAt: text(),
+}, t => [uniqueIndex('uniq_conversation_user').on(t.connectionId, t.externalUserId), uniqueIndex('uniq_conversation_code').on(t.codeHash)]);
+
+export const conversationThreads = sqliteTable('conversation_threads', {
+  id: text().primaryKey(), ...timestamps,
+  connectionId: text().notNull().references(() => conversationConnections.id, { onDelete: 'cascade' }),
+  channelId: text().notNull(),
+  threadId: text().notNull(),
+  sessionId: text().references(() => chatSessions.id, { onDelete: 'set null' }),
+  lastRunId: text(),
+  responseEventId: text(),
+}, t => [uniqueIndex('uniq_conversation_thread').on(t.connectionId, t.channelId, t.threadId), uniqueIndex('uniq_conversation_session').on(t.sessionId), index('idx_conversation_thread_connection').on(t.connectionId)]);
+
+export const conversationInputs = sqliteTable('conversation_inputs', {
+  id: text().primaryKey(), ...timestamps,
+  threadId: text().notNull().references(() => conversationThreads.id, { onDelete: 'cascade' }),
+  identityId: text().notNull().references(() => conversationIdentities.id, { onDelete: 'cascade' }),
+  externalEventId: text().notNull(),
+  content: text().notNull(),
+  kind: text({ enum: ['message', 'stop'] }).notNull(),
+  status: text({ enum: ['queued', 'accepted', 'failed'] }).notNull(),
+  eventId: text().notNull(),
+  error: text(),
+}, t => [uniqueIndex('uniq_conversation_input').on(t.threadId, t.externalEventId), uniqueIndex('uniq_conversation_input_event').on(t.eventId), index('idx_conversation_input_queue').on(t.status, t.createdAt)]);
+
+export const conversationOutputs = sqliteTable('conversation_outputs', {
+  id: text().primaryKey(), ...timestamps,
+  threadId: text().notNull().references(() => conversationThreads.id, { onDelete: 'cascade' }),
+  key: text().notNull(),
+  content: text().notNull(),
+  kind: text({ enum: ['reply', 'question', 'error', 'human'] }).notNull(),
+  status: text({ enum: ['pending', 'sent', 'failed'] }).notNull(),
+  part: integer().notNull().default(0),
+  attempts: integer().notNull().default(0),
+  nextAttemptAt: text(),
+  error: text(),
+}, t => [uniqueIndex('uniq_conversation_output').on(t.threadId, t.key), index('idx_conversation_output_queue').on(t.status, t.nextAttemptAt)]);
 
 // ─── Chat Refs ────────────────────────────────────────────────
 // M:N references from chat sessions (and individual events) to other

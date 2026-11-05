@@ -24,11 +24,19 @@ At 390px and on desktop, verify action bars, menus, close controls and settings 
 
 ## 2. Connect once and browse all work
 
-Sign into the team as the existing member. Choose **Settings → Your access → Connect to My Ri**, then paste the short-lived link into personal **Settings → Teams**. Reconnecting yourself uses this flow, not a new invitation. Verify the member count does not change.
+Sign into the team as the existing member. Choose **Settings → Your account → Connect to My Ri**, or use the sidebar's Connect to My Ri action, then paste the short-lived link into personal **Settings → Teams**. Reconnecting yourself uses this flow, not a new invitation. Verify the member count does not change.
+
+Your account is the first settings section. The sidebar name and avatar open it directly, including the collapsed rail. On a phone, the Team menu includes Your account. A Team shown through personal Ri displays Connected to My Ri and does not offer to connect or sign that Home out again.
+
+For an owner with no reachable address, Connect to My Ri, Sign in on another device and Invite people keep address setup beside the original action. Test a failed Beamd prefix, retry, and a custom HTTPS address. Successful setup or reconnection automatically creates the requested link without switching settings sections. Members see an explanation to ask an owner and receive no host controls or localhost link. In **Team address**, verify Online only after a check reaches the correct Team, Not reachable for an offline or different Team, Check connection and Reconnect Beamd. Failed checks retain the saved address and never change the configured method.
 
 Use the Home selector to open the team. Tasks opens the common task surface with List and Board. Clear Assigned to me and Area filters to see unassigned tasks and work assigned to other members. Assignment determines personal automatic inclusion, not permission to browse.
 
 In personal Tasks, choose **Source → the team** and **All** or **Todo**. This is imported personal work, with a direct Browse all team tasks action. Assigned tasks enter automatically. Add an unassigned task to personal work without changing its assignee, and save a note reference. Repeated add, reconnect and sync must retain one reference. Check freshness, offline/error state and Retry rather than treating a failed refresh as an authoritative empty list.
+
+## Links to team records
+
+From a personal chat, ask an agent to name a team task it found with `target_home_id`. The chip shows the title and team, and clicking opens the team's view in this tab, or a shared copy in place. Repeat for a note and an Area. With the team stopped, the chip says it can't be reached and the screen it opens offers Retry. After disconnecting, a task with no shared copy shows only the team's name and doesn't open. In a shared body, `@` offers only the team's records. Ask the agent to link a private task from a team body: it's refused and nothing reaches the team. `docs/team-links.md` has every state.
 
 ## 3. Private rank and Area organization
 
@@ -42,7 +50,7 @@ In personal **Settings → Teams → the team**, set an optional whole-team Area
 
 Start a fresh ordinary personal chat. Ask it to discover connected Homes, select the team's stable ID, list members and read five canonical tasks. This uses the existing Teams connection, not a second MCP key. Reads must not import those records.
 
-Using only disposable records, ask it to create an unassigned task and note, read them by canonical ID, edit with the current body revision, assign the task and complete/archive it. Verify AI/member authorship and one result per idempotency key. Retry an acknowledged request and an unknown outcome without making duplicates.
+Using only disposable records, ask it to create an unassigned task and note, read them by canonical ID, edit with the current body revision, assign the task and complete/archive it. Ask it to create a disposable Area, rename it and file the task under it, and to archive the Area, which it must refuse: people do that in the team's settings. Verify AI/member authorship and one result per idempotency key. Retry an acknowledged request and an unknown outcome without making duplicates.
 
 Create the same title in another Home and reuse an ID in an isolated fixture. The explicit destination must control the write. Ambiguous Home names require clarification. Disconnect or revoke the membership, then retry. A failed team operation must never fall back to writing personal data.
 
@@ -72,7 +80,7 @@ Existing restricted chats keep IDs, authors, cursors, links and history. At upgr
 
 An invited person joins once, then opens **Settings → Connect your agent**, expands their agent and uses **Create key** in its steps, its install link or **Copy setup prompt** (docs/external-ai.md). Each key is a separately revocable client of that agent, not another member, and is listed in the agent's item. Store the one-time token where the steps say. Existing `external-ai` settings links continue to resolve.
 
-Read/create/edit/assign/complete/archive disposable shared records through `/api/team/mcp`, using canonical IDs, body revisions and idempotency keys. This works with the team's built-in AI off. Permanent deletion and native team execution are outside the external content allowlist, including for an owner's client.
+Read/create/edit/assign/complete/archive disposable shared records and create/rename a disposable Area through `/api/team/mcp`, using canonical IDs, body revisions and idempotency keys. This works with the team's built-in AI off. Permanent deletion and native team execution are outside the external content allowlist, including for an owner's client.
 
 Revoke one MCP client and verify its next operation fails, while another client and the native Teams connection still work. Removing the membership revokes all its future access. Never put reusable tokens in chat messages.
 

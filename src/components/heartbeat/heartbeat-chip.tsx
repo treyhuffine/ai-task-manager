@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { HeartPulse } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useHeartbeat } from '@/hooks/use-heartbeat';
+import { useOrchestratorName } from '@/hooks/use-user-state';
 import {
   describeHeartbeat,
   heartbeatDeckSignal,
@@ -27,7 +28,6 @@ const KIND_CLASS: Record<HeartbeatDeckSignalKind, string> = {
   setup: 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
   paused: 'border-amber-500/30 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400',
   failed: 'border-destructive/30 text-destructive hover:bg-destructive/10',
-  report: 'border-primary/30 text-primary hover:bg-primary/10',
 };
 
 /** The deck signal for the current heartbeat, or null when it should stay quiet. */
@@ -38,13 +38,14 @@ export function useHeartbeatDeckSignal(): HeartbeatDeckSignal | null {
 
 export function HeartbeatChip() {
   const { data: config } = useHeartbeat();
+  const assistant = useOrchestratorName();
   const [open, setOpen] = useState(false);
   if (!config) return null;
 
   const signal = heartbeatDeckSignal(config);
   if (!signal) return null;
 
-  const { detail } = describeHeartbeat(config);
+  const { detail } = describeHeartbeat(config, new Date(), assistant);
   return (
     <>
       <Tip label={detail}>
@@ -59,9 +60,6 @@ export function HeartbeatChip() {
         >
           <span className="relative flex shrink-0">
             <HeartPulse size={12} />
-            {signal.kind === 'report' && (
-              <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
-            )}
           </span>
           {signal.label}
         </button>

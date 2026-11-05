@@ -6,7 +6,9 @@ import { PowerRail } from '@/components/dashboard/power-rail';
 import { ExecutionView } from '@/components/executions/execution-view';
 import { DashboardAgentView } from '@/components/agents/dashboard-agent-view';
 import { AppsShell } from '@/components/local-apps/apps-shell';
+import { useOptionalHomeContext } from '@/components/home/home-context';
 import { SkillView } from '@/components/skills/skill-view';
+import { MobileAgentsView } from './mobile-agents-view';
 
 /**
  * Tablet layout (768–1024px): the desktop rail, always collapsed, and one
@@ -17,7 +19,8 @@ import { SkillView } from '@/components/skills/skill-view';
  * at a time with a Chat / Tools switch (docs/agents-view-spec.md Phase 9).
  */
 export function TabletLayout() {
-  const { activeView } = useDashboard();
+  const { activeView, mobileTab } = useDashboard();
+  const team = useOptionalHomeContext()?.home.kind === 'team';
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -30,8 +33,8 @@ export function TabletLayout() {
           <DashboardAgentView view={activeView} />
         ) : activeView.kind === 'skill' ? (
           <SkillView skillRef={activeView.ref} />
-        ) : (
-          <ContentPanel panelId="a" />
+        ) : team && mobileTab === 'agents' ? <MobileAgentsView /> : (
+          <ContentPanel panelId="a" mobileTab={team ? mobileTab === 'chat' ? 'chat' : mobileTab === 'notes' ? 'notes' : 'tasks' : undefined} />
         )}
       </div>
     </div>

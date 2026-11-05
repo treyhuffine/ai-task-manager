@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { readPreviewPlace, usePreviewPlace, writePreviewPlace } from '@/lib/client/preview-place';
@@ -58,8 +59,8 @@ export function ArtifactPreviewProvider({ children }: { children: ReactNode }) {
           className="flex h-[90dvh] w-[calc(100%-2rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0 sm:max-w-[min(90vw,1440px)]"
           onCloseAutoFocus={event => {
             event.preventDefault();
-            // The card last shown, after any Previous or Next.
-            if (store.dialogReturn?.isConnected) store.dialogReturn.focus();
+            // The card last shown, after any Previous or Next, or the file's view where it moved beside the chat.
+            store.focusAfterDialog();
           }}
         >
           <div className="min-w-0 shrink-0 border-b border-border px-4 py-3">
@@ -86,9 +87,15 @@ export function useArtifactPreviewStore(): ArtifactPreviewStore {
   return store;
 }
 
-/** Open a preview from `trigger`, the card it came from: beside its chat, or large. */
+/** Open a preview from `trigger`, the card it came from: beside its chat,
+ * with focus in it, or large (where the dialog takes focus). */
 export function useArtifactPreview() {
-  return useArtifactPreviewStore().open;
+  const store = useArtifactPreviewStore();
+  return useCallback((preview: ArtifactPreview, trigger: HTMLElement) => {
+    // The panel draws the file in front now, so focus is in it before the next key.
+    const host = flushSync(() => store.open(preview, trigger));
+    if (host) store.focusBeside(host);
+  }, [store]);
 }
 
 /** A card's ref: registers it as a Previous and Next stop while mounted. */

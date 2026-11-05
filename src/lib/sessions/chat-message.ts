@@ -52,6 +52,32 @@ export function agentMessagePresentation(content: string, senderSessionId: strin
   return { body, originalRequest, label };
 }
 
+/** A returned outcome the person may archive its chat from: an answer, or a failure they decide is done. */
+export interface ReturnedChat {
+  sessionId: string;
+  kind: 'answer' | 'failed';
+}
+
+/**
+ * The chat that returned this outcome, when it's one the person may archive
+ * from where they read it. Only ids the server recorded count: the
+ * coordination metadata, or the authenticated sender of an older message
+ * saved before that metadata existed. Text that looks like a result names
+ * nothing. Blocked updates, cancellations, requests and messages are not
+ * results.
+ */
+export function returnedChatOf(event: { content: string | null; senderSessionId?: string | null; raw?: unknown }): ReturnedChat | null {
+  const metadata = event.raw && typeof event.raw === 'object' ? (event.raw as { agentCoordination?: unknown }).agentCoordination : undefined;
+  if (metadata && typeof metadata === 'object') {
+    const { kind, senderKind, sourceSessionId } = metadata as { kind?: unknown; senderKind?: unknown; sourceSessionId?: unknown };
+    const sessionId = typeof sourceSessionId === 'string' && sourceSessionId ? sourceSessionId : event.senderSessionId;
+    return (kind === 'answer' || kind === 'failed') && senderKind !== 'human' && sessionId ? { sessionId, kind } : null;
+  }
+  if (!event.senderSessionId) return null;
+  const outcome = (event.content ?? '').match(/^\[Ri agent request [^\s]+: (response|failed)\.\]\n/)?.[1];
+  return outcome ? { sessionId: event.senderSessionId, kind: outcome === 'response' ? 'answer' : 'failed' } : null;
+}
+
 export function chatMessagePreview(content: string, senderSessionId: string): string {
   const text = agentMessagePresentation(content, senderSessionId).body.replace(/\s+/g, ' ').trim();
   return text.length > 240 ? `${text.slice(0, 239)}…` : text;

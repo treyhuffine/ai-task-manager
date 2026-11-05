@@ -5,9 +5,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { build } from 'esbuild';
-import { chromium, type Browser, type Page } from 'playwright-core';
+import { chromium, type Browser } from 'playwright-core';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
-import { LAYOUT_OPTIONS } from './options';
 
 let server: http.Server;
 let browser: Browser;
@@ -62,8 +61,7 @@ beforeAll(async () => {
       import {createRoot} from 'react-dom/client';
       import {QueryClient,QueryClientProvider,useQuery} from '@tanstack/react-query';
       import {TooltipProvider} from '@/components/ui/tooltip';
-      import {AppsLayoutReview} from '@/components/local-apps/layout-review';
-      import {AppsReviewRailSlot} from '@/components/local-apps/layout-review/rail-portal';
+      import {AppsLibraryScreen} from '@/components/local-apps/layout-review';
       import {useLocalApps} from '@/components/local-apps/app-hooks';
       import {Toaster} from 'sonner';
       const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
@@ -76,8 +74,8 @@ beforeAll(async () => {
         window.currentQuery=query;
         useEffect(()=>{const pop=()=>setQuery(Object.fromEntries(new URLSearchParams(location.search)));window.addEventListener('popstate',pop);return()=>window.removeEventListener('popstate',pop);},[]);
         const navigate=(route,options)=>{if(!route||route.startsWith('?')){history[options?.replace?'replaceState':'pushState'](null,'',route||'/');setQuery(Object.fromEntries(new URLSearchParams(route)));}else {window.actions.push(['navigate',route]);setDestination(route);}};
-        return <div className="flex h-dvh min-w-0"><aside className="hidden w-56 shrink-0 overflow-y-auto border-r md:block" aria-label="Ri rail"><div className="p-4">Ri</div><AppsReviewRailSlot><div className="p-4">Agents and chats</div></AppsReviewRailSlot></aside><main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {destination?<div><output data-destination>{destination}</output><button onClick={()=>setDestination('')}>Return to Apps</button></div>:<AppsLayoutReview data={data} localEnabled={enabled} localLoading={checking} localError={error} query={query} navigate={navigate}/>}
+        return <div className="flex h-dvh min-w-0"><aside className="hidden w-11 shrink-0 overflow-y-auto border-r md:block" aria-label="Ri rail"><div className="p-2">Ri</div></aside><main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {destination?<div><output data-destination>{destination}</output><button onClick={()=>setDestination('')}>Return to Apps</button></div>:<AppsLibraryScreen data={data} localEnabled={enabled} localLoading={checking || (enabled && !data && !error)} localError={error} query={query} navigate={navigate}/>}
         </main><Toaster/></div>;
       }
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><TooltipProvider><Fixture/></TooltipProvider></QueryClientProvider>);
@@ -129,63 +127,62 @@ beforeAll(async () => {
   browser = await chromium.launch({ executablePath, headless: true });
 }, 60_000);
 afterAll(async () => { await browser?.close(); server?.closeAllConnections(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); });
-async function open(layout = 'discover') {
+async function open(query = '') {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   page.on('pageerror', error => console.error('Review browser error:', error.message));
   page.setDefaultTimeout(8_000);
-  await page.goto(`${base}/?layout=${layout}`);
-  await page.getByRole('button', { name: 'Your library (4)', exact: true }).first().waitFor();
-  await page.getByText('Loading additions…', { exact: true }).waitFor({ state: 'hidden' });
+  await page.addInitScript(() => localStorage.setItem('ri.apps.layout-review.v1', JSON.stringify({ layout: 'rail', pinned: [], recent: [] })));
+  await page.goto(`${base}/${query}`);
+  await page.getByRole('region', { name: 'Your library', exact: true }).waitFor();
+  await page.locator('[data-apps-library][aria-busy="false"]').waitFor();
   return page;
 }
-const choose = (page: Page, layout: string) => page.getByLabel('Apps layout', { exact: true }).selectOption(layout);
-
-it('renders twelve distinct layouts with live host slots, persistent selection and no horizontal overflow', async () => {
-  const page = await open();
+it('shows one grouped library, visible creation buttons and discovery at desktop and phone widths', async () => {
+  const page = await open('?layout=control&filter=Work');
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   try {
-    for (const width of [1440, 390, 320]) {
+    const library = page.getByRole('region', { name: 'Your library', exact: true });
+    expect(await page.getByLabel('Apps layout', { exact: true }).count()).toBe(0);
+    expect(await page.getByRole('button', { name: 'Connect a service', exact: true }).count()).toBe(0);
+    expect(await page.getByRole('button', { name: 'All', exact: true }).getAttribute('aria-pressed')).toBe('true');
+    for (const label of ['Apps', 'Connectors', 'Skills']) await library.getByRole('heading', { name: label, exact: true }).waitFor();
+    await library.getByRole('region', { name: 'Your connectors', exact: true }).getByRole('button', { name: 'Manage connection Company data', exact: true }).waitFor();
+    await library.getByRole('region', { name: 'Your skills', exact: true }).getByRole('button', { name: 'Edit skill Private workflow', exact: true }).waitFor();
+    for (const width of [1440, 900, 390, 320]) {
       await page.setViewportSize({ width, height: 1000 });
-      for (const option of LAYOUT_OPTIONS) {
-        await choose(page, option.id);
-        await page.locator(`[data-apps-layout="${option.id}"]`).waitFor();
-        if (option.id === 'agent') await page.getByLabel('Agent', { exact: true }).waitFor();
-        if (option.id === 'home') { await page.locator('[data-native-deck]').waitFor(); await page.locator('[data-native-chat]').waitFor(); }
-        if (option.id === 'chat') await page.locator('[data-native-chat]').waitFor();
-        if (option.id === 'shelf') await page.locator('[data-native-app]').waitFor();
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${option.id} at ${width}px`).toBe(true);
+      for (const label of ['New app', 'New skill', 'Add MCP server']) expect(await page.getByRole('button', { name: label, exact: true }).isVisible()).toBe(true);
+      const tabs = library.getByRole('tablist', { name: 'Filter your library' });
+      for (const label of ['All', 'Apps', 'Connectors', 'Skills']) {
+        const tab = tabs.getByRole('tab', { name: label, exact: true });
+        expect(await tab.isVisible()).toBe(true);
+        expect(await tab.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
       }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Apps at ${width}px`).toBe(true);
+      if (width === 1440 || width === 390) await page.screenshot({ path: `/tmp/ri-apps-library-filters-${width}.png` });
     }
-    await choose(page, 'split'); await page.reload();
-    await expect.poll(() => page.getByLabel('Apps layout', { exact: true }).inputValue()).toBe('split');
-    await page.goto(base);
-    expect(await page.getByLabel('Apps layout', { exact: true }).inputValue()).toBe('split');
-    await choose(page, 'preview'); await page.goBack();
-    expect(await page.getByLabel('Apps layout', { exact: true }).inputValue()).toBe('split');
+    await page.reload();
+    await page.getByRole('region', { name: 'Your library', exact: true }).waitFor();
+    expect(await page.getByLabel('Apps layout', { exact: true }).count()).toBe(0);
     expect(errors).toEqual([]);
   } finally { await page.close(); }
 }, 90_000);
 
-it('keeps custom MCPs and skills in the complete library, and settings survive switching layouts', async () => {
-  const page = await open('control');
+it('keeps the library beside real settings and persists changes without switching screens', async () => {
+  const page = await open();
   try {
+    const library = page.getByRole('region', { name: 'Your library', exact: true });
+    await library.getByRole('button', { name: 'Manage Company data', exact: true }).click();
     await page.getByRole('switch', { name: 'Allow Ri to use Company data' }).click();
     await expect.poll(() => writes.some(write => write.procedure === 'integrations.mcpServersPatch')).toBe(true);
     expect(writes.find(write => write.procedure === 'integrations.mcpServersPatch')!.input).toMatchObject({ params: { id: 'company' }, body: { enabled: false } });
-    await choose(page, 'discover');
-    await page.getByRole('button', { name: 'Your library (4)', exact: true }).first().click();
-    await page.getByRole('heading', { name: 'Private workflow', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Manage Company data', exact: true }).last().click();
+    await expect.poll(() => library.locator('[data-item="mcp:company"]').innerText()).toContain('Off');
+    await page.reload();
     expect(await page.getByRole('switch', { name: 'Allow Ri to use Company data' }).getAttribute('aria-checked')).toBe('false');
     await page.getByRole('button', { name: 'Close details' }).click();
-    await page.getByRole('button', { name: 'Manage Finances', exact: true }).click();
-    await page.getByRole('switch', { name: 'Keep Finances handy' }).click();
-    await choose(page, 'split'); await choose(page, 'discover');
-    expect(await page.getByRole('region', { name: 'Quick access' }).getByRole('button', { name: 'Finances', exact: true }).count()).toBe(1);
-    await page.getByRole('button', { name: 'Your library (4)', exact: true }).first().click();
-    await page.getByRole('button', { name: 'Manage Finances', exact: true }).click();
-    await page.getByRole('region', { name: 'Finances details' }).getByRole('button', { name: 'Manage', exact: true }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Disable', exact: true }).click();
+    await library.getByRole('button', { name: 'Manage Finances', exact: true }).click();
+    expect(await library.isVisible()).toBe(true);
+    expect(await page.getByRole('dialog').count()).toBe(0);
+    await page.getByRole('region', { name: 'Finances details' }).getByRole('button', { name: 'Disable', exact: true }).click();
     await expect.poll(() => writes.some(write => write.procedure === 'localApps.configure')).toBe(true);
     expect(writes.find(write => write.procedure === 'localApps.configure')!.input).toMatchObject({ id: 'finances', revision: 1, patch: { enabled: false, archived: false } });
   } finally { await page.close(); }
@@ -210,23 +207,197 @@ it('uses the real preview and skill draft flows, and preserves imported frontmat
   } finally { await page.close(); }
 });
 
-it('keeps browsing context through connector setup and opens real apps in tabs', async () => {
+it('keeps browsing context through connector setup and opens apps and skills in their own views', async () => {
   const page = await open();
   try {
     await page.getByRole('searchbox', { name: 'Search additions' }).fill('Linear');
     await page.getByRole('button', { name: 'Connect Linear', exact: true }).click();
     await page.getByRole('heading', { name: 'Linear', exact: true }).waitFor();
+    expect(await page.getByRole('region', { name: 'Your library', exact: true }).isVisible()).toBe(true);
     await page.goBack();
     expect(await page.getByRole('searchbox', { name: 'Search additions' }).inputValue()).toBe('Linear');
     await page.getByRole('button', { name: 'Clear search' }).click();
-    await choose(page, 'tabs');
-    await page.getByRole('navigation', { name: 'Open apps' }).getByRole('button', { name: 'Finances', exact: true }).click();
-    await page.locator('[data-native-app]').waitFor();
-    await page.getByRole('button', { name: 'Close Finances tab' }).click();
-    expect(await page.locator('[data-native-app]').count()).toBe(0);
-    await choose(page, 'agent');
-    await page.getByRole('checkbox', { name: 'Gmail', exact: true }).click();
-    await expect.poll(() => writes.some(write => write.procedure === 'workspaces.update')).toBe(true);
-    expect(writes.find(write => write.procedure === 'workspaces.update')!.input).toMatchObject({ params: { id: 'design' }, body: { integrationScopes: [{ toolkitId: 'gmail' }] } });
+    await page.getByRole('button', { name: 'Open Finances', exact: true }).click();
+    await page.locator('[data-destination]').waitFor();
+    expect(await page.locator('[data-destination]').textContent()).toBe('finances');
+    await page.getByRole('button', { name: 'Return to Apps' }).click();
+    await page.getByRole('button', { name: 'Edit skill Private workflow', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { actions: string[][] }).actions)).toContainEqual(['skill', 'ri:private-workflow']);
+  } finally { await page.close(); }
+});
+
+it('routes each visible creation button to its real workflow', async () => {
+  const page = await open();
+  try {
+    await page.getByRole('button', { name: 'New app', exact: true }).click();
+    await page.locator('[data-destination]').waitFor();
+    expect(writes.find(write => write.procedure === 'localApps.createDraft')!.input).toEqual({ profile: 'react' });
+    expect(await page.locator('[data-destination]').textContent()).toBe('drafts/new-app');
+    await page.getByRole('button', { name: 'Return to Apps' }).click();
+    await page.getByRole('button', { name: 'New skill', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { actions: string[][] }).actions)).toContainEqual(['skill', 'draft:new-skill']);
+    await page.getByRole('region', { name: 'Discover and details', exact: true }).getByRole('button', { name: 'Connectors', exact: true }).click();
+    await page.getByRole('button', { name: 'Connect Linear', exact: true }).waitFor();
+    expect(await page.getByRole('region', { name: 'Your skills', exact: true }).getByRole('button', { name: 'Edit skill Private workflow', exact: true }).isVisible()).toBe(true);
+    await page.getByRole('button', { name: 'Add MCP server', exact: true }).click();
+    await page.getByLabel('Name', { exact: true }).waitFor();
+    expect(await page.getByRole('region', { name: 'Your library', exact: true }).isVisible()).toBe(true);
+  } finally { await page.close(); }
+});
+
+it('shows goal contents and existing additions, with individual setup instead of a bulk install', async () => {
+  const page = await open();
+  try {
+    await page.getByRole('region', { name: 'Goal bundles', exact: true }).getByRole('button', { name: /^Run a small business/ }).click();
+    await page.getByRole('heading', { name: 'Run a small business', exact: true }).waitFor();
+    expect(await page.getByText('1 of 2 in your library', { exact: true }).isVisible()).toBe(true);
+    expect(writes).toEqual([]);
+    await page.getByRole('button', { name: 'Manage connection Google', exact: true }).last().waitFor();
+    await page.getByRole('button', { name: 'Preview skill Proposal writer', exact: true }).click();
+    await expect.poll(() => writes.some(write => write.procedure === 'skills.create')).toBe(true);
+    expect(writes.filter(write => write.procedure === 'skills.create')).toHaveLength(1);
+    expect(writes.some(write => write.procedure.startsWith('integrations.'))).toBe(false);
+    await page.goBack();
+    await page.getByRole('heading', { name: 'Discover', exact: true }).waitFor();
+  } finally { await page.close(); }
+});
+
+it('keeps a large library independently scrollable while discovery stays available', async () => {
+  const list = responses['localApps.list'] as { instances: Array<typeof instance> };
+  list.instances = Array.from({ length: 50 }, (_, index) => ({ ...instance, id: `app-${index}`, slug: `app-${index}`, displayName: `App ${String(index).padStart(2, '0')}` }));
+  const page = await open();
+  try {
+    const library = page.getByRole('region', { name: 'Your library', exact: true });
+    expect(await library.locator('[data-item]').count()).toBe(53);
+    const discover = page.getByRole('heading', { name: 'Discover', exact: true });
+    const before = await discover.boundingBox();
+    await library.getByRole('button', { name: 'Edit skill Private workflow', exact: true }).scrollIntoViewIfNeeded();
+    expect(await discover.boundingBox()).toEqual(before);
+    const libraryBounds = (await library.boundingBox())!;
+    const filtersBounds = (await library.getByRole('tablist', { name: 'Filter your library' }).boundingBox())!;
+    expect(filtersBounds.y).toBeGreaterThanOrEqual(libraryBounds.y);
+    expect(filtersBounds.y + filtersBounds.height).toBeLessThanOrEqual(libraryBounds.y + libraryBounds.height);
+    await library.getByRole('button', { name: 'Open App 49', exact: true }).click();
+    await page.locator('[data-destination]').waitFor();
+    expect(await page.locator('[data-destination]').textContent()).toBe('app-49');
+  } finally { await page.close(); }
+});
+
+it('handles an empty library and recovers a failed source without blocking discovery', async () => {
+  (responses['localApps.list'] as { instances: unknown[] }).instances = [];
+  responses['integrations.connectionsGet'] = { connections: [] };
+  responses['integrations.mcpServersGet'] = { servers: [], approvalSettings: { defaultPolicy: 'writes', override: null } };
+  responses['skills.list'] = undefined;
+  const page = await open();
+  try {
+    await page.getByRole('alert').filter({ hasText: 'Skills could not load' }).waitFor();
+    expect(await page.getByRole('heading', { name: 'Discover', exact: true }).isVisible()).toBe(true);
+    responses['skills.list'] = { skills: [], projects: [] };
+    await page.getByRole('alert').getByRole('button', { name: 'Retry', exact: true }).click();
+    await page.getByRole('alert').waitFor({ state: 'hidden' });
+    for (const label of ['No apps yet.', 'No connectors yet.', 'No skills yet.']) expect(await page.getByText(label, { exact: true }).isVisible()).toBe(true);
+    await page.getByRole('region', { name: 'Discover and details', exact: true }).getByRole('button', { name: 'Connectors', exact: true }).click();
+    await page.getByRole('button', { name: 'Connect Linear', exact: true }).waitFor();
+  } finally { await page.close(); }
+});
+
+it('loads rows and cards in place without moving the header or discovery content', async () => {
+  for (const width of [1440, 390]) {
+    const page = await browser.newPage({ viewport: { width, height: 1000 } });
+    page.setDefaultTimeout(8_000);
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => { release = resolve; });
+    const pending = new Set(['localApps.list', 'localApps.catalog', 'integrations.connectionsGet']);
+    await page.route('**/api/trpc/**', async route => {
+      if (pending.has(new URL(route.request().url()).pathname.slice('/api/trpc/'.length))) await ready;
+      await route.continue();
+    });
+    try {
+      await page.goto(base, { waitUntil: 'domcontentloaded' });
+      const screen = page.locator('[data-apps-library]');
+      await screen.getByRole('status', { name: 'Loading catalog', exact: true }).waitFor();
+      await screen.getByRole('status', { name: 'Loading apps', exact: true }).waitFor();
+      await screen.getByRole('status', { name: 'Loading connectors', exact: true }).waitFor();
+      await screen.getByRole('button', { name: 'Edit skill Private workflow', exact: true }).waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      expect(await screen.getAttribute('aria-busy')).toBe('true');
+      expect(await screen.getByText('No apps yet.', { exact: true }).count()).toBe(0);
+      expect(await screen.getByText('Loading your library…', { exact: true }).count()).toBe(0);
+      const header = screen.locator('header');
+      const discover = screen.getByRole('heading', { name: 'Discover', exact: true });
+      const catalog = screen.getByRole('heading', { name: /^Explore the catalog/ });
+      const before = { header: await header.boundingBox(), discover: await discover.boundingBox(), catalog: await catalog.boundingBox() };
+      release();
+      await page.locator('[data-apps-library][aria-busy="false"]').waitFor();
+      expect(await screen.getByRole('status', { name: 'Loading catalog', exact: true }).count()).toBe(0);
+      expect(await header.boundingBox()).toEqual(before.header);
+      expect((await discover.boundingBox())?.y).toBe(before.discover?.y);
+      expect((await catalog.boundingBox())?.y).toBe(before.catalog?.y);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    } finally { release(); await page.close(); }
+  }
+});
+
+it('shows the entire discovery catalog and filtered results without a Show more action', async () => {
+  const status = responses['integrations.statusGet'] as { providers: Array<{ id: string; displayName: string; method: string; configured: boolean }> };
+  status.providers.push(...Array.from({ length: 28 }, (_, index) => ({ id: `service-${index}`, displayName: `Service ${index}`, method: 'api_key', configured: true })));
+  const page = await open();
+  try {
+    const discover = page.getByRole('region', { name: 'Discover and details', exact: true });
+    expect(await discover.getByRole('article').count()).toBe(34);
+    expect(await discover.getByRole('button', { name: 'Connect Service 27', exact: true }).count()).toBe(1);
+    expect(await discover.getByRole('button', { name: /^Show more/ }).count()).toBe(0);
+    await discover.getByRole('button', { name: 'Connectors', exact: true }).click();
+    expect(await discover.getByRole('article').count()).toBe(30);
+    await page.getByRole('searchbox', { name: 'Search additions' }).fill('Service 27');
+    expect(await discover.getByRole('article').count()).toBe(1);
+    await page.getByRole('button', { name: 'Clear search', exact: true }).click();
+    expect(await discover.getByRole('article').count()).toBe(30);
+    expect(await discover.getByRole('button', { name: /^Show more/ }).count()).toBe(0);
+  } finally { await page.close(); }
+});
+
+it('filters the library independently, including drafts, with keyboard and history support', async () => {
+  (responses['skills.list'] as { skills: unknown[] }).skills.push({ ref: 'draft:working', name: 'Working draft', description: 'A workflow in progress.', hasErrors: false, location: { kind: 'draft' } });
+  const page = await open('?filter=Apps');
+  try {
+    const library = page.getByRole('region', { name: 'Your library', exact: true });
+    const tabs = library.getByRole('tablist', { name: 'Filter your library' });
+    const discover = page.getByRole('region', { name: 'Discover and details', exact: true });
+    const catalogBefore = await discover.getByRole('article').evaluateAll(elements => elements.map(element => element.getAttribute('data-item')));
+    await tabs.getByRole('tab', { name: 'Apps', exact: true }).click();
+    expect(await library.locator('[data-item]').count()).toBe(1);
+    expect(await library.getByRole('button', { name: 'Open Finances', exact: true }).count()).toBe(1);
+    expect(await library.getByRole('region', { name: 'In progress', exact: true }).count()).toBe(0);
+    await tabs.getByRole('tab', { name: 'Connectors', exact: true }).click();
+    expect(await library.locator('[data-item]').count()).toBe(2);
+    expect(await library.getByRole('button', { name: 'Manage connection Company data', exact: true }).count()).toBe(1);
+    await tabs.getByRole('tab', { name: 'Skills', exact: true }).click();
+    expect(await library.locator('[data-item]').count()).toBe(2);
+    expect(await library.getByRole('button', { name: 'Continue setup Working draft', exact: true }).count()).toBe(1);
+    await page.screenshot({ path: '/tmp/ri-apps-library-filters-skills.png', animations: 'disabled' });
+    expect(await discover.getByRole('article').evaluateAll(elements => elements.map(element => element.getAttribute('data-item')))).toEqual(catalogBefore);
+    await page.reload();
+    await page.locator('[data-apps-library][aria-busy="false"]').waitFor();
+    expect(await tabs.getByRole('tab', { name: 'Skills', exact: true }).getAttribute('aria-selected')).toBe('true');
+    await page.goBack();
+    await expect.poll(() => tabs.getByRole('tab', { name: 'Connectors', exact: true }).getAttribute('aria-selected')).toBe('true');
+    await discover.getByRole('button', { name: 'Skills', exact: true }).click();
+    expect(await library.locator('[data-item]').count()).toBe(2);
+    expect(await tabs.getByRole('tab', { name: 'Connectors', exact: true }).getAttribute('aria-selected')).toBe('true');
+    await page.getByRole('searchbox', { name: 'Search additions' }).fill('Company');
+    expect(await library.locator('[data-item]').count()).toBe(1);
+    await page.getByRole('button', { name: 'Clear search', exact: true }).click();
+    expect(await library.locator('[data-item]').count()).toBe(2);
+    await tabs.getByRole('tab', { name: 'Connectors', exact: true }).focus();
+    await page.keyboard.press('Home');
+    await expect.poll(() => tabs.getByRole('tab', { name: 'All', exact: true }).getAttribute('aria-selected')).toBe('true');
+    expect(await library.locator('[data-item]').count()).toBe(5);
+    await page.keyboard.press('End');
+    await expect.poll(() => tabs.getByRole('tab', { name: 'Skills', exact: true }).getAttribute('aria-selected')).toBe('true');
+    expect(await library.locator('[data-item]').count()).toBe(2);
+    await library.getByRole('button', { name: 'Manage Private workflow', exact: true }).click();
+    expect(await tabs.getByRole('tab', { name: 'Skills', exact: true }).getAttribute('aria-selected')).toBe('true');
+    await page.getByRole('region', { name: 'Private workflow details', exact: true }).waitFor();
   } finally { await page.close(); }
 });

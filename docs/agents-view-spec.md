@@ -1,5 +1,7 @@
 # Agents view: spec and task list
 
+> The tab this spec calls Overview reads **Chats** in the UI since 2026-11-03: that's mostly what it holds, and "chat" is the UI's word for an execution. Its id in code, URLs and saved tabs stays `overview`.
+
 **Status:** done 2026-09-22 (Phases 0 to 10). Written 2026-09-22. Follow-ups are in §7.
 **Current follow-up:** shared and agent-specific handoff preferences are implemented through [Handoff and review preferences](work-result-guidance.md). Chats opened from the agent view open beside its main chat (§9, 2026-10-27). The dated phase evidence below remains historical.
 **How to use this doc:** it is the task list. Check a box (`- [x]`) when the work lands on `main`, and append the short commit hash when useful. Keep the "Done when" lines honest: a phase is done when every line under it is true, not when the code compiles. Record surprises inline under the task they affect.
@@ -8,7 +10,7 @@
 
 ## 1. Summary
 
-Ri is becoming agent-forward. In the UI, a workspace is now called an **agent**. Clicking an agent in the rail opens its **agent view**: the agent's main chat on the left and its tools on the right. The agent's main chat **manages that agent's work**. It sees every execution, answers questions about them, steers them, starts new ones, and closes them out.
+Ri is becoming agent-forward. In the UI, a workspace is now called an **agent**. Clicking an agent in the rail opens its **agent view**: the agent's main chat on the left and its tools on the right. The agent's main chat **coordinates that agent's work**. It sees every execution, answers questions about them, steers them, starts new ones, and closes them out, and sends anything that would fill its own context (building, research, wide reading) to an execution.
 
 Along the way we delete the vestigial `agents` table (it only ever stored which engine runs a chat) and use the word **harness** wherever the code means the engine.
 
@@ -24,7 +26,9 @@ Locked during alignment on 2026-09-22.
 2. **An agent is a scope:** where it lives (its folder), what it can use (integrations, browser, reference folders), its purpose, and its instructions. There is **one stable persona** across all agents. No reusable personas.
 3. **Clicking an agent's name opens the agent view.** The chevron folds its execution list.
 4. **Agent view layout:** chat on the left, tools on the right as tabs: **Overview** (default), **Files**, **Terminal**, **Preview**, **Setup**.
+   - **Amended 2026-11-02: the terminal is a drawer across the bottom**, and the tools, header buttons and hotkeys work as an execution's do. The tabs are Overview, Files, Preview and Setup (§10).
 5. **The agent's main chat manages work:** see, answer, steer, start, close out. In a git agent it never edits the checkout. Code changes go through executions so it cannot collide with running worktrees. Agents that are not git repos may act directly.
+   - **Amended 2026-10-31: it is a coordinator.** The line is how much reading or work a job takes, not whether it is code. Research, investigation, debugging, a doc or report, and anything that reads more than a few files or runs more than a couple of minutes start an execution too, so the chat's context, which has to last for days, stays free for coordination and quick lookups. The rule and its reasons are in `docs/orchestrator-harness.md` (Agent main chats).
 6. **One persistent main chat per agent**, resumed when the agent view opens. History and "new chat" sit behind a menu.
 7. **Both the app's main chat and an agent's main chat may message any execution directly.** No chain of command. The execution transcript is the shared record, and every message records who sent it.
 8. **The old `agents` table is deleted.** The engine moves onto chats, triggers and runs as a `harness` column.
@@ -373,6 +377,7 @@ One registry generates both surfaces, so every item lands on both.
 **Layout**
 
 - [x] Two resizable panels with the same primitives as `PanelLayout` (react-resizable-panels): chat on the left (min 360px), tools on the right. The tools panel can collapse so the chat goes full width. Sizes persist.
+  - Since 2026-11-02 the execution view's splits instead (`workbench-layout.tsx`), with open or closed kept per agent (§10).
 - [x] In-panel responsive rules use Tailwind `@container`, not viewport breakpoints.
 - [x] Header:
   - agent icon and name
@@ -380,6 +385,7 @@ One registry generates both surfaces, so every item lands on both.
   - working and needs-you counts
   - a "New execution" button beside the agent's name that opens the launcher seeded with this agent. Beside the name, it reads as this agent's action, and the app-wide CREATE keeps the top-right corner. The right side holds status and the tools toggle.
   - Plus a button that collapses the tools panel. The New execution label drops to its icon in a narrow header (`@container`).
+  - Since 2026-11-02 the execution header's labeled Terminal and Tools toggles take that button's place (§10).
   - Renamed 2026-09-24 from a play icon and "Start work", which read as starting something on the spot. The button opens a composer, and the launcher's own Start button is what commits. It now matches the rail row's plus for the same action.
 
 **Chat panel**
@@ -390,7 +396,7 @@ One registry generates both surfaces, so every item lands on both.
 
 **Tools panel**
 
-- [x] A tab strip with Overview, Files, Terminal, Preview and Setup. The last-used tab persists per agent.
+- [x] A tab strip with Overview, Files, Terminal, Preview and Setup. The last-used tab persists per agent. (Since 2026-11-02 the strip is the execution panel's, and the terminal is a drawer, not a tab, §10.)
   - A file opened from the main chat joins the strip as one more tab, in front until another tab is picked, with × to close it (docs/chat-sessions.md, "Files beside the chat"). Collapsed tools open for it and fold away again when it closes. In one-pane (narrow) mode files open large.
   - A tab stays mounted once visited, so a terminal keeps its scrollback. Inactive tabs are transparent and `inert`, not `visibility: hidden`: the terminal panel sets `visibility: visible` on its active terminal, which painted through the Overview (caught in the light screenshots).
 - [x] **Overview**
@@ -400,10 +406,10 @@ One registry generates both surfaces, so every item lands on both.
   - **Preview:** running or stopped, port, open link.
   - Empty state: "No work yet" plus New execution.
   - Grouping reuses `classifySession` on the rail feed (`use-agent.ts`), so the view and the rail never disagree. Tasks come from a new `GET /api/workspaces/:id/tasks` (open tasks of active executions, `listWorkspaceExecutionTasks`).
-- [x] **Files:** tree and viewer on the agent's folder (Phase 5 routes), read-only at first, editable since 2026-09-26. Reuse the file tree and viewer components by giving them a target (a session or a workspace).
+- [x] **Files:** tree and viewer on the agent's folder (Phase 5 routes), read-only at first, editable since 2026-09-26. Reuse the file tree and viewer components by giving them a target (a session or a workspace). A folder that isn't a git repository can be anything the person chose, so its list comes from a bounded walk: at most 20,000 files, shallowest first, never entering `node_modules` and the like, and the tree says when it stopped early (`src/lib/workspaces/walk-folder.ts`). A failed read says why in the tree, with Try again, instead of loading rows that never end.
   - The target is `FolderSource` (`src/lib/folders/source.ts`) with hooks in `use-folder.ts`. `FileTree`, `FileViewer`, `FileView`, `DiffView`, `MarkdownView`, the terminal panel and instance, and the terminal hooks and API all take it now. A session source keeps its old cache keys. A workspace source was read-only at first: no create, rename, delete or edit. Status flags and Diff compare against HEAD.
   - **Editing landed 2026-09-26.** The read-only rule was about the agent's main chat, which still never writes to its folder. It was never a reason to stop the person, who edits their checkout in any editor anyway, and a plain-folder agent had no other way to edit. The Files tab now edits, creates, renames, deletes and resolves conflicts like an execution's. The agent routes mirror the session ones (`PUT`/`DELETE /api/workspaces/:id/file`, `file/create`, `file/rename`, `file/resolve-conflict`, `dir`) and write by path, so git, plain and detached-HEAD folders all work. An archived agent is read-only (409, and the UI locks). The write hooks moved from `use-execution.ts` to `use-folder.ts` and take a source, and the session write methods moved into `foldersApi`. Tested through the routes against real folders (save, create, rename, delete, bounds, archived, detached HEAD, a real merge conflict staged), and in the browser on dev (git and plain agents).
-- [x] **Terminal:** the terminal panel on the agent's folder (Phase 5 routes).
+- [x] **Terminal:** the terminal panel on the agent's folder (Phase 5 routes). Moved to a drawer across the bottom on 2026-11-02 (§10).
   - **Surprise:** it showed a blank screen, reproduced on a real GPU (Apple M4 through Metal), not just headless. xterm's WebGL renderer only measures its canvas when the terminal resizes. The execution view's bottom panel settles its size after mount, which triggered that by accident. The agent view's tab is full size from the start. Fix in `execution-terminal-instance.tsx`: attach the WebGL renderer on first activation and nudge a resize so it measures itself. Verified at 1x on the GPU in both views. (2x device-scale emulation leaves both blank with the old code too, so that is a test artifact.)
 - [x] **Preview:** the existing preview pane pointed at the workspace preview.
   - Revised by the Phase 5 finding: the agent's execution previews (`GET /api/workspaces/:id/previews`). Pick one to show it in the existing preview pane, with "Restore pinned" calling `preview/restore-set`.
@@ -556,7 +562,7 @@ Found during the work and left open:
 | Shell and navigation | `src/components/dashboard/dashboard.tsx`, `panel-layout.tsx`, `top-hud.tsx`, `src/contexts/dashboard-context.tsx`, `src/types/dashboard.ts`, `src/constants/commands.ts` |
 | Agent main chat | `src/lib/sessions/main-chat.ts`, `src/lib/executor/agent-main-chat.ts`, `src/app/api/workspaces/[id]/chat/*`, `src/hooks/use-main-chat.ts`, `src/components/chat/main-chat-history-menu.tsx`, `sender-chip.tsx`, `src/lib/sessions/sender.ts` |
 | Agent view | `src/components/agents/*`, `src/lib/client/active-view.ts`, `agent-view-tab.ts`, `src/lib/folders/source.ts`, `src/hooks/use-agent.ts`, `use-folder.ts`, `use-terminals.ts`, `src/app/api/workspaces/[id]/{tree,file,terminals,previews}`, `src/lib/terminal/{http,owner}.ts` |
-| Reused view parts | `src/components/chat/harness-chat.tsx`, `src/components/executions/file-tree/`, `viewer/`, `execution-terminal-panel.tsx`, `preview/`, `execution-header.tsx` |
+| Reused view parts | `src/components/chat/harness-chat.tsx`, `src/components/executions/file-tree/`, `viewer/`, `execution-terminal-panel.tsx`, `preview/`, `execution-header.tsx`, and the workbench parts in §10 |
 | Trial preference | `src/lib/client/agent-view-mode.ts` (after the `entity-view-mode.ts` pattern), `src/components/settings/sections/general-section.tsx` |
 | Mobile | `src/components/mobile/mobile-layout.tsx`, `mobile-agents-view.tsx`, `tablet-layout.tsx`, `src/hooks/use-element-width.ts` |
 
@@ -572,8 +578,9 @@ Found during the work and left open:
 
 - **The chat, not the workbench, and not a preview.** It's the same chat column the execution view has (transcript, questions and approvals, background work, composer, review bar), now one component (`execution-chat-column.tsx`), so the conversation behaves the same in both places. A read-only preview would fail the most common reason to click, a chat waiting on you, and permission prompts belong to the person. The workbench stays out: its chat, panel and terminal drawer are three regions, and nesting them in a column beside another chat leaves nothing usable, while it already has a screen of its own one click away.
 - **Full view** in its header opens the workbench. Back returns to the agent with the chat still beside (the URL carries it). A file chip in the chat opens the full view on Files at that file, since the tree and viewer are the workbench's (`requestWorkbenchView` carries the path). Anything that asks the workbench for a tool (the archive dialog's Review asks for Changes) goes to the full view too (`hasWorkbenchView`).
-- **The git chip comes along** in the header, since it's where the work ends up (commit, push, open the PR, merge), and that is often what the main chat reports. Archiving from it puts the chat away instead of going Home.
+- **The git chip comes along** in the header, since it's where the work ends up (commit, push, open the PR, merge), and that is often what the main chat reports. Archiving from it puts the chat away on the click and stays on this agent, whichever agent the chat is in (`leaveChat` in `agent-view.tsx`). So does archiving it from Overview's row.
 - **One chat at a time.** Opening another replaces it. Overview is the list, and the chat is the one you're looking at. When the execution has more than one chat, the header leads with the same All chats list the tab strip has (`ExecutionChatsMenu`). No tab strip, new chat, rename or reorder: that's managing an execution's chats, which is workbench work.
+- **The title renames in place**, as in the full view's header (added 2026-11-03 at Trey's request: renaming meant opening the full view). Click it and it becomes a field holding the title, selected, with the text where it was. Enter or leaving the field saves, Escape cancels. It renames the execution, so the rail, the tab and the full view follow. Both headers share it (`useChatRename` and `ChatTitleInput` in `executions/chat-title-rename.tsx`). A title cut off by the narrow column still shows whole on hover. Renaming one of an execution's chats stays in the full view's tabs. Tested in Chromium by `agents/agent-beside-chat.browser.test.ts`.
 - **A tab in the tools strip**, like a file beside the chat: after the tools and any file, with the chat's title, a dot for working, waiting or background, and an × to put it away. It's in front when it opens. Picking Overview or another tool keeps it as a tab behind, so a look at the list and back is two clicks, and its dot stays live. Overview marks its row. Putting it away shows whatever it came forward over, and its tooltip says the chat keeps going: putting it away never closes or archives anything ("Close chat" means archive elsewhere in the app, so the × doesn't use that wording).
 - **Collapsed tools open for it**, and fold away again once the chat and any file are put away, unless a tool was picked meanwhile (the file rule).
 - **Looking isn't resuming.** An archived chat shows its conversation with Continue, rather than resuming on sight as the full view does, since a link to an old chat is often just a look.
@@ -590,7 +597,7 @@ Found during the work and left open:
 
 **Not done, on purpose:** the agent's main chat inside the full view (the reverse direction), several chats beside at once, prev and next between chats, and a chat beside on the phone.
 
-**The tools box while the tools are closed** (added 2026-10-27 at Trey's request). With the tools panel collapsed, the only sign the tools existed was the panel toggle in the header. Now the execution view's floating box shows over the main chat's right side, with the agent view's own tools: one row per tab in the strip's order (Overview, Files, Terminal, Preview, Setup), then the file and the chat open beside when there are any. A row opens the panel on that tool, by hand, so putting a file or chat away later leaves the panel open. Status is text, as in the execution's box, and only what the view already knows: who needs you or what's working in Overview (the header pill's counts), how many previews are running. It is the execution's box, not a copy: `FloatingToolsBox`, `ToolsRow`, `ToolsMini` and `TOOLS_BOX_CLEARANCE` in `workbench/tools-box.tsx` are shared, the main chat pads clear of the box the same way (the harness chat takes `clearBox`), and it folds into an icon strip below 1060px of chat width. One pane at a time keeps its Chat / Tools switch and shows no box, as the phone's execution view has no box. Code: `src/components/agents/agent-tools-box.tsx`, the tab list `AGENT_TOOL_TABS` in `agent-tools.tsx`.
+**The tools box while the tools are closed** (added 2026-10-27 at Trey's request, its Terminal row changed with §10). With the tools panel collapsed, the only sign the tools existed was the panel toggle in the header. Now the execution view's floating box shows over the main chat's right side, with the agent view's own tools: one row per tab in the strip's order (Overview, Files, Terminal, Preview, Setup), then the file and the chat open beside when there are any. A row opens the panel on that tool, by hand, so putting a file or chat away later leaves the panel open. Status is text, as in the execution's box, and only what the view already knows: who needs you or what's working in Overview (the header pill's counts), how many previews are running. It is the execution's box, not a copy: `FloatingToolsBox`, `ToolsRow`, `ToolsMini` and `TOOLS_BOX_CLEARANCE` in `workbench/tools-box.tsx` are shared, the main chat pads clear of the box the same way (the harness chat takes `clearBox`), and it folds into an icon strip below 1060px of chat width. One pane at a time keeps its Chat / Tools switch and shows no box, as the phone's execution view has no box. Code: `src/components/agents/agent-tools-box.tsx`, the tab list `AGENT_TOOL_TABS` in `agent-tools.tsx`.
 
 | Area | Files |
 |---|---|
@@ -599,3 +606,49 @@ Found during the work and left open:
 | Shared with the execution view | `src/components/executions/execution-chat-column.tsx`, `chat-status.tsx`, `execution-chat-tabs.tsx` (`ExecutionChatsMenu`), `workbench/view-request.ts`, `workbench/tools-box.tsx` (the floating box) |
 | Tools box | `src/components/agents/agent-tools-box.tsx`, `agent-chat-panel.tsx`, `src/components/chat/harness-chat.tsx` (`clearBox`) |
 | Composer focus | `src/components/chat/editor/composer-focus.ts`, `chat-input-editor.tsx`, `src/components/executions/execution-composer.tsx` |
+
+---
+
+## 10. Terminal and tools like a chat's (2026-11-02)
+
+**The ask** (Trey, 2026-11-02): make the agent view's terminal and tools work like an execution's, with the same buttons and hotkeys. The worry was the two pages looking so alike that you can't tell them apart, and Trey judged that acceptable.
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ 🌿 Field Notes  + New chat        2 working   ▭ Terminal ⌃`  ◧ Tools ⌃. │
+│    ~/code/field-notes                                                    │
+├──────────────────────────────────┬───────────────────────────────────────┤
+│ MAIN CHAT              ⋯  New    │ Overview · Files · Preview · Setup ⤢ ✕ │
+│                                  │                                       │
+│ transcript            (box while │   (panel, when open)                  │
+│ composer              tools hide)│                                       │
+├──────────────────────────────────┴───────────────────────────────────────┤
+│ Terminal 1  +                       code/field-notes          ⤢  ⌄       │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Decisions**
+
+- **The terminal is a drawer, not a tab.** It runs across the whole bottom, under the main chat and the tools, resizable and expandable, mounted only while open. Hiding it never kills a shell: they live on the server and reattach with their output. ⌃`, the header's Terminal button and the Terminal row in the closed-tools box all toggle it (the row says "Open below" while it's open).
+- **Why the Terminal tab went:** keeping both would be two ways to the same shells, and a tab hides the terminal whenever you look at Overview or Files, which is often when you want it in view. The execution view moved its terminal out of its panel for the same reason (its "Terminal repositioning" phase). An old `?tab=terminal` link opens the agent on its last tab.
+- **Still the agent's own folder.** For a git agent that's the source checkout, never a worktree, and the drawer's strip names the folder, as the tab's did. The shells stay the agent's, separate from every execution's, and archiving the agent closes them. An archived agent's drawer says it has no terminal.
+- **The tools panel is the execution's panel**, with the agent's own tabs. The strip has underlined tabs whose labels fold to icons below 560px of panel, then a file and a chat beside, then ⤢ to expand (or double-click a tab) and × to close. Expanded, the main chat folds to the same strip with "Bring the chat back". Escape restores an expanded panel, then closes it, and leaves text fields, menus, dialogs and the terminal alone. A hidden panel stays mounted, so a chat beside keeps its draft and a preview its page. Overview, Files, Preview and Setup stay as they were, and so do the file and chat beside (§9).
+- **The header has the same buttons in the same place**: the labeled Terminal and Tools toggles, with shortcut badges that fold away first, then labels. The agent keeps what identifies it: its icon, name and folder line, New chat, and the working and needs-you counts. Those are what tell this page from a chat's, which leads with agent › chat title, the chat's status and the git chip. Nothing that doesn't apply to an agent came along: no git chip, no Run, no chat tabs.
+- **The same hotkeys:** ⌃` terminal, ⌃. tools, ⌘P opens Files and focuses the tree's search, Esc as above. The toggles listen in the capture phase, so a focused terminal or composer can't swallow them.
+- **State per agent**, as an execution's is per execution: tools and terminal open or closed persist (`ri.agent.workbench.<agent>`). Expanded doesn't, as an execution's doesn't. Tools opened only for a file or chat beside are stored as closed, since they close again when it goes. The tools width is one preference for every agent (`ri.agent.workbench.toolsPct`, 58% by default), and the terminal height is one preference with the execution view's drawer, since it's the same drawer. The layout every agent shared before (`ri.agent.layout`) is read once: its tools width becomes the starting width, and collapsed tools there become the default for agents with nothing stored, so nobody's layout changes under them. Moving between agents loads the next agent's state before anything renders, so one agent's open drawer never starts a shell in the next agent's folder.
+- **Phone and tablet have no terminal**, as an execution has none there: the phone is a thin client. The phone's agent menu lost its Terminal item. One pane at a time keeps its Chat / Tools switch, and ⌃. switches panes. A squeezed window on the desktop layout still has the drawer under the pane, with the Terminal toggle in the header.
+
+**Shared with the execution view**, so the two pages can't drift:
+
+| Part | Code |
+|---|---|
+| Splits | `workbench/workbench-layout.tsx`: `TerminalSplit` (the drawer and its handle), `PanelSplit` (chat, handle, panel), `ChatStrip` |
+| Header toggles | `workbench/workbench-toggles.tsx` (`WorkbenchToggles`) |
+| Hotkeys | `workbench/use-workbench-hotkeys.ts` |
+| Panel strip | `workbench/panel-strip.tsx`: `panelTabClass`, `PanelWindowControls` |
+| Box rows | `workbench/tools-box.tsx`: `TerminalToolsRow`, `TerminalToolsMini` |
+| Sizes | `workbench/use-workbench.ts`: `usePersistedPct`, `useTerminalHeight` |
+
+The agent's own state: `agents/agent-layout.ts` (a pure reducer) and `agents/use-agent-layout.ts` (per-agent persistence). Everything under `src/components/executions/` keeps its name, as code keeps `execution`.
+
+**Tests:** `agents/agent-layout.test.ts` covers the rules. `agents/agent-view.browser.test.ts` runs the real view, header, tools, box and CSS in Chromium (data, chat and shell are fixtures): ⌃` and ⌃. from a focused text field, the buttons, the drawer's place and folder, the box's Terminal row, expand, Escape, ⌘P, open or closed per agent across a reload, the drawer in one-pane mode on the desktop layout, and no terminal on a phone.

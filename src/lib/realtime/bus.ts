@@ -27,7 +27,7 @@ export type GlobalSessionStreamMessage =
       kind: 'session_updated';
       sessionId: string;
       executionId?: string | null;
-      reason: 'outcome' | 'runtime' | 'background_task' | 'pending_input' | 'reconcile' | 'delivery' | 'transfer' | 'title';
+      reason: 'outcome' | 'runtime' | 'background_task' | 'pending_input' | 'reconcile' | 'delivery' | 'transfer' | 'title' | 'lifecycle';
     }
   /**
    * A device's worker connected, dropped, or reported a new state (awake,
@@ -185,6 +185,16 @@ export function publishReconcileDone(sessionId: string, replayed: number): void 
   if (replayed > 0) {
     publishGlobal({ kind: 'session_updated', sessionId, reason: 'reconcile' });
   }
+}
+
+/**
+ * A chat was archived or reopened, from anywhere: a button, an agent's
+ * `archive_execution`, a quiet heartbeat chat, another device. Screens that
+ * show its state (a returned result's card, the rail) refresh it. With an
+ * execution id, its sibling chats changed with it.
+ */
+export function publishSessionLifecycle(sessionId: string, executionId?: string | null): void {
+  publishGlobal({ kind: 'session_updated', sessionId, reason: 'lifecycle', ...(executionId ? { executionId } : {}) });
 }
 
 /** Metadata refresh without adding a conversational event. */

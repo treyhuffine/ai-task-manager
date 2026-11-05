@@ -18,28 +18,14 @@ export const HEARTBEAT_FALLBACK_TRIGGER_NAME = `${APP_NAME} heartbeat`;
 
 export const HEARTBEAT_TRIGGER_DESCRIPTION = 'Checks in on your work on a schedule.';
 
-/** The check-in cadences the settings offer, in seconds. */
-export const HEARTBEAT_INTERVALS = [
-  { seconds: 1800, label: '30 minutes' },
-  { seconds: 3600, label: '1 hour' },
-  { seconds: 7200, label: '2 hours' },
-  { seconds: 14400, label: '4 hours' },
-  { seconds: 86400, label: 'Once a day' },
-] as const;
+export const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 1800;
 
-export type HeartbeatIntervalSeconds = (typeof HEARTBEAT_INTERVALS)[number]['seconds'];
+/** The shortest gap between check-ins. Each one is a whole agent session. */
+export const MIN_HEARTBEAT_INTERVAL_SECONDS = 300;
 
-export const HEARTBEAT_INTERVAL_SECONDS: readonly number[] = HEARTBEAT_INTERVALS.map(
-  (i) => i.seconds,
-);
-
-export function isHeartbeatInterval(seconds: number): seconds is HeartbeatIntervalSeconds {
-  return HEARTBEAT_INTERVAL_SECONDS.includes(seconds);
-}
-
-export const DEFAULT_HEARTBEAT_INTERVAL_SECONDS: HeartbeatIntervalSeconds = 1800;
-export const DEFAULT_HEARTBEAT_ACTIVE_HOURS_START = '09:00';
-export const DEFAULT_HEARTBEAT_ACTIVE_HOURS_END = '21:00';
+/** Where "Between" starts when someone limits the hours. The default is no limit. */
+export const HEARTBEAT_LIMITED_HOURS_START = '09:00';
+export const HEARTBEAT_LIMITED_HOURS_END = '21:00';
 
 /**
  * A check-in that runs this long is stuck. Nothing else should wait on it, and
@@ -50,23 +36,40 @@ export const HEARTBEAT_TIMEOUT_SECONDS = 1800;
 /** The exact reply that means "nothing needed attention and I changed nothing". */
 export const HEARTBEAT_QUIET_REPLY = 'HEARTBEAT_OK';
 
-/** `runs.statusReason` on a completed check-in that had nothing to report. */
+/** The main agent's reply when a check-in's note doesn't need to reach the user. Never shown or pushed. */
+export const NO_MESSAGE_REPLY = 'NO_REPLY';
+
+/** `runs.statusReason` on a completed check-in that had nothing to pass along. */
 export const HEARTBEAT_QUIET_REASON = 'heartbeat_quiet';
+
+/** `runs.statusReason` on a completed check-in that told the main agent something right away. */
+export const HEARTBEAT_TOLD_REASON = 'heartbeat_told';
+
+/** `runs.statusReason` on a completed check-in that saved something for later. */
+export const HEARTBEAT_HELD_REASON = 'heartbeat_held';
+
+/** How long a check-in is told what earlier check-ins raised, so it doesn't raise them again. */
+export const HEARTBEAT_MEMORY_DAYS = 3;
 
 /** `runs.summary` on a quiet check-in, in place of the raw reply token. */
 export const HEARTBEAT_QUIET_SUMMARY = 'Nothing needed';
 
 /**
  * Seeded into the trigger's prompt on first boot and restored by "Reset to
- * default". The user owns it after that. Written as things to look for, so a
- * check-in with nothing to find ends quietly.
+ * default". The user owns it after that. All of the heartbeat's rhythm lives
+ * here, so tuning it is editing text: each check-in is told the time and what
+ * earlier ones did, which is what lets "once" and "up to twice" work.
  */
-export const DEFAULT_HEARTBEAT_INSTRUCTIONS = `Each check-in, look for:
+export const DEFAULT_HEARTBEAT_INSTRUCTIONS = `Every check-in:
+- Look for email that can't wait until the next check-in.
+- Look for chats that failed or stopped without finishing.
 
-- Todo or In progress tasks nobody has touched in 14 days. Ask me whether to do, snooze, or archive each one.
-- Tasks with no area. Set the most likely area.
-- Executions that failed or stopped without finishing that I haven't looked at.
-- Tasks too vague for anyone to start. Ask me the one question that would make each one clear.
-- Tasks an agent could finish end to end without my judgment. Offer to start them.
+Once overnight, on the first check-in after 3:00 AM:
+- File tasks that have no area.
+- Find tasks nobody has touched in 14 days.
 
-Keep each check-in to the five most important items.`;
+Once each morning, on the first check-in after 7:00 AM:
+- Tell me what's waiting on me, what you tidied, and which stale tasks you'd archive.
+
+Up to twice a day, when I have nothing waiting to review:
+- Offer one task an agent could finish on its own.`;

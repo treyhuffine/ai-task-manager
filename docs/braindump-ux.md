@@ -82,7 +82,7 @@ The stream naturally serves as working memory without being a separate concept:
 
 - Fire off 5 things before a meeting → they're all in the stream
 - 2 minutes later, glance at the stream: one's already done (dismiss), one the AI processed as urgent (leave it), three still marinating (fine — batch will handle them, or dismiss the ones you already dealt with)
-- No second inbox, no scratchpad, no badge count
+- No second inbox, no scratchpad, no badge count (superseded 2026-10-29: working memory got its own place, see docs/scratchpad.md)
 - The stream empties itself over time: processed items show annotations and fade, dismissed items disappear, daily sweep catches the rest
 
 ## Note Accumulation
@@ -112,7 +112,7 @@ Not every thought deserves permanent residence. "Maybe I should learn woodworkin
 - **No embeddings for threading.** The LLM reads all recent context in raw text. One person's captures + active notes fit easily in context.
 - **No user-facing mode selection.** Same input for flash, thread, and dump. Brain dump mode is just a larger text area.
 - **No intent detection at capture time.** The AI only detects urgency (easy, reliable). Classification happens in the batch pass with full context.
-- **No scratchpad.** The stream IS the working memory. No second inbox.
+- **No scratchpad.** The stream IS the working memory. No second inbox. (Superseded 2026-10-29. Use showed the stream works as a hand-off, not as working memory, so a scratchpad now holds working memory beside every screen and lines leave it for the stream by choice. See docs/scratchpad.md.)
 - **No badge counts or inbox clearing.** The stream empties itself. Ignoring it is fine.
 
 ## The User's Mental Model

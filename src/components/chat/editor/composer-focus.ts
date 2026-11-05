@@ -13,6 +13,8 @@ export interface ComposerEntry {
   /** The editable element. */
   el: HTMLElement;
   focus: () => void;
+  /** Add text at the end of what's typed, and focus it (the scratchpad's Chat action). */
+  insert: (text: string) => void;
 }
 
 const entries = new Set<ComposerEntry>();
@@ -57,6 +59,12 @@ export function isComposerElement(el: Element): boolean {
 export function composerTarget(): ComposerEntry | null {
   if (last && entries.has(last) && showing(last)) return last;
   for (const entry of entries) if (showing(entry)) return entry;
+  return null;
+}
+
+/** The composer showing inside `root` (a chat surface), or null. */
+export function composerWithin(root: Element): ComposerEntry | null {
+  for (const entry of entries) if (root.contains(entry.el) && showing(entry)) return entry;
   return null;
 }
 

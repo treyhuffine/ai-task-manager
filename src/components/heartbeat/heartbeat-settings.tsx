@@ -9,22 +9,22 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { Loader2, Play } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { RunsOnPicker } from '@/components/triggers/runs-on-picker';
 import { closeSettings } from '@/components/settings/settings-store';
 import { useCheckInNow, useHeartbeat, useUpdateHeartbeat, type HeartbeatUpdate } from '@/hooks/use-heartbeat';
-import { useUserState } from '@/hooks/use-user-state';
+import { useOrchestratorName, useUserState } from '@/hooks/use-user-state';
 import {
-  DEFAULT_HEARTBEAT_ACTIVE_HOURS_END,
-  DEFAULT_HEARTBEAT_ACTIVE_HOURS_START,
   DEFAULT_HEARTBEAT_INSTRUCTIONS,
-  HEARTBEAT_INTERVALS,
+  HEARTBEAT_LIMITED_HOURS_END,
+  HEARTBEAT_LIMITED_HOURS_START,
+  MIN_HEARTBEAT_INTERVAL_SECONDS,
 } from '@/lib/heartbeat/constants';
-import { describeHeartbeat } from '@/lib/heartbeat/status';
-import type { HeartbeatConfig } from '@/lib/heartbeat/types';
+import { INTERVAL_SECONDS_UNIT, INTERVAL_UNITS, intervalUnitFor } from '@/lib/scheduler/frequency';
+import { describeHeartbeat, formatCheckInTime } from '@/lib/heartbeat/status';
+import type { HeartbeatCheckIn, HeartbeatConfig } from '@/lib/heartbeat/types';
 import { cn } from '@/lib/utils';
 import { APP_NAME } from '@/constants/app';
 import { AwakeNote } from '@/components/triggers/awake-note';
@@ -37,12 +37,7 @@ function browserTimezone(): string {
   }
 }
 
-function intervalLabel(seconds: number): string {
-  const known = HEARTBEAT_INTERVALS.find((i) => i.seconds === seconds);
-  if (known) return known.label;
-  const minutes = Math.round(seconds / 60);
-  return minutes < 120 ? `${minutes} minutes` : `${Math.round(minutes / 60)} hours`;
-}
+const SELECT_CLASS = 'rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring';
 
 /** The hard limits, in the words the user sees. Mirrors HEARTBEAT_GROUND_RULES. */
 const GROUND_RULES = [
@@ -90,11 +85,10 @@ function HeartbeatSettingsBody({
 }) {
   const update = useUpdateHeartbeat();
   const checkIn = useCheckInNow();
-  const router = useRouter();
   const { data: userState } = useUserState();
+  const assistant = useOrchestratorName();
   const userTz = userState?.timezone || browserTimezone();
-  const status = describeHeartbeat(config);
-  const last = config.lastCheckIn;
+  const status = describeHeartbeat(config, new Date(), assistant);
 
   // Hours are shown and edited in the user's own timezone. Whenever the user
   // touches the schedule, bring the heartbeat's timezone along with them.
@@ -108,41 +102,24 @@ function HeartbeatSettingsBody({
     update.mutate(patch);
   };
 
-  const openReport = () => {
-    if (!last?.chatSessionId) return;
-    onNavigate();
-    router.push(`/?session=${last.chatSessionId}`);
-  };
-  const reportAvailable = !!last && !last.quiet && !!last.chatSessionId && last.status !== 'failed';
   const anyTime = config.activeHoursStart === null || config.activeHoursEnd === null;
 
   return (
-    <div className="@container space-y-5">
+    <div className="space-y-5">
       {/* On/off + status */}
       <section className="space-y-2">
         <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-background p-3">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">Check in regularly</p>
+            <p className="text-sm font-medium text-foreground">Heartbeat</p>
             <p className="text-[11px] text-muted-foreground/85">{status.detail}</p>
             {config.enabled && <AwakeNote lead="Checks in" />}
           </div>
           <Switch
             checked={config.enabled}
             onCheckedChange={(enabled) => save({ enabled })}
-            aria-label="Check in regularly"
+            aria-label="Heartbeat"
           />
         </label>
-
-        {/* In the deck sheet, an unread report is the reason you opened it. */}
-        {compact && reportAvailable && last?.unread && (
-          <button
-            type="button"
-            onClick={openReport}
-            className="w-full rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-left text-sm text-primary hover:bg-primary/10"
-          >
-            Read the latest report
-          </button>
-        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -158,55 +135,19 @@ function HeartbeatSettingsBody({
             )}
             {config.running || checkIn.isPending ? 'Checking in…' : 'Check in now'}
           </button>
-          {reportAvailable && !(compact && last?.unread) && (
-            <button
-              type="button"
-              onClick={openReport}
-              className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              Report
-            </button>
-          )}
-          {last && last.changedCount > 0 && (
-            <Link
-              href={`/runs/${last.runId}`}
-              onClick={onNavigate}
-              className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              Changes ({last.changedCount})
-            </Link>
-          )}
-          <Link
-            href={`/triggers/${config.triggerId}`}
-            onClick={onNavigate}
-            className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            History
-          </Link>
         </div>
       </section>
+
+      <RecentCheckIns config={config} onNavigate={onNavigate} />
 
       {/* Schedule */}
       <section className="space-y-2">
         <h3 className="text-[12px] font-medium text-foreground">Schedule</h3>
         <div className="space-y-3 rounded-lg border border-border bg-background p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="w-14 shrink-0 text-[12px] text-muted-foreground">Every</span>
-            <select
-              value={config.intervalSeconds}
-              onChange={(e) => save({ intervalSeconds: Number(e.target.value) })}
-              className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              aria-label="How often it checks in"
-            >
-              {HEARTBEAT_INTERVALS.map((i) => (
-                <option key={i.seconds} value={i.seconds}>{i.label}</option>
-              ))}
-              {!HEARTBEAT_INTERVALS.some((i) => i.seconds === config.intervalSeconds) && (
-                <option value={config.intervalSeconds}>{intervalLabel(config.intervalSeconds)}</option>
-              )}
-            </select>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <IntervalInput seconds={config.intervalSeconds} onCommit={(intervalSeconds) => save({ intervalSeconds })} />
+          {/* The container is this row alone, because the model picker below
+              can't have one above it (see LauncherPopoverContent). */}
+          <div className="@container flex flex-wrap items-center gap-2">
             <span className="w-14 shrink-0 text-[12px] text-muted-foreground">Hours</span>
             <select
               value={anyTime ? 'any' : 'window'}
@@ -215,16 +156,16 @@ function HeartbeatSettingsBody({
                   e.target.value === 'any'
                     ? { activeHoursStart: null, activeHoursEnd: null }
                     : {
-                        activeHoursStart: DEFAULT_HEARTBEAT_ACTIVE_HOURS_START,
-                        activeHoursEnd: DEFAULT_HEARTBEAT_ACTIVE_HOURS_END,
+                        activeHoursStart: HEARTBEAT_LIMITED_HOURS_START,
+                        activeHoursEnd: HEARTBEAT_LIMITED_HOURS_END,
                       },
                 )
               }
-              className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              className={SELECT_CLASS}
               aria-label="When it may check in"
             >
+              <option value="any">24/7</option>
               <option value="window">Between</option>
-              <option value="any">Any time</option>
             </select>
             {!anyTime && (
               // One unit, so a narrow panel wraps the pair together. Below a
@@ -232,19 +173,19 @@ function HeartbeatSettingsBody({
               <span className="flex w-full min-w-0 items-center gap-2 @md:w-auto">
                 <TimeInput
                   label="From"
-                  value={config.activeHoursStart ?? DEFAULT_HEARTBEAT_ACTIVE_HOURS_START}
+                  value={config.activeHoursStart ?? HEARTBEAT_LIMITED_HOURS_START}
                   onCommit={(v) => v !== config.activeHoursEnd && save({ activeHoursStart: v })}
                 />
                 <span className="text-[12px] text-muted-foreground">and</span>
                 <TimeInput
                   label="To"
-                  value={config.activeHoursEnd ?? DEFAULT_HEARTBEAT_ACTIVE_HOURS_END}
+                  value={config.activeHoursEnd ?? HEARTBEAT_LIMITED_HOURS_END}
                   onCommit={(v) => v !== config.activeHoursStart && save({ activeHoursEnd: v })}
                 />
               </span>
             )}
           </div>
-          {config.timezone && config.timezone !== userTz && (
+          {!anyTime && config.timezone && config.timezone !== userTz && (
             <p className="text-[11px] text-muted-foreground/85">
               These hours are in {config.timezone.replace(/_/g, ' ')}.{' '}
               <button
@@ -280,6 +221,152 @@ function HeartbeatSettingsBody({
           Every change it makes is listed under Changes and can be undone from the task or note&apos;s history.
         </p>
       </details>
+    </div>
+  );
+}
+
+/**
+ * What the check-ins have been doing. They run in the background and only
+ * important findings become messages, so this is where to look for the rest.
+ */
+function RecentCheckIns({ config, onNavigate }: { config: HeartbeatConfig; onNavigate: () => void }) {
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[12px] font-medium text-foreground">Recent check-ins</h3>
+        <Link
+          href={`/triggers/${config.triggerId}`}
+          onClick={onNavigate}
+          className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+        >
+          History
+        </Link>
+      </div>
+      {config.recentCheckIns.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground/85">None yet.</p>
+      ) : (
+        <ul className="divide-y divide-border/60 rounded-lg border border-border bg-background">
+          {config.recentCheckIns.map((checkIn) => (
+            <CheckInRow key={checkIn.runId} checkIn={checkIn} onNavigate={onNavigate} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function CheckInRow({ checkIn, onNavigate }: { checkIn: HeartbeatCheckIn; onNavigate: () => void }) {
+  const text = checkIn.status === 'failed' ? (checkIn.errorMessage ?? 'Failed') : checkIn.status === 'cancelled' ? 'Stopped' : (checkIn.summary ?? 'Finished');
+  const body = (
+    <>
+      <span className="w-[4.5rem] shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatCheckInTime(checkIn.at)}</span>
+      <span className={cn('min-w-0 flex-1 truncate text-[12px]', checkIn.status === 'failed' ? 'text-destructive' : 'text-foreground')}>{text}</span>
+    </>
+  );
+  return (
+    <li className="flex items-center gap-2 pr-2">
+      {checkIn.chatSessionId ? (
+        <Link
+          href={`/?session=${checkIn.chatSessionId}`}
+          onClick={onNavigate}
+          aria-label={`Open the check-in from ${formatCheckInTime(checkIn.at)}: ${text}`}
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 hover:bg-muted/50"
+        >
+          {body}
+        </Link>
+      ) : (
+        <span className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5">{body}</span>
+      )}
+      {checkIn.changedCount > 0 && (
+        <Link
+          href={`/runs/${checkIn.runId}`}
+          onClick={onNavigate}
+          className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          Changes ({checkIn.changedCount})
+        </Link>
+      )}
+    </li>
+  );
+}
+
+/**
+ * "Every [30] [minutes]", stored as seconds. The number saves when it's
+ * finished (on blur or Enter) and the unit as it's picked. A number under the
+ * floor stays in the box unsaved, so typing 2 and then picking hours gets 2 hours.
+ */
+function IntervalInput({ seconds, onCommit }: { seconds: number; onCommit: (seconds: number) => void }) {
+  const [unit, setUnit] = useState(() => intervalUnitFor(seconds));
+  const [draft, setDraft] = useState(String(seconds / unit));
+  // Follow a saved value that changed elsewhere (render-time sync, not an effect).
+  // A save from here counts as synced, so 120 minutes doesn't jump to 2 hours.
+  const [synced, setSynced] = useState(seconds);
+  // "4" is on its way to "45", so only speak up once they've left the box.
+  const [left, setLeft] = useState(false);
+  if (seconds !== synced) {
+    const nextUnit = intervalUnitFor(seconds);
+    setSynced(seconds);
+    setUnit(nextUnit);
+    setDraft(String(seconds / nextUnit));
+  }
+
+  const typed = Number(draft);
+  const typedSeconds = Math.round(typed * unit);
+  const tooShort = draft !== '' && typedSeconds > 0 && typedSeconds < MIN_HEARTBEAT_INTERVAL_SECONDS;
+  const units = unit === INTERVAL_SECONDS_UNIT.seconds ? [INTERVAL_SECONDS_UNIT, ...INTERVAL_UNITS] : INTERVAL_UNITS;
+
+  const saveInterval = (next: number) => {
+    setSynced(next);
+    onCommit(next);
+  };
+
+  const commit = () => {
+    setLeft(true);
+    if (tooShort) return;
+    if (typedSeconds >= MIN_HEARTBEAT_INTERVAL_SECONDS && typedSeconds !== seconds) saveInterval(typedSeconds);
+    else setDraft(String(seconds / unit));
+  };
+
+  const pickUnit = (nextUnit: number) => {
+    const count = typed > 0 ? typed : seconds / unit;
+    const next = Math.max(MIN_HEARTBEAT_INTERVAL_SECONDS, Math.round(count * nextUnit));
+    setUnit(nextUnit);
+    setDraft(String(next / nextUnit));
+    if (next !== seconds) saveInterval(next);
+  };
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="w-14 shrink-0 text-[12px] text-muted-foreground">Every</span>
+        <input
+          type="number"
+          min={1}
+          step="any"
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setLeft(false);
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+          }}
+          aria-label="How often it checks in"
+          aria-invalid={tooShort && left}
+          className="w-16 rounded-md border border-border bg-background px-2 py-1 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <select value={unit} onChange={(e) => pickUnit(Number(e.target.value))} aria-label="Unit" className={SELECT_CLASS}>
+          {units.map((u) => (
+            <option key={u.label} value={u.seconds}>{typed === 1 ? u.label.slice(0, -1) : u.label}</option>
+          ))}
+        </select>
+      </div>
+      {tooShort && left && (
+        <p role="alert" className="pl-16 text-[11px] text-destructive">
+          At least {MIN_HEARTBEAT_INTERVAL_SECONDS / 60} minutes. This one isn&apos;t saved.
+        </p>
+      )}
     </div>
   );
 }
@@ -378,7 +465,7 @@ function InstructionsEditor({
         </span>
       </div>
       <p className="text-[11px] text-muted-foreground/85">
-        What to look at and what to do each check-in. Written like a note to a teammate.
+        What to do, and when. Each check-in knows the time and what earlier ones did, so you can write things like &ldquo;once each morning&rdquo;.
       </p>
       <Textarea
         value={draft}

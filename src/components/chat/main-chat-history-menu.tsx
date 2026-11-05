@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
  * archived one its retrospective summary, and one with no sends yet shows
  * as "New chat".
  */
-export function MainChatHistoryMenu({ scope }: { scope: MainChatScope }) {
+export function MainChatHistoryMenu({ scope, onOpenChat }: { scope: MainChatScope; onOpenChat?: (id: string) => void }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { data: current } = useMainChat(scope);
@@ -72,7 +72,8 @@ export function MainChatHistoryMenu({ scope }: { scope: MainChatScope }) {
                 <button
                   key={s.id}
                   onClick={() => {
-                    if (isCurrent) setOpen(false);
+                    if (onOpenChat) { onOpenChat(s.id); setOpen(false); }
+                    else if (isCurrent) setOpen(false);
                     else resume.mutate(s.id, { onSuccess: () => setOpen(false) });
                   }}
                   disabled={resume.isPending}

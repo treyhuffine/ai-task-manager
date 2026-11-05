@@ -35,6 +35,7 @@ export interface LiveSessionInfo {
   selectionKey?: string;
   standingInstructions?: string;
   messagePreamble?: string | null;
+  conversationInstructions?: string | null;
   requiresMessageSnapshot?: boolean;
   readOnlyReview?: { runId: string; message: string } | null;
 }

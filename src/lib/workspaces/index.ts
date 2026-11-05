@@ -183,6 +183,31 @@ export async function detectBaseBranch(absolutePath: string, remote = 'origin'):
   }
 }
 
+type GitFacts = Pick<WorkspaceRecord, 'isGit' | 'baseBranch' | 'remoteName' | 'worktreeRoot'>;
+
+/**
+ * What an agent's record should say about git once its folder is `folder`.
+ * It's a fact about the folder, so it's read from there whenever the folder
+ * changes, as it is for a new agent. A repository keeps the base branch and
+ * remote the agent has if they still mean something there (the same repo,
+ * moved). A folder that isn't one clears them, since only a git agent has them.
+ */
+export async function gitFactsAt(folder: string, current: GitFacts): Promise<GitFacts> {
+  if (!(await detectIsGit(folder))) return { isGit: false, baseBranch: null, remoteName: null, worktreeRoot: null };
+  const remoteName = current.remoteName ?? 'origin';
+  const base = current.isGit ? current.baseBranch : null;
+  const keepsBase = !!base && !!(
+    await gitOut(folder, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`])
+    ?? await gitOut(folder, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remoteName}/${base}^{commit}`])
+  );
+  return {
+    isGit: true,
+    baseBranch: keepsBase ? base : await detectBaseBranch(folder, remoteName),
+    remoteName,
+    worktreeRoot: current.worktreeRoot,
+  };
+}
+
 /**
  * Slug for the session-label half of a branch name. Prefixed with the
  * workspace slug at call time: `<workspace.slug>/<session-slug>`.

@@ -11,7 +11,7 @@ import { trpcClient } from '@/lib/trpc/client';
 import { documentSaves } from '@/lib/client/document-saves';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { useTeam } from './team-context';
+import { useOptionalTeam } from './team-context';
 import { getAuthToken } from '@/lib/api/client';
 import { documentCredential } from '@/lib/home/document-binding';
 import { assertDocumentCredential } from '@/lib/home/document-scope';
@@ -147,16 +147,18 @@ export function useSharedBodyFor(record: SharedRecord | undefined, target: Share
 
 /** A shared task or note's body in the team's own app, or a team's space in My Ri. */
 export function useSharedBody(kind: Kind, record: SharedRecord | undefined) {
-  const { team, member } = useTeam();
+  const identity = useOptionalTeam();
+  const teamId = identity?.team.id;
+  const memberId = identity?.member.id;
   const qc = useQueryClient();
   // Inside My Ri, the team's files are reached through this home
   // (src/lib/spaces/document.ts). The team itself always gets its own form.
   const space = currentSpaceId();
   const recordId = record?.id;
   const target = useMemo<SharedBodyTarget | null>(() => {
-    if (!recordId) return null;
+    if (!recordId || !teamId || !memberId) return null;
     return {
-      draftKey: sharedDraftKey({ teamId: team.id, memberId: member.id }, kind, recordId),
+      draftKey: sharedDraftKey({ teamId, memberId }, kind, recordId),
       toEditor: (body) => bodyForDocument(body, space),
       write: async ({ body, expectedBodyRevision, attachments }) => {
         const patch = { body: bodyForTeam(body, space), ...(attachments.length > 0 ? { attachments } : {}) };
@@ -170,7 +172,7 @@ export function useSharedBody(kind: Kind, record: SharedRecord | undefined) {
         return { body: saved.body != null ? bodyForDocument(saved.body, space) : body, bodyRevision: saved.bodyRevision };
       },
     };
-  }, [recordId, kind, team.id, member.id, space, qc]);
+  }, [recordId, kind, teamId, memberId, space, qc]);
   return useSharedBodyFor(record, target);
 }
 

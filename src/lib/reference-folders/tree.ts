@@ -22,36 +22,12 @@
 
 import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
 import type { TreeEntry } from '@/lib/workspaces/file-contracts';
+import { FOLDER_LIST_LIMIT, walkFolder } from '@/lib/workspaces/walk-folder';
 import { execFile } from 'node:child_process';
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-
-/**
- * Directories skipped by the non-git walk. Matches `list-tree.ts` so the two
- * surfaces feel the same. In a git reference these never appear anyway,
- * because `--exclude-standard` honours the repo's own `.gitignore`.
- */
-const HEAVY_DIRS = new Set([
-  'node_modules',
-  '.next',
-  '.git',
-  'dist',
-  'build',
-  '.cache',
-  '.turbo',
-  'coverage',
-]);
-
-/**
- * Upper bound on entries returned for one reference. A reference can be an
- * enormous monorepo nobody on this end controls, and the whole list is sent to
- * the composer for client-side filtering. Truncation is reported rather than
- * silent so a short list is never mistaken for a small repo.
- */
-export const REFERENCE_TREE_LIMIT = 20_000;
 
 export interface ReferenceTreeResult {
   entries: TreeEntry[];
@@ -79,38 +55,15 @@ async function listViaGit(absolutePath: string): Promise<string[] | null> {
   }
 }
 
-async function walk(
-  root: string,
-  rel: string,
-  out: string[],
-  budget: { remaining: number },
-): Promise<void> {
-  if (budget.remaining <= 0) return;
-  let dirents;
-  try {
-    dirents = await fs.readdir(path.join(root, rel), { withFileTypes: true });
-  } catch {
-    return; // Unreadable subtree (permissions, a broken symlink) is not fatal.
-  }
-  for (const dirent of dirents) {
-    if (budget.remaining <= 0) return;
-    const childRel = rel ? `${rel}/${dirent.name}` : dirent.name;
-    if (dirent.isDirectory()) {
-      if (HEAVY_DIRS.has(dirent.name)) continue;
-      await walk(root, childRel, out, budget);
-    } else if (dirent.isFile()) {
-      out.push(childRel);
-      budget.remaining -= 1;
-    }
-    // Symlinks are skipped: following them into a reference folder risks
-    // cycles and escaping the folder the user actually pointed at.
-  }
-}
-
 /**
  * Flat file list for a reference folder, relative to its root. Directories are
  * not emitted, matching how the worktree tree behaves — the picker matches on
  * path substrings, so `@backend/src/routes` still narrows correctly.
+ *
+ * A reference can be an enormous monorepo nobody on this end controls, so it
+ * stops at `FOLDER_LIST_LIMIT`. Truncation is reported rather than silent so a
+ * short list is never mistaken for a small repo. Symlinks aren't listed:
+ * they could lead out of the folder the user actually pointed at.
  */
 export async function listReferenceTree(absolutePath: string): Promise<ReferenceTreeResult> {
   const fromGit = await listViaGit(absolutePath);
@@ -118,22 +71,15 @@ export async function listReferenceTree(absolutePath: string): Promise<Reference
   let truncated = false;
 
   if (fromGit) {
-    truncated = fromGit.length > REFERENCE_TREE_LIMIT;
-    paths = truncated ? fromGit.slice(0, REFERENCE_TREE_LIMIT) : fromGit;
+    truncated = fromGit.length > FOLDER_LIST_LIMIT;
+    paths = truncated ? fromGit.slice(0, FOLDER_LIST_LIMIT) : fromGit;
   } else {
-    const collected: string[] = [];
-    // One over the limit, so "stopped exactly at the cap" is distinguishable
-    // from "there was one more". Otherwise a folder holding exactly the limit
-    // reports itself truncated.
-    const budget = { remaining: REFERENCE_TREE_LIMIT + 1 };
-    await walk(absolutePath, '', collected, budget);
-    truncated = collected.length > REFERENCE_TREE_LIMIT;
-    paths = truncated ? collected.slice(0, REFERENCE_TREE_LIMIT) : collected;
+    ({ paths, truncated } = await walkFolder(absolutePath));
   }
 
   if (truncated) {
     console.warn(
-      `[reference-folders] tree for ${absolutePath} truncated at ${REFERENCE_TREE_LIMIT} entries`,
+      `[reference-folders] tree for ${absolutePath} truncated at ${FOLDER_LIST_LIMIT} entries`,
     );
   }
 

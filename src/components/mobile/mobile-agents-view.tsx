@@ -38,7 +38,6 @@ import {
 	MoreHorizontal,
 	Plus,
 	Settings,
-	SquareTerminal,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { RunOnSheet } from './run-on-sheet';
@@ -269,9 +268,6 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => openAgentTab('files')} className="gap-2 py-2.5 text-[14px]">
               <FileText size={15} /> Files
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => openAgentTab('terminal')} className="gap-2 py-2.5 text-[14px]">
-              <SquareTerminal size={15} /> Terminal
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => openAgentTab('setup')} className="gap-2 py-2.5 text-[14px]">
               <Settings size={15} /> Setup

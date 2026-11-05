@@ -3,6 +3,8 @@
 **Status:** Draft proposal for discussion, not approved for implementation.
 **Date:** 2026-10-15
 
+Implementation and operator setup now live in [Slack and Buzz conversations](slack-buzz-conversations.md). This earlier proposal remains background and was not independently approved as a specification.
+
 Slack could become another place to talk with a personal Ri orchestrator or a team's AI. The value is continuity: ask for something where the discussion is happening, answer Ri's questions, change direction, and receive the result without moving the conversation between tools.
 
 The recommended foundation is an ordinary Ri conversation served through Slack's native agent interface. Ri owns its conversation state and actions. Slack provides another place to participate. The main product decisions are which Ri instance answers, who can see the conversation, and when Ri should participate.

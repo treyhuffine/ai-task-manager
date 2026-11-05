@@ -23,6 +23,8 @@ const protocolRoutes = new Set([
   '/email/action', '/orchestrator/email/[transport]',
   // Signed CLI forwarding and the versioned app-process capability broker.
   '/chat-sources/action', '/local-apps/action', '/local-apps/broker/v1/[operation]',
+  // OAuth for outside MCP apps (docs/mcp-oauth.md): RFC-defined form and JSON endpoints, and the consent form's POST.
+  '/oauth/authorize', '/oauth/register', '/oauth/revoke', '/oauth/token',
   // Package bytes and the backup CLI's cross-process pause/resume lease.
   '/local-apps/import', '/local-apps/export/[name]', '/local-apps/backup',
   '/preview/settings/connect-device', '/session', '/sessions/[id]/html', '/sessions/[id]/pdf', '/sessions/[id]/pdf/[...name]', '/sessions/[id]/reply-image', '/sessions/[id]/stream', '/sessions/[id]/terminals/[terminalId]/stream', '/sessions/stream',

@@ -101,6 +101,10 @@ One generic attachment system across the whole app:
 - Every new skill is a draft (`<app-root>/skill-drafts`, read by no harness) until it's installed. Installed, it lives in one of three places, and where it lives is who uses it: Ri's own (`<app-root>/skills`, every chat Ri runs), global (`~/.claude/skills` linked into `~/.agents/skills`, every agent on the computer), or a project (`<agent folder>/.claude/skills` linked into `.agents/skills`, shared by committing it). Built and managed from Plugins (the skill builder). Installing needs no errors in SKILL.md.
 - Go through `src/lib/skills/manage.ts` for every change: it keeps the folder, its `.agents/skills` link and the skill's builder and try chats (keyed by ref, `draft:<name>` / `ri:<name>` / `global:<name>` / `project:<workspaceId>:<name>`) in step. Installing, moving and uninstalling are all `moveSkill`. Never write skill folders directly from app code. Full model: `docs/skills.md`.
 
+## Links between Homes
+
+`[[task:<id>]]` means a record in the Home that owns the text. `[[task:<home id>/<id>]]` names another Home, for My Ri's chats and personal bodies. A team's text only ever looks in that team, and a link holds no title. Agents copy the `ref` on a connected tool's result, and an agent's text on its way to a team goes through `linksForTeam` (`src/lib/spaces/team-links.ts`), which refuses a link to a private record. A person's autosaved body goes as written. A link lookup never sends an ID found in this Home to a team. Full model: `docs/team-links.md`.
+
 ## Client data layer (TanStack Query)
 
 - **Mutations are optimistic, at the hook layer.** Task/note/area mutations live in `src/hooks/use-{tasks,notes,areas}.ts` and all funnel through `src/lib/query/optimistic-entity.ts`: patch the cache in `onMutate` (`optimisticPatch` / `optimisticRemove`), roll back in `onError` (`rollbackOptimistic` + a sonner toast), reconcile in `onSettled` (`settleEntity`, a background invalidate). Do **not** add a blocking `onSuccess: invalidateQueries` — that reintroduces the second round-trip the optimistic layer exists to remove, and is the lag this replaced.

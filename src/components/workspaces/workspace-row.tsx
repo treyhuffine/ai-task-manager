@@ -14,9 +14,12 @@ import type { WorkspaceWithCounts } from '@/db/types';
 import { SessionRow } from './session-row';
 import { InactiveFold } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
+import { useOpenChatAgentId } from '@/hooks/use-open-chat-agent';
+import { useFoldShown } from '@/lib/client/rail-fold';
 import { Tip } from '@/components/ui/tip';
 import { AgentIcon } from '@/components/agents/agent-icon';
 import { AgentChatsFlyout } from './agent-chats-flyout';
+import { AgentSelectionSection } from './agent-selection-section';
 import { useWorkspaceSelection } from './workspace-selection-context';
 
 interface WorkspaceRowProps {
@@ -38,7 +41,12 @@ interface WorkspaceRowProps {
  * trial preference says so (`agent-view-mode.ts`). The icon area swaps on
  * hover: agent icon (image / emoji / area fallback / folder default) by
  * default, the fold chevron when the pointer is over the row, and the
- * chevron always folds.
+ * chevron always folds. The icon and name open no tooltip on hover, as in
+ * the agents-first row. The ↗ and + actions keep theirs.
+ *
+ * The agent you're in is marked, as in the agents-first row: selected when
+ * its page is open, or when one of its chats is and that chat's row isn't
+ * showing. Its name says so with `aria-current`.
  *
  * Aggregates work off the row's pre-counted candidates plus the runtime
  * streaming map: any child currently piping live stdio outranks "needs
@@ -51,7 +59,8 @@ export function WorkspaceRow({
   onCreateExecution,
   onOpenLauncher,
 }: WorkspaceRowProps) {
-  const { streamingSessionIds, pendingInputSessionIds, activeView, openAgent } = useDashboard();
+  const { streamingSessionIds, pendingInputSessionIds, activeView, activeSessionId, activeExecutionId, openAgent } =
+    useDashboard();
   const { opensView } = useAgentViewMode();
   const isActive = activeView.kind === 'agent' && activeView.id === workspace.id;
   const updateWs = useUpdateWorkspace();
@@ -139,6 +148,17 @@ export function WorkspaceRow({
   const attentionCount = counts.needsApproval + counts.unread;
   const hasAnyCount = counts.working > 0 || attentionCount > 0;
 
+  // Which agent you're in: its own page, or one of its chats whose row isn't
+  // showing (its list folded, the chat folded with the inactive ones, or
+  // archived). Where the chat's row shows, that row is the selection.
+  const [inactiveShown] = useFoldShown(`inactive:agent:${workspace.id}`);
+  const holdsOpenChat = useOpenChatAgentId() === workspace.id;
+  const isOpen = (s: (typeof childSessions)[number]) =>
+    activeSessionId === s.id || (!!s.executionId && activeExecutionId === s.executionId);
+  const listsOpen =
+    expanded && (activeChildren.some(isOpen) || (inactiveShown && inactiveChildren.some(isOpen)));
+  const current = isActive ? 'page' : holdsOpenChat && !listsOpen ? 'true' : undefined;
+
   const toggleCollapse = () => {
     updateWs.mutate({ id: workspace.id, collapsed: expanded });
   };
@@ -154,7 +174,12 @@ export function WorkspaceRow({
           onOpenLauncher={onOpenLauncher}
         />
       ))}
-      <InactiveFold sectionId={`agent:${workspace.id}`} count={inactiveChildren.length} className="pl-8">
+      <InactiveFold
+        sectionId={`agent:${workspace.id}`}
+        count={inactiveChildren.length}
+        className="pl-8"
+        selectIds={inactiveChildren.map((s) => s.id)}
+      >
         {inactiveChildren.map((s) => (
           <SessionRow
             key={s.id}
@@ -169,8 +194,16 @@ export function WorkspaceRow({
     </div>
   );
 
+  if (selecting) {
+    return (
+      <AgentSelectionSection workspace={workspace} sessions={childSessions}>
+        {chats}
+      </AgentSelectionSection>
+    );
+  }
+
   return (
-    <div ref={setNodeRef} style={style} className={cn(isDragging && 'opacity-60')}>
+    <div ref={setNodeRef} data-agent-id={workspace.id} style={style} className={cn(isDragging && 'opacity-60')}>
       {/* Header — whole row is the drag handle (no icon needed).
           Inner action buttons stop pointerdown so clicking + or ⋮ never
           initiates a drag, even on slow clicks. */}
@@ -180,45 +213,42 @@ export function WorkspaceRow({
         {...listeners}
         className={cn(
           'group flex items-center gap-1.5 px-1 py-1 rounded-md transition-colors cursor-grab active:cursor-grabbing select-none touch-none',
-          isActive ? 'bg-secondary' : 'hover:bg-muted/40',
+          current ? 'bg-secondary' : 'hover:bg-muted/40',
         )}
       >
         <div className="flex-1 flex items-center gap-1 min-w-0">
           {/* Icon swap on hover: emoji/image when idle, the fold chevron on hover. */}
-          <Tip label={expanded ? 'Fold' : 'Unfold'}>
-            <button
-              onClick={toggleCollapse}
-              className="relative w-5 h-5 flex items-center justify-center flex-shrink-0"
-              aria-label={expanded ? `Fold ${workspace.name}` : `Unfold ${workspace.name}`}
-            >
-              <span className="group-hover:hidden flex items-center justify-center">
-                <AgentIcon workspace={workspace} size="sm" />
-              </span>
-              <ChevronRight
-                size={13}
-                className={cn(
-                  'hidden group-hover:block text-muted-foreground/80 transition-transform',
-                  expanded && 'rotate-90',
-                )}
-              />
-            </button>
-          </Tip>
+          <button
+            onClick={toggleCollapse}
+            className="relative w-5 h-5 flex items-center justify-center flex-shrink-0"
+            aria-label={expanded ? `Fold ${workspace.name}` : `Unfold ${workspace.name}`}
+          >
+            <span className="group-hover:hidden flex items-center justify-center">
+              <AgentIcon workspace={workspace} size="sm" />
+            </span>
+            <ChevronRight
+              size={13}
+              className={cn(
+                'hidden group-hover:block text-muted-foreground/80 transition-transform',
+                expanded && 'rotate-90',
+              )}
+            />
+          </button>
           <AgentChatsFlyout
             name={workspace.name}
-            enabled={!expanded && childSessions.length > 0 && !isDragging && !selecting}
+            enabled={!expanded && childSessions.length > 0 && !isDragging}
             hoverTarget={header}
             onClick={open}
             onNewChat={() => onOpenLauncher(workspace.id)}
-            trigger={({ ref, open: flyoutOpen, onClick }) => (
-              <Tip label={flyoutOpen ? undefined : workspace.name} onlyWhenTextHidden>
-                <button
-                  ref={ref}
-                  onClick={onClick}
-                  className="flex-1 min-w-0 text-left text-[11.5px] font-semibold truncate text-foreground"
-                >
-                  {workspace.name}
-                </button>
-              </Tip>
+            trigger={({ ref, onClick }) => (
+              <button
+                ref={ref}
+                onClick={onClick}
+                className="flex-1 min-w-0 text-left text-[11.5px] font-semibold truncate text-foreground"
+                aria-current={current}
+              >
+                {workspace.name}
+              </button>
             )}
           >
             {chats}

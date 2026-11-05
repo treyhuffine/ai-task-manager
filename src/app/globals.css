@@ -59,7 +59,7 @@ html[data-ri-desktop='darwin'] [data-slot='sheet-content']:is([data-side='left']
 }
 
 @container top-hud (width < 56rem) {
-  .hud-view-label, .hud-work-label, .hud-create-label, .hud-quick-capture,
+  .hud-view-label, .hud-work-label, .hud-create-label,
   .hud-budget-label, .hud-calendar-overlap, .hud-calendar-invite-detail { display: none; }
   .hud-create { height: 1.75rem; padding-inline: 0.375rem; }
   .hud-budget-short { display: inline; }
@@ -554,6 +554,17 @@ html[data-ri-desktop='darwin'] [data-slot='sheet-content']:is([data-side='left']
 /* A shared task's body in My Ri: room to click into, without pushing
    its Only you section out of sight. */
 .shared-task-editor .rich-editor-body {
+  min-height: 8rem;
+}
+
+/* The scratchpad (docs/scratchpad.md): a narrow column of quick lines, so a
+   smaller size, and the whole column below the text is room to click into. */
+.scratchpad-editor .rich-editor {
+  min-height: 100%;
+}
+.scratchpad-editor .rich-editor-body {
+  font-size: 0.875rem;
+  line-height: 1.6;
   min-height: 8rem;
 }
 

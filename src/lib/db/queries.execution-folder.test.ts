@@ -82,7 +82,35 @@ describe('a non-git agent execution', () => {
 describe('a git agent execution', () => {
   it('reports no folder while its worktree is set up', () => {
     const ws = agent('repo', true);
-    const { session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Git work' });
+    const { session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Git work', setupStartedAt: new Date().toISOString() });
+
+    expect(q.getChatSessionWithExecution(session.id)?.worktreePath).toBeNull();
+  });
+
+  it("from before the agent's folder was a repository stays in that folder, and stores nothing", () => {
+    const ws = agent('became-git', false);
+    const { execution, session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Plain work' });
+    q.updateWorkspace(ws.id, { isGit: true, baseBranch: 'main' });
+
+    expect(q.getChatSessionWithExecution(session.id)?.worktreePath).toBe(ws.cwd);
+    expect(q.getExecution(execution.id)?.worktreePath).toBeNull();
+
+    const moved = path.join(home.root, 'became-git-moved');
+    fs.mkdirSync(moved);
+    q.updateWorkspace(ws.id, { cwd: moved });
+    expect(q.getChatSessionWithExecution(session.id)?.worktreePath).toBe(moved);
+  });
+
+  it('that lost its worktree reports no folder, so it gets a new one', () => {
+    const ws = agent('repo3', true);
+    const { session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Git work', branchName: 'repo3/git-work' });
+
+    expect(q.getChatSessionWithExecution(session.id)?.worktreePath).toBeNull();
+  });
+
+  it('imported, with no path of its own, still reports none', () => {
+    const ws = agent('repo4', true);
+    const { session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Imported', surfaceKind: 'imported_agent' });
 
     expect(q.getChatSessionWithExecution(session.id)?.worktreePath).toBeNull();
   });

@@ -1,7 +1,8 @@
-import { coordinationDeliveryExample, SENDER_CHAT_ID, GALLERY_FORM_SCHEMA, approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS } from './fixtures';
+import { coordinationDeliveryExample, SENDER_CHAT_ID, RECEIVER_CHAT_ID, GALLERY_UNCOMMITTED_FILES, GALLERY_FORM_SCHEMA, approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS } from './fixtures';
 import type { ChatEventRecord, EmailDraft, WorkResultDecisionRecord } from '@/db/types';
 import type { ChatUiExampleId } from './catalog';
 import { DEMO_AUDIO, DEMO_VIDEO } from '@/test/fixtures/media';
+import { ApiError } from '@/lib/api/client';
 
 /** An independent in-memory Home for a single sandboxed example. Never calls a real API. */
 export class GalleryRuntime {
@@ -19,8 +20,11 @@ export class GalleryRuntime {
   private versionRows = VERSIONS;
   private formStatus: 'open' | 'accepted' | 'declined' | 'expired' = 'open';
   private formAgain: Record<string, unknown> | null = null;
+  /** Chats archived in this example. Archive chat and Reopen change only this. */
+  private archived = new Set<string>();
   constructor(readonly example: ChatUiExampleId, readonly state: string, readonly resource?: unknown) {
     this.coordination = coordinationDeliveryExample(state);
+    if (example === 'chat-messages' && state === 'reply-archived') this.archived.add(RECEIVER_CHAT_ID);
     this.held = state === 'held';
     this.email = emailDraft(state);
     if (example === 'server-form' && ['accepted', 'declined', 'expired'].includes(state)) this.formStatus = state as typeof this.formStatus;
@@ -49,7 +53,7 @@ export class GalleryRuntime {
     const input = (value ?? {}) as Record<string, unknown>;
     const body = (input.body ?? {}) as Record<string, unknown>;
     if (path === 'coordination.delivery') return this.coordination;
-    if (path === 'coordination.state') return { unrestricted: this.state === 'manager', active: {chatIds: ['active','held'].includes(this.state) || this.coordination.status === 'queued' ? [SENDER_CHAT_ID] : [], starting:false, assignmentsWaiting:this.held ? 1 : 0}, scopes: {chat:CHAT_ID,execution:null,agent:null,global:'1'}, incoming: {}, assignmentsWaiting:this.held ? 1 : 0, policy: this.coordinationChatPolicy ?? this.coordinationPolicy, source: this.coordinationChatPolicy ? 'chat' : 'global', levels: [{source:'chat',value:this.coordinationChatPolicy},{source:'execution',value:null},{source:'agent',value:null},{source:'global',value:this.coordinationPolicy}], heldAt: this.held ? NOW : null, pending: this.held ? 5 : 0, approvals: [] };
+    if (path === 'coordination.state') return { unrestricted: this.state === 'manager', active: {chatIds: ['active','held'].includes(this.state) || this.coordination.status === 'queued' ? [SENDER_CHAT_ID] : [], starting:false, assignmentsWaiting:this.held ? 1 : 0}, scopes: {chat:CHAT_ID,execution:null,agent:null,global:'1'}, incoming: {}, assignmentsWaiting:this.held ? 1 : 0, policy: this.coordinationChatPolicy ?? this.coordinationPolicy, source: this.coordinationChatPolicy ? 'chat' : 'global', levels: [{source:'chat',value:this.coordinationChatPolicy},{source:'execution',value:null},{source:'agent',value:null},{source:'global',value:this.coordinationPolicy}], heldAt: this.held ? NOW : null, pending: this.held ? 5 : 0, approvals: this.state === 'approval' && this.coordination.status === 'awaiting_approval' ? [{...this.coordination,destinationName:'Research',launchOptions:null}] : [] };
     if (path === 'coordination.defaults') return { global: this.coordinationPolicy };
     if (path === 'coordination.hold') { this.held = !!input.held; this.changed(this.held ? 'Incoming messages paused for the example chat' : 'Incoming messages resumed. No real agent started'); return { held: this.held }; }
     if (path === 'coordination.policy') { if (input.scope === 'chat') this.coordinationChatPolicy = input.policy === 'allow' ? 'allow' : input.policy === 'ask' ? 'ask' : null; else this.coordinationPolicy = input.policy === 'allow' ? 'allow' : 'ask'; this.changed('Example coordination preference saved'); return {saved:true}; }
@@ -113,7 +117,21 @@ export class GalleryRuntime {
       const label = id === SENDER_CHAT_ID
         ? this.state === 'long' ? 'Finish bounded full-date GEX runner and dated RUT input verification before the production handoff' : 'Prepare the runner handoff'
         : 'Review date handling';
-      return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: ['chat-messages', 'html'].includes(this.example) ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : this.example === 'coordination' && id === SENDER_CHAT_ID ? 'Review date handling across every market calendar before the next scheduled run and confirm all source dates against the bounded historical runner' : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
+      return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: this.archived.has(id) ? 'archived' : 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: ['chat-messages', 'html', 'add-menu'].includes(this.example) ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : this.example === 'coordination' && id === SENDER_CHAT_ID ? 'Review date handling across every market calendar before the next scheduled run and confirm all source dates against the bounded historical runner' : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
+    }
+    if (path === 'sessions.archivePost') {
+      const id = String((input.params as { id?: string })?.id);
+      // This example's work chat has files that aren't committed, so the first try is refused, as a real archive would be.
+      if (this.state === 'reply-uncommitted' && body.force !== true) throw new ApiError(409, { error: 'DirtyWorktreeError', code: 'dirty_worktree', message: 'The worktree has files that are not committed.', label: 'Review date handling', files: GALLERY_UNCOMMITTED_FILES, omitted: 0 }, `/api/sessions/${id}/archive`);
+      this.archived.add(id);
+      this.changed(body.force === true ? 'Example chat archived anyway. No files were deleted' : 'Example chat archived. No worktree was removed');
+      return this.invoke('sessions.get', { params: { id } });
+    }
+    if (path === 'sessions.continuePost') {
+      const id = String((input.params as { id?: string })?.id);
+      this.archived.delete(id);
+      this.changed('Example chat reopened. No worktree was created');
+      return this.invoke('sessions.get', { params: { id } });
     }
     // A missing reference's agent is gone too, so its chip says so.
     if (path === 'workspaces.get') { if (this.example === 'references' && this.state === 'missing') throw new Error('That agent was not found.'); return { id: RECORD_ID, name: 'Research', status: 'active' }; }
@@ -191,6 +209,15 @@ export class GalleryRuntime {
     }
     if (path === 'connectedApps.context') { this.changed('The example app shared its selection with the example chat'); return this.revision; }
     if (path === 'connectedApps.cancel') return { cancelled: true };
+    if (path === 'localApps.enabled') return { enabled: true };
+    if (path === 'localApps.list') return { instances: ['Field notes', 'Travel'].map(displayName => ({ id: displayName, displayName, icon: null, enabled: true, archived: false, hasView: true, activation: { phase: 'active' } })), panels: [] };
+    if (path === 'localApps.panel') { this.changed('Example app chosen. Nothing opened'); return { ok: true }; }
+    if (path === 'workspaces.get') return { id: RECORD_ID, name: 'Example agent' };
+    if (path === 'workspaces.foldersGet') return { devices: [{ deviceId: 'gallery-device', name: 'Example computer', isHome: true, connected: true, setup: null, linked: [] }] };
+    if (path === 'workspaces.list') return [{ id: RECORD_ID, name: 'Research', slug: 'research', status: 'active', purpose: 'Example agent' }];
+    if (path === 'chatSources.search') return { items: [{ kind: 'source', source: { sourceRef: 'gallery-source', label: 'Example service', chipLabel: 'Example service', service: 'Example service', groupId: 'gallery', keywords: [], status: 'ready', chat: true, view: 'none' } }], total: 1 };
+    if (path === 'appMentions.search') return [];
+    if (path === 'triggers.list') return [];
     throw new Error(`The gallery has no fixture for ${path}`);
   }
 }

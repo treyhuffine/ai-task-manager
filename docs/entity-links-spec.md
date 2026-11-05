@@ -1,5 +1,7 @@
 # Entity Links (note/task cross-linking + backlinks)
 
+This covers links inside one Home. [Team links](team-links.md) covers links to a record in another, which share this index under a `<home id>/<id>` target.
+
 Status: proposed (v3)
 Owner: TBD
 Related: `docs/chat-sessions.md`, `docs/optimistic-updates.md`, `docs/storage-architecture.md`, `src/lib/db/schema.ts` (`chat_refs`), `src/lib/entity-refs/parse-markers.ts`, `src/lib/db/index.ts` (FTS trigger precedent), `src/lib/export/mirror/`

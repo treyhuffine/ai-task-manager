@@ -2,7 +2,6 @@
 
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import { AppCompanion } from '@/components/local-apps/app-companion';
-import { AppCompanionButton } from '@/components/local-apps/app-companion-button';
 import {
 	EmptyChatActionsContext,
 	MainChatIntroPanel,
@@ -60,7 +59,6 @@ import { useEffect, useRef, useState } from 'react';
  * agent's (docs/agents-view-spec.md §4). Same component, same composer.
  */
 export function HarnessChat({
-  isMobile = false,
   scope = null,
   composerPlaceholder,
   autoFocusComposer,
@@ -68,7 +66,6 @@ export function HarnessChat({
   emptyState,
   clearBox,
 }: {
-  isMobile?: boolean;
   scope?: MainChatScope;
   composerPlaceholder?: string;
   autoFocusComposer?: boolean;
@@ -85,7 +82,7 @@ export function HarnessChat({
 
   if (!data) return <ChatLookupState paused={fetchStatus === 'paused'} error={error} retry={() => void refetch()} />;
 
-  if (data.session === null && scope) return <ChatRefreshBoundary error={error} retry={() => void refetch()}><NewAgentConversation scope={scope} placeholder={composerPlaceholder} clearBox={clearBox} /></ChatRefreshBoundary>;
+  if (data.session === null && scope) return <ChatRefreshBoundary error={error} retry={() => void refetch()}><NewAgentConversation scope={scope} intro={intro} placeholder={composerPlaceholder} clearBox={clearBox} /></ChatRefreshBoundary>;
 
   if (!sessionId) {
     return (
@@ -114,7 +111,6 @@ export function HarnessChat({
     <ChatRefreshBoundary error={error} retry={() => void refetch()}><HarnessChatSession
       sessionId={sessionId}
       chatMenuInHeader
-      isMobile={isMobile}
       composerPlaceholder={composerPlaceholder}
       autoFocusComposer={autoFocusComposer}
       intro={intro}
@@ -143,7 +139,6 @@ type HarnessChatSessionProps = {
   sessionId: string;
   /** Main chats provide their menu in the surrounding header. Embedded chats keep it in their action row. */
   chatMenuInHeader?: boolean;
-  isMobile?: boolean;
   /** Placeholder for the composer. The agent-first entity view passes
    *  document-specific teaching copy; executions keep the default. */
   composerPlaceholder?: string;
@@ -174,7 +169,6 @@ export function HarnessChatSession(props: HarnessChatSessionProps) {
 
 function ChatSession({
   sessionId,
-  isMobile = false,
   autoFocusComposer = true,
   composerPlaceholder,
   intro,
@@ -287,8 +281,7 @@ function ChatSession({
           effort={session.effort}
           serviceTier={session.serviceTier}
           harness={session.harness}
-          leadingActions={<><AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />{!chatMenuInHeader && <ChatMenu sessionId={session.id} />}</>}
-          submitOnEnter={!isMobile}
+          leadingActions={!chatMenuInHeader && <ChatMenu sessionId={session.id} />}
           isRunning={isRunning}
           onSwitchProvider={onSwitchProvider}
           switchingProvider={switchingProvider}
@@ -318,8 +311,9 @@ function ChatSession({
 }
 
 /** Opening an agent is read-only. Its first message creates the shared chat. */
-function NewAgentConversation({ scope, placeholder, clearBox }: { scope: string; placeholder?: string; clearBox?: string }) {
+function NewAgentConversation({ scope, intro, placeholder, clearBox }: { scope: string; intro?: MainChatIntro; placeholder?: string; clearBox?: string }) {
   const cache = useQueryClient();
+  const composer = useRef<ExecutionComposerHandle>(null);
   const availability = useHomeExecutionChoices();
   const created = useRef<Awaited<ReturnType<typeof createMainChat>> | null>(null);
   const choice = availability.data?.[0];
@@ -335,9 +329,9 @@ function NewAgentConversation({ scope, placeholder, clearBox }: { scope: string;
     onError: error => toast.error('Could not send your message', { description: apiErrorText(error) }),
   });
   return <div className={cn('flex min-h-0 flex-1 flex-col', clearBox)}>
-    <div className="flex-1 p-6 text-sm text-muted-foreground">Start a conversation. Everyone on the team can read it.</div>
+    {intro ? <MainChatIntroPanel intro={intro} disabled={send.isPending || !choice?.available} onSend={content => send.mutate({ content })} onDraft={text => { composer.current?.insertTextAtCursor(text); composer.current?.focus(); }} /> : <div className="flex-1 p-6 text-sm text-muted-foreground">Start a conversation. Everyone on the team can read it.</div>}
     {availability.error && <button type="button" className="mx-4 mb-2 self-start text-xs text-muted-foreground underline" onClick={() => void availability.refetch()}>Retry agent availability</button>}
-    <ExecutionComposer sessionId="" draftKey={`main:new:${scope}`} permissionMode={DEFAULT_PERMISSION_MODE} model={null} effort={null} harness={null}
+    <ExecutionComposer ref={composer} sessionId="" draftKey={`main:new:${scope}`} permissionMode={DEFAULT_PERMISSION_MODE} model={null} effort={null} harness={null}
       placeholder={placeholder} helperText="Starts with the team's default model and permissions." disabled={send.isPending || !choice?.available}
       disabledReason={availability.isPending ? 'Checking agent availability…' : availability.error ? 'Agent availability could not be checked.' : choice?.unavailableReason ?? undefined}
       onSend={(content, opts) => send.mutateAsync({ content, attachments: opts?.attachments }).then(() => {})} />

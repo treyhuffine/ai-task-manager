@@ -14,13 +14,17 @@
  * `message_agent` / `delegate_work` (docs/agent-coordination.md), where that
  * agent's own scope, permission and Hold apply.
  *
+ * A record in a connected team has no body to inline without a network call,
+ * so unless this Home holds a shared copy, its tag says how to read it. A send
+ * never waits on a team.
+ *
  * Unknown ids fall through as the literal marker — same approach as
  * file markers, so the agent / user can see something went sideways
  * rather than the reference silently disappearing.
  */
-import { getTask, getNote, getChatSession, getWorkspace } from '@/lib/db/queries';
+import { getTask, getNote, getChatSession, getWorkspace, getTaskProjection, getNoteProjection, getTeamConnection } from '@/lib/db/queries';
 
-const MARKER_RE = /\[\[(task|note|agent|scratchpad)(?::([A-Za-z0-9_.-]+))?\]\]/g;
+const MARKER_RE = /\[\[(?:(task|note|area):([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]+)|(task|note|agent|scratchpad)(?::([A-Za-z0-9_.-]+))?)\]\]/g;
 
 /** Truncate the body inlined into a turn so a 50k-char note doesn't blow context. */
 const ENTITY_BODY_CHAR_CAP = 20_000;
@@ -70,6 +74,14 @@ function renderAgentMarker(id: string): string | null {
   return purpose ? `${open}>\n${purpose}\n</agent>` : `${open} />`;
 }
 
+function renderRemoteMarker(kind: string, homeId: string, id: string): string | null {
+  const connection = getTeamConnection(homeId);
+  if (!connection) return null;
+  const copy = kind === 'task' ? getTaskProjection(homeId, id) : kind === 'note' ? getNoteProjection(homeId, id) : null;
+  if (copy) return kind === 'task' ? renderTaskMarker(copy.id) : renderNoteMarker(copy.id);
+  return `<${kind} id="${id}" target_home_id="${homeId}" team="${escapeXmlAttr(connection.name)}" read_with="get_${kind}" />`;
+}
+
 function renderScratchpadMarker(sessionId: string): string | null {
   const s = getChatSession(sessionId);
   if (!s) return null;
@@ -87,7 +99,8 @@ function renderScratchpadMarker(sessionId: string): string | null {
  */
 export function expandEntityMarkers(content: string, sessionId: string): string {
   if (!content) return content;
-  return content.replace(MARKER_RE, (raw, kind: string, id?: string) => {
+  return content.replace(MARKER_RE, (raw, remoteKind?: string, homeId?: string, remoteId?: string, kind?: string, id?: string) => {
+    if (remoteKind && homeId && remoteId) return renderRemoteMarker(remoteKind, homeId, remoteId) ?? raw;
     if (kind === 'scratchpad') {
       return renderScratchpadMarker(sessionId) ?? raw;
     }

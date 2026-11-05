@@ -1,6 +1,7 @@
 import { coordinationRouter } from '@/lib/coordination/router';
 import { externalAiRouter } from '@/lib/external-ai/router';
 import { emailRouter } from '@/lib/email/router';
+import { conversationIntegrationsRouter } from '@/lib/integrations/conversations/router';
 import { chatSourcesRouter } from '@/lib/chat-sources/router';
 import { connectedAppsRouter } from '@/lib/mcp-apps/router';
 import { mcpSettingsRouter } from '@/lib/mcp-apps/settings-router';
@@ -36,6 +37,8 @@ import { LIFECYCLE_COMMANDS } from '@/lib/tasks/lifecycle';
 import { resolveHomeContext } from '@/lib/home/context';
 import { filePreviewsRouter } from '@/lib/files/router';
 import { resolveHomeExecutionChoices } from '@/lib/home/execution-choices';
+import { isTeamAuthority } from '@/lib/home/authority';
+import { SCRATCHPAD_MAX_LENGTH } from '@/lib/scratchpad/merge';
 
 /** A run of days for the work view (docs/work-view.md). */
 const workRangeInput = z.object({
@@ -51,6 +54,11 @@ const chatId = z.string().min(1).max(64);
 function required<T>(value: T | null | undefined, entity: string): T {
   if (value == null) throw new TRPCError({ code: 'NOT_FOUND', message: `${entity} not found` });
   return value;
+}
+
+/** The scratchpad is private planning, which a team's Home never holds. */
+function personalOnly() {
+  if (isTeamAuthority()) throw new TRPCError({ code: 'FORBIDDEN', message: 'Your scratchpad lives in your own Ri.' });
 }
 
 /** A query-layer ordering refusal, as the matching tRPC error. */
@@ -70,6 +78,7 @@ function sharedTaskIn(id: string) {
 
 const editContent = sharedActionProcedure('editContent');
 export const appRouter = router({
+  conversationIntegrations: conversationIntegrationsRouter,
   homeContext: sp.query(({ ctx }) => resolveHomeContext(ctx.key)),
   homeExecutionChoices: sp.query(({ ctx }) => resolveHomeExecutionChoices(ctx.key)),
   coordination: coordinationRouter,
@@ -214,6 +223,13 @@ export const appRouter = router({
       if (caller.team && !caller.capabilities.deletePermanently) throw new TRPCError({ code: 'FORBIDDEN', message: "Archive it instead. Only the team's owner can delete shared work." });
       if (!q.deleteNote(input.id)) throw new TRPCError({ code: 'NOT_FOUND', message: 'Note not found' });
     }),
+  }),
+  // The person's own scratchpad (docs/scratchpad.md). Private planning, so
+  // only a personal Home has one, and only its viewer reads or writes it.
+  scratchpad: router({
+    get: p.query(() => { personalOnly(); return q.getScratchpad(); }),
+    save: p.input(z.object({ body: z.string().max(SCRATCHPAD_MAX_LENGTH), base: z.string().max(SCRATCHPAD_MAX_LENGTH) }).strict())
+      .mutation(({ input }) => { personalOnly(); return q.saveScratchpad(input.body, input.base); }),
   }),
   work: router({
     range: p.input(workRangeInput).query(({ input }) => getWorkRange(input)),

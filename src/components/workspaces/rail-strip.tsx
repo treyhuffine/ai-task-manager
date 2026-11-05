@@ -1,10 +1,14 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { Bot, PanelLeftOpen } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useAgentAttention } from '@/hooks/use-agent-attention';
+import { useOpenChatAgentId } from '@/hooks/use-open-chat-agent';
 import { useSessionBuckets } from '@/hooks/use-session-buckets';
+import { useWorkspaces } from '@/hooks/use-workspaces';
 import { HOTKEYS } from '@/constants/commands';
+import { activeAgentIdOf } from '@/lib/client/active-view';
 import { useRailTab } from '@/lib/client/rail-tab';
 import { RailHome } from './rail-home';
 import { RailFooter } from './rail-footer';
@@ -55,7 +59,7 @@ export function RailStrip({ places, onToggle }: { places: readonly RailPlace[]; 
  * (approvals and unread, agents included), the same rows the header's pills
  * count.
  */
-function AgentsFlyout() {
+export function AgentsFlyout() {
   const { activeView } = useDashboard();
   const buckets = useSessionBuckets();
   const agents = useAgentAttention();
@@ -87,15 +91,61 @@ function AgentsFlyout() {
   );
 }
 
-/** The list header fixed at the top, the list scrolling under it. */
+/**
+ * The list header fixed at the top, the list scrolling under it. The agent
+ * you're in is marked as in the wide rail, and a long list opens scrolled to
+ * it.
+ */
 function FlyoutList() {
   const { tab, setTab } = useRailTab();
+  const { activeView } = useDashboard();
+  const openChatAgentId = useOpenChatAgentId();
+  const { data: agents } = useWorkspaces({ status: 'active' });
+  const list = useRevealAgent(tab === 'workspace' && agents ? (activeAgentIdOf(activeView) ?? openChatAgentId) : null);
   return (
     <WorkspaceSelectionProvider>
       <RailListHeader tab={tab} onSelect={setTab} />
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-4">
+      <div ref={list} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-4">
         <RailListBody tab={tab} />
       </div>
     </WorkspaceSelectionProvider>
   );
+}
+
+/**
+ * The ref for a scrolling list, which scrolls once to an agent outside its
+ * view, centered so the agents around it show too. The flyout gets its height
+ * a moment after it mounts (Radix measures the rail, then sizes it), so this
+ * runs again as the list's size changes, until it has scrolled or you scroll
+ * the list yourself.
+ */
+function useRevealAgent(agentId: string | null) {
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = list.current;
+    if (!box || !agentId) return;
+    let done = false;
+    const reveal = () => {
+      const row = box.querySelector(`[data-agent-id="${CSS.escape(agentId)}"]`);
+      if (done || !row) return;
+      const view = box.getBoundingClientRect();
+      const at = row.getBoundingClientRect();
+      if (at.top >= view.top && at.bottom <= view.bottom) return;
+      box.scrollTop += at.top - view.top - (view.height - at.height) / 2;
+      done = true;
+    };
+    const stop = () => {
+      done = true;
+    };
+    reveal();
+    const sized = new ResizeObserver(reveal);
+    sized.observe(box);
+    const yours = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
+    for (const type of yours) box.addEventListener(type, stop, { passive: true });
+    return () => {
+      sized.disconnect();
+      for (const type of yours) box.removeEventListener(type, stop);
+    };
+  }, [agentId]);
+  return list;
 }

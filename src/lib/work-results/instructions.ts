@@ -35,10 +35,14 @@ export function builtInHandoffInstructions(cliCommand = handoffCliCommand()): st
   ].filter(Boolean).join('\n\n');
 }
 
-/** Current guidance rides the harness message too, including cached/resumed sessions. */
-export function withWorkResultSessionInstructions(message: string, surfaceKind: string | null): string {
+/**
+ * Current guidance rides the harness message too, including cached/resumed
+ * sessions. `extra` adds other current rules to the same block, such as the
+ * status line rule (src/lib/sessions/turn-status-instructions.ts).
+ */
+export function withWorkResultSessionInstructions(message: string, surfaceKind: string | null, extra: readonly string[] = []): string {
   if (surfaceKind === 'result_review') return message;
-  const guidance = workResultSessionInstructions();
+  const guidance = [workResultSessionInstructions(), ...extra].filter(Boolean).join('\n\n');
   return guidance ? `[Current Ri session capabilities, supplied by the app.]\n${guidance}\n[User message follows.]\n${message}` : message;
 }
 

@@ -11,9 +11,10 @@ await vi.hoisted(async () => {
   vi.stubGlobal('document', document);
 });
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), assign: vi.fn(), settings: vi.fn(), home: null as { home: { id: string; kind: 'personal' | 'team'; name: string } } | null }));
-vi.mock('@/lib/spaces/my-ri-client', () => ({ myRiClient: { spaces: { list: { query: mocks.list } } } }));
-vi.mock('@/lib/spaces/client-cache', () => ({ teamConnectionsKey: () => ['teams'] }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), identity: vi.fn(), logo: null as string | null, assign: vi.fn(), settings: vi.fn(), home: null as { home: { id: string; kind: 'personal' | 'team'; name: string } } | null }));
+vi.mock('@/lib/spaces/my-ri-client', () => ({ myRiClient: { spaces: { list: { query: mocks.list }, identity: { query: mocks.identity } } } }));
+vi.mock('@/lib/spaces/client-cache', () => ({ teamConnectionsKey: () => ['teams'], teamIdentityKey: (id: string) => ['team-identity', id] }));
+vi.mock('@/hooks/use-user-state', () => ({ useOrchestratorIdentity: () => ({ imageUrl: mocks.logo }) }));
 vi.mock('@/components/home/home-context', () => ({ useOptionalHomeContext: () => mocks.home }));
 import { SpaceSelector } from './space-selector';
 
@@ -24,6 +25,8 @@ const teamId = 'team-fixture';
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.home = null;
+  mocks.logo = null;
+  mocks.identity.mockResolvedValue({ logoFileName: null });
   const { window, document } = parseHTML('<!doctype html><html><body><div id="root"></div></body></html>');
   for (const name of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'CustomEvent', 'Event', 'MutationObserver']) {
     vi.stubGlobal(name, name === 'window' ? window : name === 'document' ? document : window[name as keyof typeof window]);
@@ -94,4 +97,44 @@ it('keeps personal Ri without connected teams free of setup controls', async () 
   mocks.list.mockResolvedValue([]);
   await render('wide');
   expect(document.querySelector('[aria-label$="Switch space"]')).toBeNull();
+});
+
+
+it('loads an unselected Team logo from its own attachment store while viewing personal Ri', async () => {
+  delete document.documentElement.dataset.riSpace;
+  mocks.home = { home: { id: 'personal', kind: 'personal', name: 'My Ri' } };
+  mocks.logo = '/api/attachments/personal-agent.png';
+  mocks.identity.mockResolvedValue({ logoFileName: 'company.svg' });
+  await render('wide');
+  expect(mocks.identity).not.toHaveBeenCalled();
+  await openMenu();
+  expect(mocks.identity).toHaveBeenCalledWith({ id: teamId });
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Team Huffine'))!;
+  expect(item.querySelector('img')?.getAttribute('src')).toBe(`/api/space/${teamId}/attachments/company.svg`);
+  expect(document.querySelector('[aria-label$="Switch space"] img')).toBeNull();
+});
+
+it('uses the selected Team live logo and loads other Teams independently', async () => {
+  mocks.home = { home: { id: teamId, kind: 'team', name: 'Team Huffine' } };
+  mocks.logo = `/api/space/${teamId}/attachments/current.svg`;
+  mocks.list.mockResolvedValue([{ id: teamId, name: 'Team Huffine', status: 'active' }, { id: 'other', name: 'Other Team', status: 'active' }]);
+  mocks.identity.mockResolvedValue({ logoFileName: 'other.svg' });
+  await render('wide');
+  await openMenu();
+  expect(mocks.identity).toHaveBeenCalledTimes(1);
+  expect(mocks.identity).toHaveBeenCalledWith({ id: 'other' });
+  const sources = [...document.querySelectorAll<HTMLImageElement>('[role="menuitem"] img')].map(image => image.getAttribute('src'));
+  expect(sources).toEqual([mocks.logo, '/api/space/other/attachments/other.svg']);
+});
+
+it.each(['no logo', 'offline'] as const)('keeps the Team selectable with initials when it has %s', async state => {
+  delete document.documentElement.dataset.riSpace;
+  if (state === 'offline') mocks.identity.mockRejectedValue(new Error('Offline'));
+  await render('wide');
+  await openMenu();
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Team Huffine'))!;
+  expect(item.querySelector('img')).toBeNull();
+  expect(item.querySelector('[aria-hidden]')?.textContent).toBe('T');
+  await act(async () => item.click());
+  expect(mocks.assign).toHaveBeenCalledWith(`/space/${teamId}`);
 });

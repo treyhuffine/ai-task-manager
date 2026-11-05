@@ -1,12 +1,13 @@
 'use client';
 
 import { useMemo, useRef } from 'react';
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown, MoreHorizontal, Plus, SlidersHorizontal } from 'lucide-react';
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Eye, EyeOff, MessagesSquare, MoreHorizontal, Plus, SlidersHorizontal } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useRailSessions, useUpdateWorkspace } from '@/hooks/use-workspaces';
+import { useMarkSessionRead, useMarkSessionUnread, useRailSessions, useUpdateWorkspace } from '@/hooks/use-workspaces';
 import { useAgentViewMode } from '@/lib/client/agent-view-mode';
+import { useRailStyle } from '@/lib/client/rail-style';
 import { isSessionUnread, sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import {
   agentVoice,
@@ -20,6 +21,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -27,8 +29,10 @@ import type { WorkspaceWithCounts } from '@/db/types';
 import { SessionRow } from './session-row';
 import { InactiveFold } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
+import { useOpenChatAgentId } from '@/hooks/use-open-chat-agent';
 import { Tip } from '@/components/ui/tip';
 import { AgentChatsFlyout } from './agent-chats-flyout';
+import { AgentSelectionSection } from './agent-selection-section';
 import { useWorkspaceSelection } from './workspace-selection-context';
 
 interface AgentRailRowProps {
@@ -83,16 +87,44 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  * recent ones show. Hiding the executions is one click on hover, and hidden
  * executions fold into a line that still says what wants you, so hiding
  * never hides that. The whole row drags.
+ *
+ * In the agents-only rail (`agentsOnly`) the executions have no rows. The
+ * agent's dot, bold name and line stay its own (its main chat), and its
+ * chats get counts at the row's end instead: amber for the ones that need
+ * you (waiting on you or unread, pulsing while one is blocked), green for the
+ * ones working. The header counts every chat, these say which agent's. They
+ * give way to the actions on hover, and open no tooltip. Inactive chats don't
+ * count. Resting on the agent opens nothing: the chats button among its
+ * hover actions opens its chats beside the rail on a click, each with its
+ * status line, and resting on a chat there shows its latest messages.
+ *
+ * The agent you're in is marked: selected, as when its own page is open,
+ * while one of its chats is on screen and that chat's row isn't showing (it
+ * never does in agents only, nor while its chats are hidden or the chat is
+ * archived). Its open buttons say so with `aria-current`, `page` for its own
+ * page and `true` for one of its chats. Where the chat's row shows, that row
+ * is the selection, so two rows never look selected at once.
+ *
+ * Its menu marks the agent read or unread, which is its main chat's read
+ * state, so an agent you've opened can be put back to come back to.
+ *
+ * The agent itself opens no tooltip on hover: one on every agent the pointer
+ * crosses was distracting. The icon's label still says its presence to a
+ * screen reader. The hover actions keep theirs.
  */
 export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onOpenLauncher }: AgentRailRowProps) {
   const { streamingSessionIds, pendingInputSessionIds, activeView, activeSessionId, activeExecutionId, openAgent } =
     useDashboard();
   const { opensView } = useAgentViewMode();
+  const agentsOnly = useRailStyle().style === 'agentsOnly';
   const { data: rail } = useRailSessions();
   const updateWs = useUpdateWorkspace();
+  const markRead = useMarkSessionRead();
+  const markUnread = useMarkSessionUnread();
   const { isInactive } = useInactivity();
   const isActive = activeView.kind === 'agent' && activeView.id === workspace.id;
-  const expanded = !workspace.collapsed;
+  // Agents only: there's no list to fold, so the agent never shows one.
+  const expanded = !agentsOnly && !workspace.collapsed;
   const header = useRef<HTMLDivElement>(null);
   const selecting = useWorkspaceSelection()?.selecting ?? false;
 
@@ -101,6 +133,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
   const chat = rail?.mainChats?.find((c) => c.workspaceId === workspace.id) ?? null;
   const activity = mainChatActivity(chat, pendingInputSessionIds, streamingSessionIds);
   const wantsYou = activity === 'waiting' || activity === 'replied';
+  const unread = !!chat && isSessionUnread(chat);
   const voice = agentVoice({
     activity,
     waitingOn: chat?.waitingOn ?? null,
@@ -108,7 +141,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     purpose: workspace.purpose,
   });
 
-  const { sessions, inactive, total, summary } = useMemo(() => {
+  const { sessions, inactive, total, summary, listsOpen, counts } = useMemo(() => {
     const all = sortSessionsHotnessDesc(
       (rail?.sessions ?? []).filter((s) => s.workspaceId === workspace.id && s.status === 'active'),
     );
@@ -120,11 +153,14 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     for (const s of all) (isInactive(s) && !isOpen(s) ? folded : kept).push(s);
     let working = 0;
     let needsYou = 0;
+    let blocked = 0;
     for (const s of kept) {
       if (isInactive(s)) continue;
       // The rail's buckets: pending wins over streaming, unread needs you too.
-      if (pendingInputSessionIds.has(s.id)) needsYou++;
-      else if (streamingSessionIds.has(s.id)) working++;
+      if (pendingInputSessionIds.has(s.id)) {
+        needsYou++;
+        blocked++;
+      } else if (streamingSessionIds.has(s.id)) working++;
       else if (isSessionUnread(s)) needsYou++;
     }
     return {
@@ -132,6 +168,8 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       inactive: folded,
       total: all.length,
       summary: threadSummary({ total: all.length, needsYou, working }),
+      listsOpen: all.some(isOpen),
+      counts: { needsYou, working, blocked },
     };
   }, [
     rail?.sessions,
@@ -144,17 +182,26 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
   ]);
 
   const hasThreads = total > 0;
+  // Which agent you're in: its own page, or one of its chats with no row
+  // showing (always so in agents only, and while its chats are hidden).
+  const holdsOpenChat = useOpenChatAgentId() === workspace.id;
+  const current = isActive ? 'page' : holdsOpenChat && !(expanded && listsOpen) ? 'true' : undefined;
   const toggleThreads = () => updateWs.mutate({ id: workspace.id, collapsed: expanded });
-  const open = () => (opensView ? openAgent(workspace.id) : toggleThreads());
+  // With no list to fold, the agent always opens.
+  const open = () => (opensView || agentsOnly ? openAgent(workspace.id) : toggleThreads());
   const stop = (e: React.PointerEvent | React.MouseEvent) => e.stopPropagation();
 
+  // Two lines, with each chat's status line, in agents only (they're only
+  // ever in the flyout) and while selecting chats to archive, when that line
+  // says whether a chat is done.
+  const density = agentsOnly || selecting ? 'regular' : 'compact';
   const threads = (
     <div className="space-y-px">
       {sessions.map((s) => (
         <SessionRow
           key={s.id}
           session={s}
-          density="compact"
+          density={density}
           workspaceIsGit={workspace.isGit}
           onOpenWorkspaceSettings={onOpenSettings}
           onOpenLauncher={onOpenLauncher}
@@ -164,14 +211,15 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       <InactiveFold
         sectionId={`agent:${workspace.id}`}
         count={inactive.length}
-        className="pl-[28px]"
-        rowClassName={THREAD_FOLD_ROW}
+        className={density === 'regular' ? 'pl-8' : 'pl-[28px]'}
+        rowClassName={density === 'regular' ? undefined : THREAD_FOLD_ROW}
+        selectIds={inactive.map((s) => s.id)}
       >
         {inactive.map((s) => (
           <SessionRow
             key={s.id}
             session={s}
-            density="compact"
+            density={density}
             workspaceIsGit={workspace.isGit}
             onOpenWorkspaceSettings={onOpenSettings}
             onOpenLauncher={onOpenLauncher}
@@ -182,9 +230,18 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     </div>
   );
 
+  if (selecting) {
+    return (
+      <AgentSelectionSection workspace={workspace} sessions={[...sessions, ...inactive]}>
+        {threads}
+      </AgentSelectionSection>
+    );
+  }
+
   return (
     <div
       ref={setNodeRef}
+      data-agent-id={workspace.id}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(isDragging && 'opacity-60')}
     >
@@ -194,64 +251,65 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         {...listeners}
         className={cn(
           'group relative flex items-center gap-2 px-1.5 py-1.5 rounded-lg transition-colors cursor-grab active:cursor-grabbing select-none touch-none',
-          isActive ? 'bg-secondary' : 'hover:bg-muted/40',
+          // One look for both: the page says whether it's the agent or its chat.
+          current ? 'bg-secondary' : 'hover:bg-muted/40',
         )}
       >
-        <Tip label={activity ? PRESENCE[activity].label : undefined}>
-          <button
-            onClick={open}
-            className="relative flex-shrink-0 rounded-md"
-            aria-label={activity ? `${workspace.name}: ${PRESENCE[activity].label}` : `Open ${workspace.name}`}
-          >
-            <AgentIcon workspace={workspace} size="md" />
-            {activity && (
-              <span
-                aria-hidden
-                className={cn(
-                  'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-background',
-                  PRESENCE[activity].dot,
-                )}
-              />
-            )}
-          </button>
-        </Tip>
+        <button
+          onClick={open}
+          className="relative flex-shrink-0 rounded-md"
+          aria-label={activity ? `${workspace.name}: ${PRESENCE[activity].label}` : `Open ${workspace.name}`}
+          aria-current={current}
+        >
+          <AgentIcon workspace={workspace} size="md" />
+          {activity && (
+            <span
+              aria-hidden
+              className={cn(
+                'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-background',
+                PRESENCE[activity].dot,
+              )}
+            />
+          )}
+        </button>
         <AgentChatsFlyout
           name={workspace.name}
-          enabled={hasThreads && !expanded && !isDragging && !selecting}
+          enabled={hasThreads && !expanded && !agentsOnly && !isDragging}
           hoverTarget={header}
           onClick={open}
           onNewChat={() => onOpenLauncher(workspace.id)}
-          trigger={({ ref, open: flyoutOpen, onClick }) => (
-            <Tip label={flyoutOpen ? undefined : voice ? `${workspace.name}: ${voice.text}` : workspace.name} onlyWhenTextHidden>
-              <button
-                ref={ref}
-                onClick={onClick}
-                className="flex-1 min-w-0 text-left"
-              >
-                <span
-                  className={cn(
-                    'block truncate text-[12.5px] leading-tight',
-                    wantsYou ? 'font-semibold text-foreground' : 'font-medium text-foreground/85',
-                  )}
-                >
-                  {workspace.name}
-                </span>
-                {voice && (
-                  <span className={cn('mt-0.5 block truncate text-[10.5px] leading-tight', VOICE_TONE[voice.tone])}>
-                    {voice.text}
-                  </span>
+          trigger={({ ref, onClick }) => (
+            <button
+              ref={ref}
+              onClick={onClick}
+              className="flex-1 min-w-0 text-left"
+              aria-current={current}
+            >
+              <span
+                className={cn(
+                  'block truncate text-[12.5px] leading-tight',
+                  wantsYou ? 'font-semibold text-foreground' : 'font-medium text-foreground/85',
                 )}
-              </button>
-            </Tip>
+              >
+                {workspace.name}
+              </span>
+              {voice && (
+                <span className={cn('mt-0.5 block truncate text-[10.5px] leading-tight', VOICE_TONE[voice.tone])}>
+                  {voice.text}
+                </span>
+              )}
+            </button>
           )}
         >
           {threads}
         </AgentChatsFlyout>
 
+        {agentsOnly && <ChatCounts {...counts} />}
+
         {/* Takes no room until you hover, so at rest the name and its line
             get the full width. Stays while its menu is open. */}
         <div className="hidden group-hover:flex group-focus-within:flex has-[[data-state=open]]:flex items-center gap-0.5 flex-shrink-0">
-          {hasThreads && (
+          {hasThreads && !agentsOnly && (
             <Tip label={expanded ? 'Hide chats' : 'Show chats'}>
               <button
                 onPointerDown={stop}
@@ -265,6 +323,33 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
                 {expanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
               </button>
             </Tip>
+          )}
+          {hasThreads && agentsOnly && (
+            // A click, never a rest, slides its chats out beside the rail.
+            <AgentChatsFlyout
+              name={workspace.name}
+              enabled={!isDragging}
+              hoverOpens={false}
+              previews
+              onNewChat={() => onOpenLauncher(workspace.id)}
+              trigger={({ ref, open: chatsOpen }) => (
+                <Tip label={chatsOpen ? undefined : "View agent's chats"}>
+                  <button
+                    ref={ref}
+                    onPointerDown={stop}
+                    className={cn(
+                      'p-1 rounded hover:text-foreground hover:bg-muted/50',
+                      chatsOpen ? 'bg-muted/60 text-foreground' : 'text-muted-foreground/60',
+                    )}
+                    aria-label={`${workspace.name} chats`}
+                  >
+                    <MessagesSquare size={13} />
+                  </button>
+                </Tip>
+              )}
+            >
+              {threads}
+            </AgentChatsFlyout>
           )}
           <Tip label="New chat (shift-click to start one right away on the last settings)">
             <button
@@ -292,6 +377,20 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="text-[11px] min-w-[170px]" onPointerDown={stop} onClick={stop}>
+              {chat && (
+                <>
+                  {unread ? (
+                    <DropdownMenuItem onSelect={() => markRead.mutate({ id: chat.id, dismiss: true })}>
+                      <Eye size={12} /> Mark as read
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem onSelect={() => markUnread.mutate(chat.id)}>
+                      <EyeOff size={12} /> Mark as unread
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuItem onSelect={() => onOpenLauncher(workspace.id)}>
                 <Plus size={12} /> New chat
               </DropdownMenuItem>
@@ -311,7 +410,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         </div>
       )}
 
-      {hasThreads && !expanded && (
+      {hasThreads && !expanded && !agentsOnly && (
         <Tip label="Show chats">
           <button
             onPointerDown={stop}
@@ -334,3 +433,38 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     </div>
   );
 }
+
+/**
+ * The agents-only row's end: how many of the agent's chats need you (amber,
+ * pulsing while one is blocked on you) and how many are working (green), in
+ * the header's colors. Nothing when neither. Gives way to the row's actions
+ * on hover, focus or an open menu, the way a chat row's time does.
+ */
+function ChatCounts({ needsYou, working, blocked }: { needsYou: number; working: number; blocked: number }) {
+  if (needsYou === 0 && working === 0) return null;
+  const said = [
+    needsYou > 0 && `${needsYou} chat${needsYou === 1 ? '' : 's'} need${needsYou === 1 ? 's' : ''} you`,
+    working > 0 && `${working} working`,
+  ].filter(Boolean).join(', ');
+  return (
+    <span className="flex flex-shrink-0 items-center gap-1 group-hover:hidden group-focus-within:hidden group-has-[[data-state=open]]:hidden">
+      <span className="sr-only">{said}</span>
+      {needsYou > 0 && (
+        <span
+          aria-hidden
+          data-count="needs-you"
+          className={cn(COUNT, 'bg-amber-500/15 text-amber-600 dark:text-amber-400', blocked > 0 && 'animate-pulse')}
+        >
+          {needsYou}
+        </span>
+      )}
+      {working > 0 && (
+        <span aria-hidden data-count="working" className={cn(COUNT, 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400')}>
+          {working}
+        </span>
+      )}
+    </span>
+  );
+}
+
+const COUNT = 'min-w-[18px] h-[16px] rounded-full px-1 text-center text-[10px] font-semibold leading-[16px] tabular-nums';

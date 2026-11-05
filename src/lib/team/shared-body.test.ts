@@ -226,3 +226,19 @@ describe('shared body autosave', () => {
     saver.dispose();
   });
 });
+
+describe('a server that stores different text than it was sent', () => {
+  it('writes once: an echo must not read as an unsaved edit', async () => {
+    // This wrote forever when an echo came back changed.
+    const write = vi.fn(async (input: { body: string; expectedBodyRevision: number }) => ({
+      body: input.body.replace('local-id', 'team-id'),
+      bodyRevision: input.expectedBodyRevision + 1,
+    }));
+    const saver = new SharedBodySaver(key, { body: '', bodyRevision: 0 }, write, readFailure, () => storage);
+    saver.edit('See [[task:local-id]]');
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(saver.status()).toEqual({ status: 'saved' });
+    expect(saver.hasUnsaved()).toBe(false);
+  });
+});

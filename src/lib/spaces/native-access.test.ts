@@ -228,18 +228,160 @@ it('reuses assigned launch references, releases them on reassignment, and discar
   expect(q.getTask(kept.task.id)?.userContext).toBe('My planning survives cancelling.');
 });
 
-it('refuses unsupported Team destinations before any personal Area, rank or stream write', async () => {
+it('refuses unsupported Team destinations before any personal rank or stream write', async () => {
   const { c } = await connect();
   const personal = q.createTask({ title: 'Personal record' });
   for (const [name, input] of [
-    ['create_area', { name: 'Do not create' }],
     ['rank_task', { id: personal.id, rank: 1 }],
     ['create_stream_item', { raw_text: 'Do not capture' }],
   ] as const) {
     expect(await runAction(name, { ...input, target_home_id: c.id }, ctx)).toMatchObject({ ok: false, error: { code: 'unsupported' } });
   }
-  expect(q.listAreas().some(area => area.name === 'Do not create')).toBe(false);
+  expect(q.listStream().some(item => item.rawText === 'Do not capture')).toBe(false);
   expect(q.getTask(personal.id)?.sortKey).toBeNull();
+});
+
+describe('a connected team\'s Areas', () => {
+  const name = () => `Area ${crypto.randomUUID()}`;
+
+  it('creates and updates them in the team once per key, and files work under them, leaving personal Areas alone', async () => {
+    const { o, c } = await connect();
+    const dev = name();
+    const personal = q.createArea({ name: dev });
+    const input = { name: dev, description: 'Engineering work', target_home_id: c.id, idempotency_key: 'native-area-create' };
+    const created = result(await runAction('create_area', input, ctx));
+    expect(created).toMatchObject({ target_home: { id: c.id }, replayed: false, result: { name: dev, description: 'Engineering work', status: 'active' } });
+    const id = created.result.id as string;
+    expect(id).not.toBe(personal.id);
+
+    // A retry after a lost response is the first outcome, not a second Area.
+    const retried = result(await runAction('create_area', input, ctx));
+    expect(retried).toMatchObject({ replayed: true, result: { id } });
+    expect((await o.areas.list.query()).filter(area => area.name === dev)).toHaveLength(1);
+
+    const task = result(await runAction('create_task', { title: 'Filed under the new Area', area_id: id, target_home_id: c.id, idempotency_key: 'native-area-task' }, ctx));
+    expect(task.result.area).toEqual({ id, name: dev, ref: `[[area:${c.id}/${id}]]` });
+
+    const renamed = `${dev} renamed`;
+    const update = { id, name: renamed, description: null, target_home_id: c.id, idempotency_key: 'native-area-rename' };
+    expect(result(await runAction('update_area', update, ctx)).result).toMatchObject({ id, name: renamed, description: null });
+    expect(result(await runAction('update_area', update, ctx))).toMatchObject({ replayed: true, result: { id, name: renamed } });
+    expect(await runAction('update_area', { ...update, name: 'Another request' }, ctx)).toMatchObject({ ok: false, error: { code: 'conflict' } });
+    expect(await o.areas.get.query({ id })).toMatchObject({ name: renamed, description: null, status: 'active' });
+
+    // Nothing reached this Home: the same name stays a separate identity.
+    expect(q.listAreas()).toEqual([expect.objectContaining({ id: personal.id, name: dev })]);
+    expect(q.getArea(id)).toBeUndefined();
+  });
+
+  it('reaches the team through the real orchestrator MCP route, which publishes the destination', async () => {
+    const { o, c } = await connect();
+    const { POST } = await import('@/app/api/orchestrator/[transport]/route');
+    const { sessionCredential } = await import('@/lib/orchestrator/session-credential');
+    const mcp = async (method: string, params?: unknown) => {
+      const response = await POST(new Request('http://127.0.0.1/api/orchestrator/mcp', {
+        method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'x-ri-session': sessionCredential(ctx.actor!.sessionId!)! },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, ...(params ? { params } : {}) }),
+      }));
+      const raw = await response.text();
+      return JSON.parse(raw.includes('data:') ? raw.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('') : raw).result;
+    };
+    const { tools } = await mcp('tools/list') as { tools: { name: string; description: string; inputSchema: { properties: Record<string, unknown> } }[] };
+    for (const tool of tools.filter(tool => tool.name === 'create_area' || tool.name === 'update_area')) {
+      expect(Object.keys(tool.inputSchema.properties)).toEqual(expect.arrayContaining(['target_home_id', 'idempotency_key', 'name', 'description', 'emoji']));
+      expect(tool.description).toContain('list_homes');
+    }
+    const dev = name();
+    const created = JSON.parse((await mcp('tools/call', { name: 'create_area', arguments: { name: dev, targetHomeId: c.id, idempotency_key: 'mcp-area-create' } })).content[0].text);
+    expect(created, JSON.stringify(created)).toMatchObject({ ok: true, result: { target_home: { id: c.id }, result: { name: dev } } });
+    const updated = JSON.parse((await mcp('tools/call', { name: 'update_area', arguments: { id: created.result.result.id, description: 'From MCP', target_home_id: c.id, idempotency_key: 'mcp-area-update' } })).content[0].text);
+    expect(updated, JSON.stringify(updated)).toMatchObject({ ok: true, result: { result: { name: dev, description: 'From MCP' } } });
+    expect(await o.areas.get.query({ id: created.result.result.id })).toMatchObject({ name: dev, description: 'From MCP' });
+    expect(q.listAreas()).toEqual([]);
+  });
+
+  it('refuses archiving, private fields and a missing key, and never falls back to a personal write', async () => {
+    const { o, c } = await connect();
+    const area = await o.areas.create.mutate({ name: name() });
+    const personal = q.createArea({ name: 'Mine', description: 'Keep me' });
+    const key = (suffix: string) => ({ target_home_id: c.id, idempotency_key: `native-area-refused-${suffix}` });
+    for (const [i, input] of [{ status: 'archived' }, { status: 'inactive' }, { status: 'active' }, { userContext: 'Private' }, { sortOrder: 1 }].entries()) {
+      expect(await runAction('update_area', { id: area.id, ...input, ...key(`u${i}`) }, ctx), JSON.stringify(input)).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
+    }
+    expect(await runAction('create_area', { name: name(), userContext: 'Private', ...key('c') }, ctx)).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
+    expect(await runAction('create_area', { name: 'No receipt', target_home_id: c.id }, ctx)).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
+    expect(await runAction('update_area', { id: personal.id, name: 'Wrong Home', ...key('wrong-home') }, ctx)).toMatchObject({ ok: false, error: { code: 'not_found' } });
+    expect(await runAction('create_area', { name: 'Unknown team', target_home_id: 'Acme', idempotency_key: 'native-area-unknown' }, ctx)).toMatchObject({ ok: false, error: { code: 'not_found' } });
+
+    expect(await o.areas.get.query({ id: area.id })).toMatchObject({ name: area.name, status: 'active' });
+    expect((await o.areas.list.query()).some(row => row.name === 'No receipt')).toBe(false);
+    expect(q.listAreas()).toEqual([expect.objectContaining({ id: personal.id, name: 'Mine', description: 'Keep me' })]);
+  });
+
+  it('keeps the personal actions as they were when no team is named', async () => {
+    const { o, c } = await connect();
+    const before = (await o.areas.list.query({ status: 'all' })).length;
+    const created = await runAction('create_area', { name: 'Personal', description: 'Mine', emoji: '🏡', userContext: 'Private', sortOrder: 3 }, ctx);
+    expect(created.ok, JSON.stringify(created)).toBe(true);
+    const area = created.result as { id: string };
+    expect(area).toMatchObject({ name: 'Personal', userContext: 'Private', sortOrder: 3, status: 'active' });
+    expect(area).not.toHaveProperty('target_home');
+    expect(result(await runAction('update_area', { id: area.id, name: 'Renamed' }, ctx))).toMatchObject({ id: area.id, name: 'Renamed', description: 'Mine' });
+    // Archiving stays open here, and naming this Home is the same as naming none.
+    expect(result(await runAction('update_area', { id: area.id, status: 'archived', target_home_id: q.getHome()!.id }, ctx))).toMatchObject({ id: area.id, status: 'archived' });
+    expect(q.getArea(area.id)).toMatchObject({ name: 'Renamed', status: 'archived', userContext: 'Private' });
+    expect(await o.areas.list.query({ status: 'all' })).toHaveLength(before);
+    expect(c.id).not.toBe(q.getHome()!.id);
+  });
+
+  it('goes through the personal CLI to the team, once', async () => {
+    const { c, o } = await connect();
+    delete process.env.RI_SESSION_CREDENTIAL;
+    delete process.env.RI_HOME_TOOLS_URL;
+    const dev = name();
+    const args = ['create_area', '--name', dev, '--target-home-id', c.id, '--idempotency-key', 'native-area-cli'];
+    const first = await callAgentCli(args), second = await callAgentCli(args);
+    expect(first.err).toBe(''); expect(second.err).toBe('');
+    const id = JSON.parse(first.out).result.id;
+    expect(JSON.parse(second.out).result.id).toBe(id);
+    expect((await o.areas.list.query()).filter(area => area.name === dev)).toHaveLength(1);
+    const updated = await callAgentCli(['update_area', id, '--emoji', '🛠', '--target-home-id', c.id, '--idempotency-key', 'native-area-cli-update']);
+    expect(updated.err).toBe('');
+    expect(await o.areas.get.query({ id })).toMatchObject({ name: dev, emoji: '🛠' });
+    expect(q.listAreas().some(area => area.name === dev)).toBe(false);
+  }, 60_000);
+
+  it('is advertised by a team that serves it, and not by one that predates it', async () => {
+    const { o, c } = await connect();
+    const operations = async () => ((await runAction('list_homes', {}, ctx)).result as { connected_homes: { operations: string[] }[] }).connected_homes[0].operations;
+    expect(await operations()).toEqual(expect.arrayContaining(['create_area', 'update_area', 'list_areas', 'create_task', 'publish_result']));
+
+    // What an older team server answers: it has no such procedure, and no such tool.
+    const trpcError = (message: string, code: string, httpStatus: number, jsonCode: number) => new Response(JSON.stringify({ error: { message, code: jsonCode, data: { code, httpStatus } } }), { status: httpStatus, headers: { 'content-type': 'application/json' } });
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('team.nativeOperations')) return Promise.resolve(trpcError('No procedure found on path "team.nativeOperations"', 'NOT_FOUND', 404, -32004));
+      if (url.includes('team.nativeWrite') && /create_area|update_area/.test(String(init?.body))) return Promise.resolve(trpcError('Unknown content operation.', 'BAD_REQUEST', 400, -32600));
+      return original(input, init);
+    });
+    try {
+      const older = await operations();
+      expect(older).toEqual(expect.arrayContaining(['list_areas', 'get_area', 'create_task', 'publish_result']));
+      expect(older).not.toContain('create_area');
+      expect(older).not.toContain('update_area');
+      // Asking isn't a failure of the team: it stays connected and otherwise usable.
+      expect(q.getTeamConnection(c.id)).toMatchObject({ status: 'active', lastError: null });
+
+      const refused = await runAction('create_area', { name: 'Older team', target_home_id: c.id, idempotency_key: 'native-area-older' }, ctx);
+      expect(refused).toMatchObject({ ok: false, error: { code: 'unsupported', message: expect.stringMatching(/older Ri without create_area.*No personal write/) } });
+      expect(q.listAreas().some(area => area.name === 'Older team')).toBe(false);
+      result(await runAction('create_task', { title: 'Still works on an older team', target_home_id: c.id, idempotency_key: 'native-area-older-task' }, ctx));
+    } finally {
+      vi.stubGlobal('fetch', original);
+    }
+    expect((await o.areas.list.query()).some(area => area.name === 'Older team')).toBe(false);
+  });
 });
 
 

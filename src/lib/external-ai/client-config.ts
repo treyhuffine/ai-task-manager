@@ -80,6 +80,11 @@ export interface AiClientDef {
    */
   skills: Array<{ dir: string; links: boolean }>;
   docsUrl: string;
+  /**
+   * It connects from its own cloud by signing in to Ri (docs/mcp-oauth.md),
+   * so it never takes a key, and it needs Ri's remote address.
+   */
+  signsIn?: true;
   /** Why it can't be connected yet. Set only for an agent that can't. */
   limitation?: string;
   /** The key's name in Settings, and in Ri's own key list. */
@@ -251,9 +256,8 @@ export const AI_CLIENTS: readonly AiClientDef[] = [
     docsUrl: 'https://lmstudio.ai/docs/app/mcp', keyName: 'LM Studio',
   },
   {
-    kind: 'chatgpt', label: 'ChatGPT', blurb: 'Not available yet', logo: 'openai', harness: null, local: null, skills: [],
-    docsUrl: 'https://developers.openai.com/apps-sdk/deploy/connect-chatgpt', keyName: 'ChatGPT',
-    limitation: 'ChatGPT connects to an MCP server only with an OAuth sign-in or with no sign-in at all, and from OpenAI’s cloud, so it can’t use a key. Ri doesn’t offer OAuth yet. Codex in the ChatGPT app does connect: use Codex above.',
+    kind: 'chatgpt', label: 'ChatGPT', blurb: 'ChatGPT on the web, desktop and phone, by signing in to Ri', logo: 'openai', harness: null, local: null, skills: [],
+    docsUrl: 'https://developers.openai.com/plugins/deploy/connect-chatgpt', keyName: 'ChatGPT', signsIn: true,
   },
   {
     kind: 'ri', label: 'Another Ri', blurb: 'Use this work from a different Ri', logo: 'ri', harness: null, local: null, skills: [],
@@ -319,6 +323,8 @@ export interface AiConnectionTarget {
   mcpUrl: string;
   server: string;
   tokenVar: string;
+  /** The address is a remote one another computer, or a cloud like OpenAI's, can reach. */
+  reachable?: boolean;
 }
 
 export function teamConnectionTarget(teamName: string, mcpUrl: string): AiConnectionTarget {
@@ -423,7 +429,9 @@ export function aiClientSetup(kind: AiClientKind, target: AiConnectionTarget, to
     case 'claude_desktop':
       return {
         steps: [fileStep(CLAUDE_DESKTOP_CONFIG, 'the Claude app’s configuration (Settings → Developer → Edit Config)')],
-        caveat: 'The Claude app connects to remote servers only through a sign-in Ri doesn’t offer yet, so it reaches Ri through mcp-remote, a small bridge started with Node.js (npx). Quit and reopen the app after saving.',
+        caveat: target.space.kind === 'personal'
+          ? 'This reaches Ri through mcp-remote, a small bridge started with Node.js (npx). Quit and reopen the app after saving. With a remote address you can skip the bridge: in Claude, open Settings → Connectors → Add custom connector, paste your MCP address and sign in to Ri when it asks. That also works on claude.ai and the phone.'
+          : 'This reaches Ri through mcp-remote, a small bridge started with Node.js (npx). Quit and reopen the app after saving.',
       };
     case 'gemini_cli':
       return {
@@ -482,7 +490,16 @@ export function aiClientSetup(kind: AiClientKind, target: AiConnectionTarget, to
         caveat: 'Use it with a model that supports tool use.',
       };
     case 'chatgpt':
-      return { steps: [], caveat: aiClient('chatgpt').limitation! };
+      if (target.space.kind === 'team') {
+        return { steps: [], caveat: 'ChatGPT signs in to a personal Ri. Connect it to your own Ri, which can reach this team’s shared tasks.' };
+      }
+      return {
+        steps: [
+          { label: 'In ChatGPT, open Plugins, choose + and then Add custom MCP server. Give it this name.', text: target.server === 'ri-dev' ? 'Ri dev' : 'Ri' },
+          { label: 'Paste this into its server URL.', text: url },
+        ],
+        caveat: 'Under Authentication choose OAuth and leave any client ID or secret empty, since ChatGPT registers itself. Accept the warning and choose Create as a plugin. ChatGPT opens Ri’s sign-in page: choose Allow. Then ask ChatGPT what’s on your deck.',
+      };
     case 'ri':
       return {
         steps: [

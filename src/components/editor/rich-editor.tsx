@@ -29,6 +29,7 @@ import { SlashCommands } from './slash-commands'
 import { EntityLinkNode } from './entity-link-node'
 import { FileLinkNode } from './file-link-node'
 import { EntityLinkMenuExtension } from './entity-link-menu/extension'
+import { useEntityLinkHome } from './entity-link-scope'
 import { useCallback, useEffect, useRef } from 'react'
 import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea'
 import type { Editor } from '@tiptap/core'
@@ -68,6 +69,9 @@ export interface RichEditorProps {
   /** Fires when the user toggles a heading fold. The full current set is sent
    *  every time so the parent just persists `foldedHeadings = arg`. */
   onFoldedHeadingsChange?: (folded: string[]) => void
+  /** The live editor once it exists (null on unmount), for a parent that acts
+   *  on the selection or replaces the text itself (the scratchpad). */
+  onEditor?: (editor: Editor | null) => void
 }
 
 export function RichEditor({
@@ -83,6 +87,7 @@ export function RichEditor({
   foldedHeadings,
   onFoldedHeadingsChange,
   applyExternalContent,
+  onEditor,
 }: RichEditorProps) {
   const externalContentRef = useRef(applyExternalContent)
   externalContentRef.current = applyExternalContent
@@ -117,6 +122,7 @@ export function RichEditor({
   const isSyncingRef = useRef(false)
   const prevContentRef = useRef(content)
 
+  const linkHome = useEntityLinkHome()
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -136,7 +142,7 @@ export function RichEditor({
       Markdown,
       EntityLinkNode,
       FileLinkNode.configure({ getAttachmentUrl: (name) => attachmentStoreRef.current?.url(name) }),
-      EntityLinkMenuExtension,
+      EntityLinkMenuExtension.configure({ teamId: linkHome }),
       Placeholder.configure({
         placeholder: ({ node, pos, editor }) => {
           if (node.type.name === 'collapsibleHeading') {
@@ -266,6 +272,14 @@ export function RichEditor({
   })
 
   editorRef.current = editor
+
+  const onEditorRef = useRef(onEditor)
+  onEditorRef.current = onEditor
+  useEffect(() => {
+    if (!editor) return
+    onEditorRef.current?.(editor)
+    return () => onEditorRef.current?.(null)
+  }, [editor])
 
   // Sync editable state at runtime (e.g. disable while AI is working).
   // Blur before disabling so the focus gate in the content-sync effect

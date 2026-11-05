@@ -20,7 +20,7 @@ export function ExternalAiSection() {
   const local = useQuery(trpc.externalAi.local.queryOptions());
   const refresh = () => { void keys.refetch(); void local.refetch(); };
   const target: AiConnectionTarget | null = address.data
-    ? { space: { kind: 'personal' }, mcpUrl: address.data.mcpUrl, server: address.data.server, tokenVar: address.data.tokenVar }
+    ? { space: { kind: 'personal' }, mcpUrl: address.data.mcpUrl, server: address.data.server, tokenVar: address.data.tokenVar, reachable: address.data.reachable }
     : null;
 
   return (

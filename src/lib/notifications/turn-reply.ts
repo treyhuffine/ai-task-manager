@@ -3,7 +3,8 @@
  * ended, as notification text. `runs.summary` is a one-line cut of the same message for run
  * lists. A notification starts from the whole reply and lets each channel take what fits.
  */
-import { getArea, getChatSession, getNote, getTask, getWorkspace, listRecentChatEvents } from '@/lib/db/queries';
+import { getArea, getChatSession, getNote, getNoteProjection, getTask, getTaskProjection, getTeamConnection, getWorkspace, listRecentChatEvents } from '@/lib/db/queries';
+import { splitRemoteId } from '@/lib/entity-refs/parse-markers';
 import { messageText, type NameEntity } from './message-text';
 
 /** How far back to look. A turn's reply sits just before its result and a few status events. */
@@ -24,6 +25,13 @@ export function turnReply(chatSessionId: string): string | null {
 
 /** An entity marker read as its chip's name. Files and scratchpads have no name worth sending. */
 export const nameEntity: NameEntity = (kind, id) => {
+  // A record in a team: a shared copy's title, else its team's name. A send doesn't wait on a team.
+  const remote = splitRemoteId(id);
+  if (remote && (kind === 'task' || kind === 'note' || kind === 'area')) {
+    const copy = kind === 'task' ? getTaskProjection(remote.homeId, remote.id) : kind === 'note' ? getNoteProjection(remote.homeId, remote.id) : null;
+    const team = getTeamConnection(remote.homeId)?.name;
+    return copy?.title ?? (team ? `${team} ${kind === 'area' ? 'Area' : kind}` : null);
+  }
   if (!/^[0-9a-f-]{8,}$/i.test(id)) return null;
   switch (kind) {
     case 'task':

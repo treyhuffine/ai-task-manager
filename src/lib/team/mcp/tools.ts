@@ -9,11 +9,11 @@ import { hasTeamCapability } from '@/lib/team/capabilities';
  * - Find context: keyword search, tasks, notes (decisions included), Areas,
  *   members, links, history and published results. Every record says where
  *   it is in the team and which revisions an edit needs.
- * - Change shared work: tasks and notes, through the same field allowlists,
- *   body revisions and lifecycle commands as the team's own app. Every change
- *   takes an idempotency key and is recorded with its receipt, so a retry
- *   after a lost response returns the first outcome instead of a second
- *   change. Nothing is deleted.
+ * - Change shared work: tasks, notes and Areas, through the same field
+ *   allowlists, body revisions and lifecycle commands as the team's own app.
+ *   Every change takes an idempotency key and is recorded with its receipt, so
+ *   a retry after a lost response returns the first outcome instead of a second
+ *   change. Nothing is deleted, and archiving an Area stays with people.
  *
  * Who acts comes from the credential the proxy validated, never from a tool's
  * arguments: the member whose AI client this is, as their agent. A tool reads
@@ -29,7 +29,7 @@ import { z } from 'zod';
 import * as q from '@/lib/db/queries';
 import { ftsSearch } from '@/lib/embeddings/search';
 import { TRANSITION_COMMANDS, isTaskLifecycleError } from '@/lib/tasks/lifecycle';
-import { assertTeamNotePatch, assertTeamTaskPatch } from '@/lib/team/shared-work';
+import { assertTeamAreaPatch, assertTeamNotePatch, assertTeamTaskPatch } from '@/lib/team/shared-work';
 import { listTaskPublishedResults } from '@/lib/team/published-results';
 import type { AreaRecord, Attachment, MemberRecord, NoteRecord, TaskFilter, TaskRecord } from '@/db/types';
 
@@ -79,7 +79,7 @@ interface TeamReadTool extends TeamToolBase {
  */
 interface TeamWriteTool extends TeamToolBase {
   kind: 'write';
-  run(ctx: TeamToolContext, input: Record<string, unknown>): { entityType: 'task' | 'note'; entityId: string; outcome: unknown };
+  run(ctx: TeamToolContext, input: Record<string, unknown>): { entityType: 'task' | 'note' | 'area'; entityId: string; outcome: unknown };
 }
 
 export type TeamTool = TeamReadTool | TeamWriteTool;
@@ -103,6 +103,8 @@ const expectedBodyRevision = z
   .nonnegative()
   .describe('The body_revision from the record you read. Required with body. If someone changed the text since, you get their text back and nothing is overwritten.');
 const noteKind = z.enum(['note', 'decision']);
+// The same name the team's New area dialog accepts: trimmed, 80 characters.
+const areaName = z.string().trim().min(1).max(80);
 
 // ─── Records as the assistant sees them ─────────────────────
 
@@ -232,6 +234,18 @@ function noteDetail(ctx: TeamToolContext, dir: Directory, note: NoteRecord) {
   };
 }
 
+function areaDetail(ctx: TeamToolContext, area: AreaRecord) {
+  return {
+    id: area.id,
+    link: areaLink(ctx, area.id),
+    name: area.name,
+    emoji: area.emoji ?? null,
+    description: area.description ?? null,
+    notes: area.notes ?? null,
+    status: area.status,
+  };
+}
+
 function requireTask(taskId: string): TaskRecord {
   const task = q.getTask(taskId);
   if (!task) throw new TeamToolError('not_found', `No task ${taskId} in this team.`);
@@ -295,6 +309,13 @@ const NOTE_WRITE_FIELDS = {
   area_id: 'areaId',
   url: 'url',
   status: 'status',
+} as const;
+
+// No status: archiving an Area stays with people, in the team's settings.
+const AREA_WRITE_FIELDS = {
+  name: 'name',
+  description: 'description',
+  emoji: 'emoji',
 } as const;
 
 // ─── The tools ───────────────────────────────────────────────
@@ -436,15 +457,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     run(ctx, input) {
       const area = q.getArea(String(input.id));
       if (!area) throw new TeamToolError('not_found', `No Area ${String(input.id)} in this team.`);
-      return {
-        id: area.id,
-        link: areaLink(ctx, area.id),
-        name: area.name,
-        emoji: area.emoji ?? null,
-        description: area.description ?? null,
-        notes: area.notes ?? null,
-        status: area.status,
-      };
+      return areaDetail(ctx, area);
     },
   },
   {
@@ -746,6 +759,45 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       const note = q.updateNote(noteId, fields, byAgent(ctx), { expectedBodyRevision: input.expected_body_revision as number | undefined });
       if (!note) throw new TeamToolError('not_found', `No note ${noteId} in this team.`);
       return { entityType: 'note', entityId: note.id, outcome: noteDetail(ctx, directory(), note) };
+    },
+  },
+  {
+    kind: 'write',
+    name: 'create_area',
+    description:
+      'Add an Area to the team, to organize its tasks and notes. Everyone in the team sees it, and it limits nothing. Check list_areas first: two Areas with the same name stay separate. File work under it with area_id on create_task, update_task, create_note or update_note.',
+    shape: {
+      idempotency_key: idempotencyKey,
+      name: areaName,
+      description: z.string().max(10_000).optional(),
+      emoji: z.string().max(32).optional(),
+    },
+    run(ctx, input) {
+      const fields = pick(input, AREA_WRITE_FIELDS);
+      assertTeamAreaPatch(fields);
+      const area = q.createArea({ ...fields, name: String(input.name) } as Parameters<typeof q.createArea>[0]);
+      return { entityType: 'area', entityId: area.id, outcome: areaDetail(ctx, area) };
+    },
+  },
+  {
+    kind: 'write',
+    name: 'update_area',
+    description: 'Change an Area\'s name, description or emoji. It keeps its work and its id. Archiving an Area is for people, in the team\'s settings.',
+    shape: {
+      idempotency_key: idempotencyKey,
+      id,
+      name: areaName.optional(),
+      description: z.string().max(10_000).nullable().optional(),
+      emoji: z.string().max(32).nullable().optional(),
+    },
+    run(ctx, input) {
+      const areaId = String(input.id);
+      const fields = pick(input, AREA_WRITE_FIELDS);
+      if (Object.keys(fields).length === 0) throw new TeamToolError('invalid', 'Send at least one field to change.');
+      assertTeamAreaPatch(fields);
+      const area = q.updateArea(areaId, fields);
+      if (!area) throw new TeamToolError('not_found', `No Area ${areaId} in this team. list_areas shows them.`);
+      return { entityType: 'area', entityId: area.id, outcome: areaDetail(ctx, area) };
     },
   },
 ];

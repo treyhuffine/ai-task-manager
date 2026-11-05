@@ -11,6 +11,7 @@ import { FileViewer } from '@/components/executions/viewer/file-viewer';
 import { folderStateId, workspaceFolder } from '@/lib/folders/source';
 import type { WorkspaceRecord } from '@/db/types';
 import { useRunOn } from '@/hooks/use-workspaces';
+import { HOTKEYS } from '@/constants/commands';
 
 const TREE_PANEL = 'agent-files-tree';
 const VIEWER_PANEL = 'agent-files-viewer';
@@ -51,6 +52,7 @@ export function AgentFiles({ workspace }: { workspace: WorkspaceRecord }) {
           selectedPath={selectedPath}
           onSelect={setSelectedPath}
           worktreePath={folder}
+          searchShortcut={HOTKEYS.goToFile.label}
         />
       </ResizablePanel>
       <ResizableHandle />

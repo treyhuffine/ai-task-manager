@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { foldersApi } from '@/lib/api/folders';
 import type { FileResponse } from '@/lib/api/sessions';
-import type { FolderSource } from '@/lib/folders/source';
+import { workspaceFolderScope as workspaceScope, type FolderSource } from '@/lib/folders/source';
 import {
   invalidateWorktree,
   useSession,
@@ -26,7 +26,6 @@ import { preparedFolder } from '@/lib/executions/location';
  * to null, which keeps the rules of hooks while only one query runs.
  */
 
-const workspaceScope = (workspaceId: string) => ['workspace-folder', workspaceId] as const;
 /** One file read in an agent folder. Reads and the post-save seed share it. */
 const workspaceFileKey = (workspaceId: string, path: string | null) => [...workspaceScope(workspaceId), 'file', path] as const;
 

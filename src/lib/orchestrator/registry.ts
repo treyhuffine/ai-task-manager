@@ -1,4 +1,4 @@
-import { declaredAuthorityKind } from '@/lib/home/authority';
+import { declaredAuthorityKind, isTeamAuthority } from '@/lib/home/authority';
 import { nativeTeamExecutionAction } from '@/lib/team/mcp/native-start-action';
 import { coordinationActions } from '@/lib/coordination/actions';
 import { connectedHomeActions, withConnectedHome } from '@/lib/spaces/native-access';
@@ -67,6 +67,7 @@ import {
 	isBodyRevisionConflict,
 	getTrigger,
 	getUserState,
+	getScratchpad,
 	getWorkspace,
 	lifecyclePreflight,
 	listAreas,
@@ -119,10 +120,10 @@ import {
 import { HARNESS_IDS, HARNESS_REGISTRY, resumeCommandForHarness, type HarnessId } from '@/lib/harness/registry';
 import {
 	DEFAULT_HEARTBEAT_INSTRUCTIONS,
-	HEARTBEAT_INTERVALS,
-	isHeartbeatInterval,
+	MIN_HEARTBEAT_INTERVAL_SECONDS,
 } from '@/lib/heartbeat/constants';
-import { ensureHeartbeatTrigger, getHeartbeatConfig, getHeartbeatTrigger, updateHeartbeat } from '@/lib/heartbeat/trigger';
+import { ensureHeartbeatTrigger,
+	isCheckInFiling, getHeartbeatConfig, getHeartbeatTrigger, updateHeartbeat } from '@/lib/heartbeat/trigger';
 import type { HeartbeatPatch } from '@/lib/heartbeat/types';
 import { isImportMirror } from '@/lib/import/mirror';
 import { getNotifierUserId } from '@/lib/notifications/user';
@@ -420,7 +421,7 @@ const update_task_action = defineAction({
     const { id, expected_body_revision, ...rest } = input as { id: string; expected_body_revision?: number } & Partial<z.infer<z.ZodObject<typeof taskCreateShape>>>;
     // Edits through the agent surface (CLI/MCP) are attributed to the agent
     // so the in-document chat can surface a reviewable diff + one-tap undo.
-    const meta = { source: ctx.actor?.source ?? 'ai' } as const;
+    const meta = { source: ctx.actor?.source ?? 'ai', keepUpdatedAt: isCheckInFiling(ctx.actor?.sessionId, rest) } as const;
     const existing = getTask(id);
     if (existing?.sourceTeamId) {
       try {
@@ -1279,7 +1280,7 @@ const create_area_action = defineAction({
 const update_area_action = defineAction({
   name: 'update_area',
   description:
-    'Update an area by id. All fields optional. Archive via status=archived. There is no delete.',
+    'Update an area by id. All fields optional. Archive via status=archived, except in a connected team, where people archive Areas in its settings. There is no delete.',
   params: {
     id: z.string().min(1),
     ...Object.fromEntries(
@@ -1502,6 +1503,20 @@ const get_user_state_action = defineAction({
     'and free-text focus description.',
   params: {},
   handler: () => getUserState() ?? null,
+});
+
+const get_scratchpad_action = defineAction({
+  name: 'get_scratchpad',
+  description:
+    "Read the user's scratchpad: their working memory, one page they keep beside every screen. " +
+    'Read it only when the user points you at it ("my scratchpad", "what I jotted"), never as background context. ' +
+    'Read-only: agents never write it. Returns the Markdown body ("" when empty) and when it last changed.',
+  params: {},
+  handler: () => {
+    if (isTeamAuthority()) throw new ActionError('unsupported', 'A team has no scratchpad. It lives in your own Ri.');
+    const pad = getScratchpad();
+    return { body: pad?.body ?? '', updatedAt: pad?.updatedAt ?? null };
+  },
 });
 
 const update_user_state_action = defineAction({
@@ -2372,7 +2387,7 @@ const create_trigger_action = defineAction({
   name: 'create_trigger',
   description:
     'Create a trigger. Kind-specific fields are enforced (cron requires cron_expression, every requires interval_seconds, at requires run_at, webhook generates credentials, manual takes no cadence fields and only fires via run_trigger). ' +
-    'target_kind decides where each fire runs. session sends the prompt into one existing chat as a message from the trigger: target_session_id names it, and called from a chat it defaults to that chat, so a chat can schedule its own check-ins. The chat keeps its own provider and model, and a fire while it is busy is skipped unless concurrency_policy says otherwise. workspace starts a fresh chat in that agent on every fire. orchestrator starts a fresh Ri chat on every fire. ' +
+    'target_kind decides where each fire runs. session sends the prompt into one existing chat as a message from the trigger: target_session_id names it, and called from a chat it defaults to that chat, so a chat can schedule its own check-ins. The chat keeps its own provider and model, and a fire while it is busy is skipped unless concurrency_policy says otherwise, except a one-time fire, which waits until the chat is free. workspace starts a fresh chat in that agent on every fire. orchestrator starts a fresh Ri chat on every fire. ' +
     'provider picks who runs a workspace or orchestrator trigger (defaults to the user\'s default provider); model and effort are validated against that provider. Enabling an automation authorizes its run chats to message and delegate within the assignment without per-send coordination approval. Create schedules only within the user\'s intent, never to bypass a denied send.',
   params: createTriggerShape,
   mutating: true,
@@ -2868,7 +2883,7 @@ const update_heartbeat_action = defineAction({
   name: 'update_heartbeat',
   description:
     'Change the heartbeat. All fields optional; unspecified fields keep their value. ' +
-    `intervalSeconds must be one of ${HEARTBEAT_INTERVALS.map((i) => i.seconds).join(', ')}. ` +
+    `intervalSeconds is the gap between check-ins, at least ${MIN_HEARTBEAT_INTERVAL_SECONDS}. ` +
     'activeHoursStart/activeHoursEnd are HH:MM in the heartbeat\'s timezone, set together, or both null for any time of day. ' +
     'instructions replace the user\'s instructions verbatim (the app\'s ground rules are added separately and cannot be edited). ' +
     'resetInstructions restores the default instructions. Changing provider resets model and effort unless the same call sets them. ' +
@@ -2885,7 +2900,6 @@ const update_heartbeat_action = defineAction({
     model: z.string().nullable().optional(),
     effort: effortLevel.nullable().optional(),
     serviceTier: z.string().regex(/^[a-z][a-z0-9_-]*$/).nullable().optional(),
-    deliverResultTo: z.array(z.string().min(1)).optional(),
   },
   mutating: true,
   handler: async (_ctx, input) => {
@@ -2896,10 +2910,10 @@ const update_heartbeat_action = defineAction({
     if (input.instructions !== undefined && input.resetInstructions) {
       throw new ActionError('invalid_params', 'Pass instructions or resetInstructions, not both.');
     }
-    if (input.intervalSeconds !== undefined && !isHeartbeatInterval(input.intervalSeconds)) {
+    if (input.intervalSeconds !== undefined && input.intervalSeconds < MIN_HEARTBEAT_INTERVAL_SECONDS) {
       throw new ActionError(
         'invalid_params',
-        `intervalSeconds must be one of ${HEARTBEAT_INTERVALS.map((i) => `${i.seconds} (${i.label})`).join(', ')}.`,
+        `intervalSeconds must be at least ${MIN_HEARTBEAT_INTERVAL_SECONDS}. Each check-in is a whole agent session.`,
       );
     }
 
@@ -2954,9 +2968,6 @@ const update_heartbeat_action = defineAction({
     if (model !== undefined) patch.model = model;
     if (effort !== undefined) patch.effort = effort;
     if (serviceTier !== undefined) patch.serviceTier = serviceTier;
-    if (input.deliverResultTo !== undefined) {
-      patch.deliverResultTo = validateDeliverResultTo(input.deliverResultTo, current.targetKind);
-    }
 
     return updateHeartbeat(patch);
   },
@@ -3538,6 +3549,7 @@ export const typedActions = [
   search_action,
   get_user_state_action,
   update_user_state_action,
+  get_scratchpad_action,
   list_workspaces_action,
   get_workspace_action,
   create_workspace_action,

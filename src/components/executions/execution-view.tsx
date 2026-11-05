@@ -4,7 +4,6 @@ import { useSearchParams } from 'next/navigation';
 import { LinkedChatView } from '@/components/chat-ui/messages/linked-chat-view';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { MessageSquare } from 'lucide-react';
 import { useViewportTier } from '@/hooks/use-viewport-tier';
 import { useWorkNavigation, useWorkActivity } from '@/contexts/work-context';
 import {
@@ -17,7 +16,6 @@ import { useMarkSessionRead, useDiffStats } from '@/hooks/use-workspaces';
 import { useElementWidth } from '@/hooks/use-element-width';
 import type { RailResponse } from '@/lib/api/sessions';
 import { isSessionUnread, latestActivityAt } from '@/lib/utils/session-sort';
-import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { cn } from '@/lib/utils';
 import { ExecutionHeader } from './execution-header';
 import { ExecutionChatTabs } from './execution-chat-tabs';
@@ -32,29 +30,19 @@ import { useOpenReferenceListener } from '@/lib/entity-refs/open-event';
 import { hot } from '@/lib/_debug/hot-path';
 import { usePreviewController } from './preview/use-preview-controller';
 import { runDotClass } from './preview/run-status';
-import { useWorkbench, DEFAULT_PANEL_PCT, DEFAULT_TERMINAL_PCT } from './workbench/use-workbench';
+import { useWorkbench, DEFAULT_PANEL_PCT } from './workbench/use-workbench';
+import { useWorkbenchHotkeys } from './workbench/use-workbench-hotkeys';
 import { useWorkbenchViewRequests, type WorkbenchViewAsk } from './workbench/view-request';
 import { PANEL_VIEW_LABELS, type PanelView } from './workbench/workbench-state';
 import { WorkbenchPanel } from './workbench/workbench-panel';
-import { TerminalDrawer } from './workbench/terminal-drawer';
+import { PanelSplit, TerminalSplit } from './workbench/workbench-layout';
 import { ToolsBox, TOOLS_BOX_CLEARANCE } from './workbench/tools-box';
-import { ResizeHandle } from './workbench/resize-handle';
 import { MobileDestination, MobileToolsSheet } from './workbench/mobile-workbench';
 import type { WorkbenchViewContext } from './workbench/workbench-views';
-import { Tip } from '@/components/ui/tip';
 import { useBesidePreview, useBesideRegion } from '@/components/chat-ui/artifacts/artifact-preview-provider';
-import { PREVIEW_HOST_ATTRIBUTE } from '@/components/chat-ui/artifacts/artifact-preview-store';
 
 interface ExecutionViewProps {
   sessionId: string;
-}
-
-/** Text fields keep Escape for themselves (closing menus, cancelling edits). */
-function isEditableTarget(el: HTMLElement | null): boolean {
-  if (!el) return false;
-  if (el.isContentEditable) return true;
-  const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 }
 
 /**
@@ -337,58 +325,19 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
   const { data: scratch } = useScratchpad(sessionId);
   const scratchHasContent = !!scratch?.scratchPad?.trim();
 
-  // ── Keyboard: ⌃` terminal, ⌘P go to file, Escape restores then closes ─
-  useEffect(() => {
-    const focusTreeSearch = () => {
-      let tries = 0;
-      const tick = () => {
-        const input = document.querySelector<HTMLInputElement>('[data-tree-search]');
-        if (input && input.offsetParent !== null) {
-          input.focus();
-          input.select();
-        } else if (tries++ < 20) {
-          window.setTimeout(tick, 50);
-        }
-      };
-      tick();
-    };
-    // Capture phase, so a focused terminal can't swallow the toggle.
-    const onKeyCapture = (e: KeyboardEvent) => {
-      if (!desktopVisibleRef.current) return;
-      if (matchesHotkey(e, HOTKEYS.toggleTerminal)) {
-        e.preventDefault();
-        e.stopPropagation();
-        workbenchRef.current.dispatch({ type: 'toggleTerminal' });
-      } else if (matchesHotkey(e, HOTKEYS.toggleTools)) {
-        e.preventDefault();
-        e.stopPropagation();
-        workbenchRef.current.dispatch({ type: 'togglePanel' });
-      } else if (matchesHotkey(e, HOTKEYS.goToFile)) {
-        e.preventDefault();
-        e.stopPropagation();
-        workbenchRef.current.show('files');
-        focusTreeSearch();
-      }
-    };
-    // Bubble phase for Escape, so dialogs, menus, editors and the terminal
-    // get it first and can claim it.
-    const onKey = (e: KeyboardEvent) => {
-      if (!desktopVisibleRef.current || !matchesHotkey(e, HOTKEYS.slideoutBack)) return;
-      if (e.defaultPrevented || e.isComposing) return;
-      const target = e.target instanceof HTMLElement ? e.target : null;
-      if (target && (target.closest('.xterm') || isEditableTarget(target) || target.closest('[role="dialog"],[role="menu"]'))) return;
-      const s = workbenchRef.current.state;
-      if (!s.maximized && !s.view) return;
-      e.preventDefault();
-      workbenchRef.current.dispatch({ type: 'escape' });
-    };
-    window.addEventListener('keydown', onKeyCapture, true);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKeyCapture, true);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, []);
+  // ── Keyboard: ⌃` terminal, ⌃. tools, ⌘P go to file, Escape restores then closes ─
+  // The same keys as the agent view (use-workbench-hotkeys.ts).
+  useWorkbenchHotkeys({
+    enabled: desktopVisible,
+    toggleTerminal: () => workbench.dispatch({ type: 'toggleTerminal' }),
+    toggleTools: () => workbench.dispatch({ type: 'togglePanel' }),
+    goToFile: () => workbench.show('files'),
+    escape: () => {
+      if (!wb.maximized && !wb.view) return false;
+      workbench.dispatch({ type: 'escape' });
+      return true;
+    },
+  });
 
   // Navigate-away read receipt. The composer fires markRead eagerly on
   // focus and send, so all engaged-then-leave cases are covered already.
@@ -420,12 +369,6 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
   }, [sessionId, qc]);
 
   const handleClose = goHome;
-
-  // Layout refs for the two resizable splits.
-  const rowRef = useRef<HTMLDivElement | null>(null);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-  const drawerRef = useRef<HTMLDivElement | null>(null);
 
   if (isLoading) {
     return <ExecutionSkeleton />;
@@ -488,21 +431,17 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
   });
 
   // Chat body: tabs, then the chat column (execution-chat-column.tsx).
-  // Rendered in both the phone (`lg:hidden`) and desktop (`hidden lg:flex`)
-  // subtrees, with opposite Enter semantics: the phone composer treats
-  // Enter as a newline (send via button, like a native keyboard), the
-  // desktop composer submits on Enter. Binding it to the subtree rather
-  // than a runtime viewport check keeps each instance matched to the
-  // layout it's in.
+  // Rendered in the phone (`lg:hidden`) or desktop (`hidden lg:flex`)
+  // subtree, whichever the viewport shows. Enter follows the device, not
+  // the layout (`useTouchFirst` in the editor).
   //
   // `withBox` floats the tools box over the chat's right side. Below
   // ~1390px of chat width the parts it would cover pad themselves clear of
   // it, and below ~1060px the box folds into an icon strip.
-  const renderChatBody = (submitOnEnter: boolean, withBox: boolean) => (
+  const renderChatBody = (withBox: boolean) => (
     <ExecutionChatColumn
       chat={chat}
       composerRef={composerHandleRef}
-      submitOnEnter={submitOnEnter}
       clearBox={withBox ? TOOLS_BOX_CLEARANCE : undefined}
       // Sibling-chat tabs: conversations only, never files.
       tabs={!!session.executionId && (
@@ -559,9 +498,8 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
               <ExecutionActionBar session={session} workspace={workspace} />
             </div>
           )}
-          {/* Phone: Enter inserts a newline; the send button submits. Only
-              where the viewport shows this half (useViewportTier). */}
-          {!wide && renderChatBody(false, false)}
+          {/* Only where the viewport shows this half (useViewportTier). */}
+          {!wide && renderChatBody(false)}
         </div>
         {mobileVisible && mobileView && (
           <MobileDestination
@@ -606,106 +544,44 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
             panelLabel: PANEL_VIEW_LABELS[wb.last],
           }}
         />
-        <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col">
-          <div ref={rowRef} className={cn('relative flex min-h-0 flex-1', terminalMax && 'hidden')}>
-            {maximized && (
-              <div key="strip" className="flex w-11 flex-shrink-0 flex-col items-center gap-2 border-r border-border py-2">
-                <Tip label="Bring the chat back" shortcut="Esc">
-                  <button
-                    type="button"
-                    onClick={() => workbench.dispatch({ type: 'toggleMaximize' })}
-                    aria-label="Bring the chat back"
-                    className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-                  >
-                    <MessageSquare size={15} />
-                  </button>
-                </Tip>
-                {(isRunning || needsInput) && (
-                  <Tip label={needsInput ? 'This chat needs input' : 'This chat is working'}>
-                    <span
-                      aria-label={needsInput ? 'Needs input' : 'Working'}
-                      className={cn('h-1.5 w-1.5 animate-pulse rounded-full', needsInput ? 'bg-amber-500' : 'bg-emerald-500')}
-                    />
-                  </Tip>
-                )}
-                <span className="mt-1 max-h-60 truncate text-[11.5px] text-muted-foreground [writing-mode:vertical-rl] rotate-180">
-                  {chatLabel}
-                </span>
-              </div>
-            )}
-            <div key="chat" {...{ [PREVIEW_HOST_ATTRIBUTE]: besideHost }} className={cn('@container/chat relative flex min-h-0 min-w-0 flex-1 flex-col bg-background', maximized && 'hidden')}>
-              {/* Desktop: Enter submits (Shift+Enter for a newline). */}
-              {wide !== false && renderChatBody(true, !panelOpen)}
-            </div>
-            {panelOpen && desktopVisible && (
-              <>
-                {!maximized && (
-                  <ResizeHandle
-                    key="split"
-                    axis="columns"
-                    targetRef={panelRef}
-                    containerRef={rowRef}
-                    pct={workbench.panelPct}
-                    minPct={25}
-                    maxPct={80}
-                    minOtherPx={340}
-                    minTargetPx={380}
-                    defaultPct={DEFAULT_PANEL_PCT}
-                    onCommit={workbench.setPanelPct}
-                    label="Resize the panel"
-                  />
-                )}
-                <div
-                  key="panel"
-                  ref={panelRef}
-                  style={maximized ? undefined : { width: `${workbench.panelPct}%` }}
-                  className={cn('min-h-0 min-w-0', maximized ? 'flex-1' : 'flex-shrink-0')}
-                >
-                  <WorkbenchPanel
-                    workbench={workbench}
-                    ctx={viewContext('desktop')}
-                    changedFiles={diffStats.data?.files ?? null}
-                    linkedCount={linkedCount}
-                    scratchHasContent={scratchHasContent}
-                  />
-                </div>
-              </>
-            )}
-          </div>
-          {terminalOpen && desktopVisible && (
-            <>
-              {!terminalMax && (
-                <ResizeHandle
-                  axis="rows"
-                  targetRef={drawerRef}
-                  containerRef={bodyRef}
-                  pct={workbench.terminalPct}
-                  minPct={12}
-                  maxPct={80}
-                  minOtherPx={200}
-                  minTargetPx={120}
-                  defaultPct={DEFAULT_TERMINAL_PCT}
-                  onCommit={workbench.setTerminalPct}
-                  label="Resize the terminal"
+        <TerminalSplit
+          terminal={terminalOpen && desktopVisible ? {
+            source: sessionFolder(session.id),
+            disabled: terminalNotReady,
+            disabledReason: terminalNotReady ? 'Setting up worktree…' : undefined,
+            maximized: terminalMax,
+            onToggleMaximize: () => workbench.dispatch({ type: 'toggleTerminalMaximize' }),
+            onHide: () => workbench.dispatch({ type: 'toggleTerminal' }),
+            pct: workbench.terminalPct,
+            onCommitPct: workbench.setTerminalPct,
+          } : null}
+        >
+          <PanelSplit
+            chat={wide !== false && renderChatBody(!panelOpen)}
+            chatHost={besideHost}
+            chatStrip={{
+              label: chatLabel,
+              status: needsInput ? 'needsInput' : isRunning ? 'working' : null,
+              onRestore: () => workbench.dispatch({ type: 'toggleMaximize' }),
+            }}
+            panel={{
+              open: panelOpen,
+              maximized,
+              content: panelOpen && desktopVisible ? (
+                <WorkbenchPanel
+                  workbench={workbench}
+                  ctx={viewContext('desktop')}
+                  changedFiles={diffStats.data?.files ?? null}
+                  linkedCount={linkedCount}
+                  scratchHasContent={scratchHasContent}
                 />
-              )}
-              <div
-                ref={drawerRef}
-                style={terminalMax ? undefined : { height: `${workbench.terminalPct}%` }}
-                className={cn('min-h-0', terminalMax ? 'flex-1' : 'flex-shrink-0')}
-              >
-                <TerminalDrawer
-                  source={sessionFolder(session.id)}
-                  disabled={terminalNotReady}
-                  disabledReason={terminalNotReady ? 'Setting up worktree…' : undefined}
-                  maximized={terminalMax}
-                  onToggleMaximize={() => workbench.dispatch({ type: 'toggleTerminalMaximize' })}
-                  onHide={() => workbench.dispatch({ type: 'toggleTerminal' })}
-                />
-              </div>
-            </>
-          )}
-        </div>
+              ) : null,
+              pct: workbench.panelPct,
+              defaultPct: DEFAULT_PANEL_PCT,
+              onCommitPct: workbench.setPanelPct,
+            }}
+          />
+        </TerminalSplit>
       </div>
     </div>
     </>

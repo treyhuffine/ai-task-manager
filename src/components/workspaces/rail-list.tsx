@@ -1,11 +1,14 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Archive, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import type { RailTab } from '@/lib/client/rail-tab';
-import { useBulkArchiveSessions } from '@/hooks/use-workspaces';
-import { useReviewChanges } from '@/hooks/use-archive-execution';
+import { useOptionalHomeContext } from '@/components/home/home-context';
+import { HOTKEYS } from '@/constants/commands';
+import { cachedRailSession, useBulkArchiveSessions } from '@/hooks/use-workspaces';
+import { useLeaveArchivedChat, useReviewChanges } from '@/hooks/use-archive-execution';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { archiveAnywayDialog } from '@/components/executions/uncommitted-files';
 import { cn } from '@/lib/utils';
@@ -30,16 +33,23 @@ import { WorkspaceSelectionBoundary, useWorkspaceSelection } from './workspace-s
  * Work by status lives in the header's pills, from every view, so the rail
  * doesn't repeat it.
  *
+ * Selecting chats to archive happens in the list you're on, in every rail
+ * style. Agents unfolds each agent's chats under it, including in the
+ * agents-only rail (docs/rail-agents-first.md), which shows none at rest, and
+ * Recent ticks its own rows. Nothing switches lists, so archiving or Cancel
+ * just folds them back.
+ *
  * Both need `WorkspaceSelectionProvider` above them: the header owns the
- * archive-selection toggle and its toolbar, the tree's rows the checkboxes.
+ * archive-selection toggle and its toolbar, the rows the checkboxes. Both
+ * carry `data-rail-list`, where Esc leaves selection.
  */
 
 /**
  * The list's header: which list, and the list's actions. Agents | Recent is
  * a segmented switch at the left (`ListSwitch`), so the header is still one
- * row and the switch reads as the list's title. On Agents, selecting
- * executions to archive and New agent sit at the right. While selecting,
- * the toolbar (count, Archive, Cancel) takes the row.
+ * row and the switch reads as the list's title. Select chats to archive sits
+ * at the right on both lists, then New agent on Agents. While selecting, the
+ * toolbar (count, Archive, Cancel) takes the row.
  */
 export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (next: RailTab) => void }) {
   const selection = useWorkspaceSelection();
@@ -48,12 +58,19 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
   const bulkArchive = useBulkArchiveSessions();
   const confirm = useConfirm();
   const reviewChanges = useReviewChanges();
+  const leaveArchivedChat = useLeaveArchivedChat();
+  const qc = useQueryClient();
   const createOpen = useWorkspaceCreateOpen();
+  const canConfigure = useOptionalHomeContext()?.capabilities.configureAgents ?? true;
 
   const handleConfirmArchive = async () => {
     if (!selection) return;
     const ids = Array.from(selection.selectedIds);
     if (ids.length === 0 || bulkArchive.isPending) return;
+    const rows = new Map(ids.map((id) => [id, cachedRailSession(qc, id)]));
+    // On the click, as one archive does: if the chat on screen is going,
+    // leave it now rather than when the requests return.
+    leaveArchivedChat(ids.map((id) => ({ id, executionId: rows.get(id)?.executionId, workspaceId: rows.get(id)?.workspaceId })));
 
     // First pass: archive everything that's clean. Worktrees with files
     // that aren't committed come back unforced, naming those files, so the
@@ -70,8 +87,13 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
 
     if (result.failed.length > 0) {
       const n = result.failed.length;
+      // Named, since the person may be looking at something else by now.
+      const name = (id: string) => {
+        const row = rows.get(id);
+        return row?.execution?.label ?? row?.label ?? 'Untitled';
+      };
       toast.error(`Couldn't archive ${n} chat${n === 1 ? '' : 's'}`, {
-        description: result.failed.map((f) => f.message).join('\n'),
+        description: result.failed.map((f) => `${name(f.id)}: ${f.message}`).join('\n'),
       });
     }
 
@@ -79,7 +101,7 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
   };
 
   return (
-    <div className="flex min-h-[32px] items-center gap-2 border-y border-border/40 px-3">
+    <div data-rail-list="" className="flex min-h-[32px] items-center gap-2 border-y border-border/40 px-3">
       {selecting ? (
         <>
           <span className="text-[10px] font-medium tabular-nums text-muted-foreground">{count} selected</span>
@@ -93,20 +115,22 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
             <Archive size={11} />
             Archive
           </button>
-          <button
-            type="button"
-            onClick={() => selection?.exit()}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-          >
-            <X size={11} />
-            Cancel
-          </button>
+          <Tip label="Stop selecting" shortcut={HOTKEYS.cancelSelection.label}>
+            <button
+              type="button"
+              onClick={() => selection?.exit()}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            >
+              <X size={11} />
+              Cancel
+            </button>
+          </Tip>
         </>
       ) : (
         <>
           <ListSwitch tab={tab} onSelect={onSelect} />
           <div className="flex-1" />
-          {tab === 'workspace' && selection && (
+          {selection && (
             <div className="flex items-center gap-1">
               <Tip label="Select chats to archive">
                 <button
@@ -118,7 +142,7 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
                   <Archive size={12} />
                 </button>
               </Tip>
-              <Tip label="New agent">
+              {tab === 'workspace' && canConfigure && <Tip label="New agent">
                 <button
                   type="button"
                   onClick={openWorkspaceCreate}
@@ -127,7 +151,7 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
                 >
                   <Plus size={12} />
                 </button>
-              </Tip>
+              </Tip>}
             </div>
           )}
         </>
@@ -180,22 +204,26 @@ function SwitchTab({ active, onClick, children }: { active: boolean; onClick: ()
 /**
  * Pinned executions, then the chosen list. Pins sit above both lists, so
  * the work you keep close is one glance away whichever list is open.
- * Renders nothing for pins when there are none. Pins and the Recent feed
- * duplicate the tree's rows, so they sit outside selection.
+ * Renders nothing for pins when there are none.
+ *
+ * While selecting chats to archive, pins duplicate the list's rows, so they
+ * step aside rather than offer a plain row above a checkbox for the same chat.
+ *
+ * `stickyHeaderHeight` is the room the list header takes when it sticks in
+ * this list's own scroller, so an agent held in view while selecting sits
+ * under it.
  */
-export function RailListBody({ tab }: { tab: RailTab }) {
+export function RailListBody({ tab, stickyHeaderHeight }: { tab: RailTab; stickyHeaderHeight?: number }) {
+  const selecting = useWorkspaceSelection()?.selecting ?? false;
+  const style = stickyHeaderHeight ? ({ '--rail-sticky-top': `${stickyHeaderHeight}px` } as CSSProperties) : undefined;
   return (
-    <div className="pt-1">
-      <WorkspaceSelectionBoundary>
-        <PinnedRail />
-      </WorkspaceSelectionBoundary>
-      {tab === 'history' ? (
+    <div data-rail-list="" className="pt-1" style={style}>
+      {!selecting && (
         <WorkspaceSelectionBoundary>
-          <HistoryView />
+          <PinnedRail />
         </WorkspaceSelectionBoundary>
-      ) : (
-        <WorkspaceNav />
       )}
+      {tab === 'history' ? <HistoryView /> : <WorkspaceNav />}
     </div>
   );
 }

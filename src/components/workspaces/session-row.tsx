@@ -1,6 +1,5 @@
 'use client';
 
-import { Checkbox } from '@/components/ui/checkbox';
 import { useDashboard } from '@/contexts/dashboard-context';
 import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 import { cn } from '@/lib/utils';
@@ -8,12 +7,13 @@ import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { GitBranch, Moon, Pin } from 'lucide-react';
 
 import { executionView } from '@/lib/client/active-view';
-import { StatusPip, useChatStatus } from './chat-status';
+import { hasChatStatus, StatusPip, useChatStatus } from './chat-status';
 import { useSessionRowHover } from './session-hover-context';
 import { ROW_ACTIONS_GIVE_WAY, SessionRowActions } from './session-row-actions';
-import { useWorkspaceSelection } from './workspace-selection-context';
+import { SelectionCheck, useRowSelection } from './workspace-selection-context';
 import { Tip } from '@/components/ui/tip';
 import { useDismissRailFlyout } from './rail-flyout';
+import { ChatAskSize, ChatStatusLine } from './chat-status-line';
 
 interface SessionRowProps {
   session: ChatSessionWithExecution;
@@ -93,11 +93,9 @@ export function SessionRow({
 
   // Multi-select for bulk archive lives only on the canonical tree row;
   // the needs-review duplicate stays plain navigation so a session can't
-  // present two checkboxes. `selection` is null outside the workspace
-  // nav (e.g. Pinned), which keeps the row inert there.
-  const selection = useWorkspaceSelection();
-  const selectable = variant === 'tree' && !!selection?.selecting;
-  const selected = selectable && !!selection?.isSelected(session.id);
+  // present two checkboxes. Selection is off outside the rail's list (e.g.
+  // Pinned), which keeps the row inert there.
+  const { selectable, selected, toggle } = useRowSelection(session.id, { enabled: variant === 'tree' });
 
   // Working, needs input, unread, background: one reading for every rail row.
   const status = useChatStatus(session);
@@ -122,9 +120,9 @@ export function SessionRow({
   // rail's buckets don't reshuffle out from under the user. In selection
   // mode the same click toggles the checkbox instead of navigating, so
   // the whole row is the hit target.
-  const handleOpen = () => {
+  const handleOpen = (e: { shiftKey: boolean; currentTarget: Element }) => {
     if (selectable) {
-      selection!.toggle(session.id);
+      toggle(e);
       return;
     }
     closeNow();
@@ -146,6 +144,7 @@ export function SessionRow({
   const actions = !selectable && (
     <SessionRowActions
       sessionId={session.id}
+      executionId={session.executionId ?? null}
       workspaceId={session.workspaceId ?? null}
       isUnread={isUnread || isPending}
       isPinned={isPinned}
@@ -167,11 +166,12 @@ export function SessionRow({
       onMouseLeave={selectable ? undefined : onMouseLeave}
       role="button"
       aria-pressed={selectable ? selected : undefined}
+      data-select-row={selectable ? session.id : undefined}
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          handleOpen();
+          handleOpen(e);
         }
       }}
       className={cn(
@@ -180,9 +180,10 @@ export function SessionRow({
         density === 'compact' ? 'items-center pl-4 h-8' : 'items-start pl-5 py-1',
         inactive && !isActive && !selected && 'opacity-60 hover:opacity-100',
         selectable
+          // Shift-click ranges, so it mustn't select the text between.
           ? selected
-            ? 'bg-primary/10 text-foreground'
-            : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+            ? 'select-none bg-primary/10 text-foreground'
+            : 'select-none text-muted-foreground hover:bg-muted/40 hover:text-foreground'
           : isActive
             ? variant === 'needs-review'
               // Needs-review variant defers the background fill to the
@@ -211,18 +212,10 @@ export function SessionRow({
       {/* Pip centers against line 1 (the title), not the whole row —
           it reads with the label, and the metadata line below stays
           visually subordinate. In selection mode the pip is swapped for
-          a checkbox in the same slot so nothing shifts. The checkbox is
-          pointer-events-none — the row's onClick is the single source of
-          toggle truth, so a click anywhere on the row (box included)
-          flips selection exactly once. */}
+          a checkbox in the same slot so nothing shifts. */}
       <span className="flex h-4 items-center flex-shrink-0">
         {selectable ? (
-          <Checkbox
-            checked={selected}
-            tabIndex={-1}
-            aria-hidden
-            className="pointer-events-none size-3.5"
-          />
+          <SelectionCheck checked={selected} />
         ) : (
           // Idle rows keep the branch glyph, so the row still parses as an
           // execution at rest.
@@ -279,9 +272,17 @@ export function SessionRow({
             >
               {label}
             </span>
+            {/* The status line its agent set (docs/chat-status-lines.md):
+                what it did, or what it needs from you. Part of the row's
+                data, so it never arrives late. */}
+            <ChatStatusLine status={session.turnStatus} className="mt-0.5" />
             {/* Metadata line: the timestamp anchors it, then the workspace
-                tag (Pinned and Needs you) and where it runs. */}
+                tag (Pinned and Unread), where it runs and, at its end, how
+                much of your time an ask takes. */}
             <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">
+              {/* The checkbox has the dot's slot. A chat still working or
+                  waiting on you is worth seeing before archiving it. */}
+              {selectable && hasChatStatus(status) && <StatusPip {...status} />}
               {isPinned && !hidePinMarker && (
                 <Pin
                   size={9}
@@ -308,6 +309,7 @@ export function SessionRow({
                   <span className="text-muted-foreground/60 truncate">· {session.location.name}</span>
                 </Tip>
               )}
+              <ChatAskSize status={session.turnStatus} />
             </div>
           </div>
           {actions}

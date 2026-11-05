@@ -50,7 +50,7 @@ import type { RunnerSignal } from '@/lib/runner/types';
 import type { WorkerEvent } from '@/lib/workers/protocol';
 import { currentRemoteSignal, mirrorSignal } from './remote-live';
 import { settleTurn } from './turns';
-import { recordAgentRequestOutput, queueAgentBlockedUpdates } from '@/lib/db/queries';
+import { recordAgentRequestOutput, queueAgentBlockedUpdates, recordConversationOutput, conversationThreadForSession, queueConversationOutput } from '@/lib/db/queries';
 
 /**
  * A chat event: inserted, or for a cumulative provider part replacing an
@@ -63,6 +63,7 @@ export function applyChatEvent(row: CreateChatEventInput, opts: { cumulative: bo
   const stored = opts.cumulative ? replaceChatEventPart(row) : insertChatEvent(row);
   if (stored && stored.source === 'agent' && stored.content && !stored.externalParentToolCallId) {
     recordAgentRequestOutput(opts.runId, stored.id);
+    recordConversationOutput(row.sessionId, opts.runId, stored.id);
   }
   if (stored && !opts.cumulative && row.source === 'result' && row.raw && opts.runId !== null) {
     try {
@@ -310,6 +311,12 @@ function turnOutcome(signal: Extract<RunnerSignal, { type: 'turn_result' }>) {
  */
 function recordPendingRequest(chatSessionId: string, pending: PendingInput, after: AfterCommit, notify = true): void {
   insertChatEvent(buildPendingRequestEvent(chatSessionId, pending));
+  const conversation = conversationThreadForSession(chatSessionId);
+  if (conversation && notify) {
+    queueConversationOutput(conversation.id, `pending:${pending.requestId}`, pending.kind === 'permission'
+      ? `Permission required: ${pending.title ?? pending.toolName}. Open this chat in Ri to approve it.`
+      : `Please answer: ${pending.questions.map(question => [question.question, ...(question.options ?? []).map(option => `• ${option.label}${option.description ? `: ${option.description}` : ''}`)].join('\n')).join('\n\n')}`, 'question');
+  }
   if (!notify) return;
   const updates = queueAgentBlockedUpdates(chatSessionId, pending.requestId, pending.kind === 'permission'
     ? `Permission required: ${pending.title ?? pending.toolName}. Only a person can approve it.`

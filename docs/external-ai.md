@@ -6,7 +6,7 @@ To use a team from your personal Ri, follow [Testing a team through personal Ri]
 
 ## The list
 
-Every agent Ri knows is one accordion item, most popular first: Claude Code, Codex, Cursor, VS Code, then the Claude app, Gemini CLI, Windsurf, OpenCode, Antigravity, Goose, Kiro and LM Studio, then ChatGPT (listed with why it can't connect yet), another Ri and any MCP client. `AI_CLIENTS` in `src/lib/external-ai/client-config.ts` is the single source of each one's steps, install link, setup prompt, configuration file and skill folder. The personal settings page and a team's settings render the same list (`src/components/settings/connect-agents.tsx`), each with its own address and names.
+Every agent Ri knows is one accordion item, most popular first: Claude Code, Codex, Cursor, VS Code, then the Claude app, Gemini CLI, Windsurf, OpenCode, Antigravity, Goose, Kiro and LM Studio, then ChatGPT (which signs in instead of taking a key, [MCP sign-in](mcp-oauth.md)), another Ri and any MCP client. `AI_CLIENTS` in `src/lib/external-ai/client-config.ts` is the single source of each one's steps, install link, setup prompt, configuration file and skill folder. The personal settings page and a team's settings render the same list (`src/components/settings/connect-agents.tsx`), each with its own address and names.
 
 Each item holds, in this order:
 
@@ -32,7 +32,7 @@ The agents Ri sets up on this computer, and how:
 
 Files are edited in place with `jsonc-parser`: comments and everything else stay, a linked file (a dotfiles folder) is written where it really is, and the result is mode 600. A file that isn't valid JSON is left alone. An entry under Ri's name that isn't a Ri's is left alone too. Windsurf, Goose and LM Studio have steps but no Set up: Windsurf became Devin Desktop in June 2026 and which of its two files an install reads isn't documented, Goose keeps its extensions in YAML, and LM Studio's file has no documented place.
 
-The key goes where the agent reads it: in its own user-level configuration, never in a project's files, and never through a shell, so it reaches no shell history. Steps a person follows keep it out of history too. Claude Code's put it in a shell-profile variable that its stored header names (`${RI_MCP_TOKEN}`), and the other steps are file edits. ChatGPT can't connect: it reaches an MCP server only from OpenAI's cloud with an OAuth sign-in or none, so it can't send a key. The Claude app's own connectors have the same limit (a key only in a limited beta, from Anthropic's cloud), which is why it uses the local bridge.
+The key goes where the agent reads it: in its own user-level configuration, never in a project's files, and never through a shell, so it reaches no shell history. Steps a person follows keep it out of history too. Claude Code's put it in a shell-profile variable that its stored header names (`${RI_MCP_TOKEN}`), and the other steps are file edits. ChatGPT never takes a key: it reaches an MCP server only from OpenAI's cloud, with an OAuth sign-in or none, so it signs in to Ri ([MCP sign-in](mcp-oauth.md)). Its item gives Ri's address and the steps in ChatGPT, asks for a remote address first, and lists its connections with when each was last used and Disconnect. The Claude app's own connectors work the same way from Anthropic's cloud, so its item offers them beside the local bridge, which still needs no remote address.
 
 What's connected is read back from each agent's configuration, never stored on the side. Ri's entry is the one under its server name whose key is one of this Ri's working keys. A personal Ri is `ri` and a development one `ri-dev` (`personalMcpNames`), so trying a change never replaces the connection to the real one. A team is `ri-<team>`. If someone removes the entry by hand or revokes its key, the item shows that. Setting an agent up again replaces Ri's earlier entry and revokes the earlier key.
 
@@ -50,11 +50,11 @@ Connecting an agent on this computer puts Ri's skills (`agent-work-tasks-notes_r
 
 For access from another computer, set an HTTPS remote address in Settings → Devices. Use any supported tunnel or your own HTTPS setup. The computer running Ri must stay on and reachable. Ri does not configure a tunnel automatically here. With no remote address, the steps give the local address and say it works only on the computer running Ri. Set up always writes the local (loopback) address, since the agent runs beside Ri. If you change the remote address later, update existing configurations by hand, or disconnect and connect again.
 
-A connection supplies tools to the agent you're already running. It does not create a chat inside Ri or require a new AI provider key. Search uses the existing semantic-search setup when available and falls back to keyword search. The key authenticates to Ri, not to Claude or OpenAI. A refused key gets a plain 401 with no OAuth challenge, so agents don't start a sign-in Ri doesn't offer.
+A connection supplies tools to the agent you're already running. It does not create a chat inside Ri or require a new AI provider key. Search uses the existing semantic-search setup when available and falls back to keyword search. The key authenticates to Ri, not to Claude or OpenAI. A request to the MCP endpoint without a working key gets a 401 whose `WWW-Authenticate` points at Ri's sign-in (RFC 9728), so an agent that supports OAuth can sign in instead of holding a key. Other routes refuse plainly.
 
 For a team, join as a member first. Each key belongs to the signed-in member, and its writes are attributed to that member as AI actions. Making another key does not create another person. Set up belongs to a personal Ri, which runs on the member's own computer, so a team's list has the steps, links and setup prompt. A personal Ri's key acts as its owner and is not a multi-user signup mechanism.
 
-OAuth sign-in for Ri's MCP is out of scope for now, and tracked in the Ri task "Make sure we have super easy device auth and not passing around API keys".
+Agents can also sign in to Ri's MCP with OAuth instead of holding a key: ChatGPT and Claude's connectors from the cloud, and Claude Code, VS Code or any client that supports MCP authorization on this or another computer. See [MCP sign-in](mcp-oauth.md). A sign-in makes the same kind of key, filed under the agent it proved it is.
 
 ## Implementation and boundary
 
@@ -70,4 +70,5 @@ Coverage:
 - `src/lib/external-ai/local-setup.test.ts`: Set up and Disconnect on a disposable Ri with every configuration in a temporary home folder. Claude Code, Codex and Antigravity run their real CLIs where installed. It also covers files edited in place, refusals that leave no key behind, and stale entries.
 - `src/lib/external-ai/home-mcp.test.ts`: drives the real MCP client SDK through the proxy and handlers on disposable Homes. It covers CRUD, search, stale note edits, mirrors, scope discovery and calls, forged headers, revocation, expiry, host backfill, normal viewer behavior, address validation and team isolation.
 - `src/lib/orchestrator/agent-connection-actions.test.ts`: the actions and their refusals.
+- `src/lib/oauth/*.test.ts` and `src/lib/external-ai/views/*.test.ts`: the sign-in and the views ([MCP sign-in](mcp-oauth.md#tests)).
 - `src/components/team/team-settings.browser.test.ts`: the personal and team lists on desktop and phone layouts.

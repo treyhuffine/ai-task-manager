@@ -71,9 +71,17 @@ export function useCoordinationDecision(sessionId: string) {
       await client.cancelQueries({queryKey:key});
       const previous=client.getQueryData<RouterOutputs['coordination']['delivery']>(key);
       if(previous) client.setQueryData(key,{...previous,status:input.decision==='deny'?'denied':'queued'});
-      return {key,previous};
+      const stateKey = coordinationKey(sessionId);
+      await client.cancelQueries({queryKey:stateKey});
+      const approval = client.getQueryData<RouterOutputs['coordination']['state']>(stateKey)?.approvals.find(item => item.id === input.deliveryId);
+      client.setQueryData<RouterOutputs['coordination']['state']>(stateKey, current => current ? {...current, approvals:current.approvals.filter(item => item.id !== input.deliveryId)} : current);
+      return {key,previous,approval};
     },
-    onError: (error,_input,context) => { if(context?.previous) client.setQueryData(context.key,context.previous); toast.error(error.message); },
+    onError: (error,_input,context) => {
+      if(context?.previous) client.setQueryData(context.key,context.previous);
+      if(context?.approval) client.setQueryData<RouterOutputs['coordination']['state']>(coordinationKey(sessionId), current => current && !current.approvals.some(item => item.id === context.approval!.id) ? {...current, approvals:[...current.approvals,context.approval!].sort((a,b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))} : current);
+      toast.error(error.message);
+    },
     onSettled: (_data,_error,input) => { void client.invalidateQueries({queryKey:['coordination-delivery',input.deliveryId]}); void client.invalidateQueries({queryKey:coordinationKey(sessionId)}); },
   });
 }

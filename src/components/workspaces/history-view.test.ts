@@ -41,6 +41,7 @@ function s(id: string, iso: string): RailSession {
     lastActivityAt: iso,
     lastViewedAt: null,
     unreadMarkerAt: null,
+    turnStatus: null,
     externalSessionId: null,
     externalProviderType: null,
 

@@ -38,16 +38,22 @@ export function useDismissRailFlyout() {
  * With `onClick`, a click goes there instead of holding the flyout (the Apps
  * row opens the library), and the flyout is a hover peek only: it shows while
  * the pointer is on the trigger or inside it, and hides when it leaves.
+ *
+ * `hoverOpens={false}` makes it click-only: resting on the trigger peeks
+ * nothing (an agent's chats button in the agents-only rail).
  */
 export function RailFlyout({
   contentLabel,
   trigger,
   onClick,
   hoverTarget,
+  hoverOpens = true,
   children,
 }: {
   /** The flyout's accessible name. */
   contentLabel: string;
+  /** Resting on the trigger peeks the flyout. Off, only a click opens it. */
+  hoverOpens?: boolean;
   trigger: (props: { ref: Ref<HTMLButtonElement>; open: boolean }) => ReactElement;
   /** Where a click goes, when it doesn't hold the flyout. */
   onClick?: () => void;
@@ -167,13 +173,13 @@ export function RailFlyout({
           dispatch({ type: 'click', keyboard: e.detail === 0 });
         }}
         onPointerEnter={(e) => {
-          if (hoverTarget) return;
+          if (hoverTarget || !hoverOpens) return;
           if (e.pointerType !== 'mouse') return;
           if (open) cancel();
           else after({ type: 'hover' }, OPEN_DELAY_MS);
         }}
         onPointerLeave={(e) => {
-          if (hoverTarget) return;
+          if (hoverTarget || !hoverOpens) return;
           if (e.pointerType === 'mouse') after({ type: 'leave' }, CLOSE_DELAY_MS);
         }}
         onKeyDown={(e) => {
@@ -216,14 +222,32 @@ export function RailFlyout({
             if (e.pointerType === 'mouse') cancel();
           }}
           onPointerLeave={(e) => {
-            if (e.pointerType === 'mouse') after({ type: 'leave' }, CLOSE_DELAY_MS);
+            if (e.pointerType !== 'mouse') return;
+            // Onto a row's chat preview beside it: reading it is using the
+            // flyout, so it holds, as pressing inside it does.
+            if (e.relatedTarget instanceof Element && e.relatedTarget.closest('[data-session-preview]')) {
+              cancel();
+              dispatch({ type: 'press' });
+              return;
+            }
+            after({ type: 'leave' }, CLOSE_DELAY_MS);
+          }}
+          // The preview is portaled beside the flyout, not inside it, so a
+          // click there isn't a click outside.
+          onPointerDownOutside={(e) => {
+            if (e.target instanceof Element && e.target.closest('[data-session-preview]')) e.preventDefault();
           }}
           onPointerDownCapture={() => {
             cancel();
             dispatch({ type: 'press' });
           }}
-          // Portals still bubble through the agent's draggable header.
-          onPointerDown={(e) => e.stopPropagation()}
+          // Portals still bubble through the agent's draggable header, so
+          // React's bubbling stops here. The browser's carries on: Radix resets
+          // "that press was inside" at the document, and without it the next
+          // click outside only clears the flag and the flyout stays.
+          onPointerDown={(e) => {
+            e.isPropagationStopped = () => true;
+          }}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
           className="z-50 flex h-[var(--radix-popper-anchor-height)] w-[256px] flex-col border-r border-border bg-background shadow-xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-left-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"

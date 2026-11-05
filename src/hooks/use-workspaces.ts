@@ -1,7 +1,9 @@
 import { invalidateWorkspaceViews } from '@/lib/query/work-view-invalidation';
+import { invalidateChatRows, sessionKey } from '@/lib/query/session-keys';
 import type { CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceStatus } from '@/db/types';
 import { worktreeScopeFor } from '@/hooks/use-execution';
 import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { workspaceFolderScope } from '@/lib/folders/source';
 import type { ChatSessionRecord, ChatSessionWithExecution } from '@/lib/api/dto/records';
 import { sessionsApi, type HistoryResponse, type RailResponse } from '@/lib/api/sessions';
 import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
@@ -16,6 +18,7 @@ import { toast } from 'sonner';
 import { optimisticPatch } from '@/lib/query/optimistic-entity';
 import type { WorkResultDetailResponse } from '@/lib/api/results';
 import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
+import { turnStatusNeedsYou } from '@/lib/sessions/turn-status';
 
 const WORKSPACES_KEY = ['workspaces'] as const;
 const UPDATE_WORKSPACE_KEY = ['workspaces', 'update'] as const;
@@ -36,6 +39,45 @@ export function useStackDetection(cwd: string | null) {
 const NEEDS_REVIEW_KEY = ['sessions', 'needs-review'] as const;
 const RAIL_KEY = ['sessions', 'rail'] as const;
 const HISTORY_KEY = ['sessions', 'history'] as const;
+
+/**
+ * Chats with an archive request out, by how many. The server keeps an
+ * execution active until its worktree is removed, which can take a while (a
+ * big `node_modules`), so a refetch meanwhile (the view the person just
+ * went to mounting, the rail's poll, a live event) would list it again right
+ * after archiving took it away. The lists archiving takes it from (rail,
+ * needs review, an agent's sessions) leave these out until the request
+ * settles: archived, it stays gone, and refused or failed, it comes back.
+ * Recent's feed keeps archived work, so there they read as archived instead.
+ * One per page, like the cache it guards.
+ */
+const archiving = new Map<string, number>();
+
+/** Keep `ids` out of the active lists until the returned release is called. */
+function holdArchiving(ids: readonly string[]): () => void {
+  for (const id of ids) archiving.set(id, (archiving.get(id) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    for (const id of ids) {
+      const left = (archiving.get(id) ?? 1) - 1;
+      if (left > 0) archiving.set(id, left);
+      else archiving.delete(id);
+    }
+  };
+}
+
+function withoutArchiving<T extends { id: string }>(sessions: T[]): T[] {
+  return archiving.size ? sessions.filter((s) => !archiving.has(s.id)) : sessions;
+}
+
+type HistorySession = HistoryResponse['sessions'][number];
+
+/** `sessions` with the chats `isArchived` picks read as archived, as Recent shows them once archived. */
+function asArchived(sessions: HistorySession[], isArchived: (s: HistorySession) => boolean): HistorySession[] {
+  return sessions.map((s) => (isArchived(s) ? { ...s, status: 'archived' as const } : s));
+}
 
 export function useWorkspaces(filter?: { status?: WorkspaceStatus }) {
   return useQuery({
@@ -93,7 +135,10 @@ export function useWorkspaceSessions(
   const includeArchived = !!opts.includeArchived;
   return useQuery({
     queryKey: [...WORKSPACES_KEY, id, 'sessions', ...(includeArchived ? ['with-archived'] : [])],
-    queryFn: () => workspacesApi.sessions(id!, { includeArchived }),
+    queryFn: async () => {
+      const sessions = await workspacesApi.sessions(id!, { includeArchived });
+      return includeArchived ? sessions : withoutArchiving(sessions);
+    },
     enabled: !!id,
   });
 }
@@ -129,7 +174,13 @@ export function useChangeAgentFolders(workspaceId: string) {
   return {
     project: useMutation({
       mutationFn: (v: { deviceId: string; folder: string }) => workspacesApi.setProjectFolder(workspaceId, v.deviceId, v.folder),
-      onSuccess: settle,
+      // The agent's record has a new folder and git state, and any list on
+      // screen (or still being read) is the old folder's.
+      onSuccess: (data) => {
+        settle(data);
+        void qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+        void qc.invalidateQueries({ queryKey: workspaceFolderScope(workspaceId) });
+      },
     }),
     linked: useMutation({
       mutationFn: (v: { deviceId: string; referenceFolderId: string; folder: string | null }) =>
@@ -193,7 +244,7 @@ export function useSetDefaultDevice(workspaceId: string | null) {
 export function useNeedsReviewSessions() {
   return useQuery({
     queryKey: NEEDS_REVIEW_KEY,
-    queryFn: ({ signal }) => sessionsApi.needsReview({ signal }),
+    queryFn: async ({ signal }) => withoutArchiving(await sessionsApi.needsReview({ signal })),
     refetchInterval: 5_000,
   });
 }
@@ -362,23 +413,39 @@ export function useMarkSessionViewed() {
   return useMarkSessionRead();
 }
 
+/**
+ * A chat id, or `{ id, dismiss: true }` for an explicit Mark as read, which
+ * also clears its status line (docs/chat-status-lines.md). Read receipts from
+ * looking pass the bare id, and leave a status that waits on the person.
+ */
+export type MarkReadInput = string | { id: string; dismiss?: boolean };
+
+function markReadInput(input: MarkReadInput): { id: string; dismiss: boolean } {
+  return typeof input === 'string' ? { id: input, dismiss: false } : { id: input.id, dismiss: input.dismiss === true };
+}
+
 export function useMarkSessionRead() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => sessionsApi.markRead(id),
+    mutationFn: (input: MarkReadInput) => {
+      const { id, dismiss } = markReadInput(input);
+      return sessionsApi.markRead(id, { dismiss });
+    },
     // Optimistic update: flip the read state in every rail-feeding
     // cache before the server round-trip. Otherwise the user can
     // navigate away from a chat and still see the unread pip on the
     // row for the brief window between mutation send and refetch
     // settle — which feels broken because the click-out gesture
     // didn't seem to "do" anything.
-    onMutate: async (id) => {
+    onMutate: async (input) => {
+      const { id, dismiss } = markReadInput(input);
       const now = new Date().toISOString();
+      const read = { lastViewedAt: now, unreadMarkerAt: null, ...(dismiss ? { turnStatus: null } : {}) };
       qc.setQueryData<RailResponse>(RAIL_KEY, (prev) => prev && {
         ...prev,
         sessions: prev.sessions.map((s) =>
           s.id === id
-            ? { ...s, lastViewedAt: now, unreadMarkerAt: null }
+            ? { ...s, ...read }
             : s,
         ),
         // An agent's main chat: reading it clears the agent's "New reply"
@@ -387,8 +454,10 @@ export function useMarkSessionRead() {
           c.id === id ? { ...c, lastViewedAt: now, unreadMarkerAt: null } : c,
         ),
       });
+      // A look leaves a chat whose status waits on the person listed: only
+      // dismissing (or answering) takes it off.
       qc.setQueryData<ChatSessionRecord[]>(NEEDS_REVIEW_KEY, (prev) =>
-        prev ? prev.filter((s) => s.id !== id) : prev,
+        prev ? prev.filter((s) => s.id !== id || (!dismiss && turnStatusNeedsYou(s))) : prev,
       );
       // Every workspace's sessions cache that contains this row gets
       // the same field bump — there are many such caches (one per
@@ -399,7 +468,7 @@ export function useMarkSessionRead() {
           && q.queryKey[2] === 'sessions' },
         (prev) => prev?.map((s) =>
           s.id === id
-            ? { ...s, lastViewedAt: now, unreadMarkerAt: null }
+            ? { ...s, ...read }
             : s,
         ),
       );
@@ -407,7 +476,7 @@ export function useMarkSessionRead() {
       // fed by useSession) so the in-view header's read affordance flips
       // instantly — that cache isn't rail-derived, so the maps above miss it.
       qc.setQueryData<ChatSessionWithExecution>(['session', id], (prev) =>
-        prev ? { ...prev, lastViewedAt: now, unreadMarkerAt: null } : prev,
+        prev ? { ...prev, ...read } : prev,
       );
     },
     onSettled: () => {
@@ -533,9 +602,17 @@ export function useUnpinSession() {
 export function useRailSessions() {
   return useQuery({
     queryKey: RAIL_KEY,
-    queryFn: ({ signal }) => sessionsApi.rail({ signal }),
+    queryFn: async ({ signal }) => {
+      const rail = await sessionsApi.rail({ signal });
+      return archiving.size ? { ...rail, sessions: withoutArchiving(rail.sessions) } : rail;
+    },
     refetchInterval: 15_000,
   });
+}
+
+/** A rail row as the cache has it now, for a handler that needs it once without re-rendering on every rail update. */
+export function cachedRailSession(qc: QueryClient, id: string) {
+  return qc.getQueryData<RailResponse>(RAIL_KEY)?.sessions.find((s) => s.id === id);
 }
 
 /**
@@ -553,7 +630,10 @@ export function useRailSessions() {
 export function useHistorySessions(enabled: boolean = true, workspaceId: string | null = null) {
   return useQuery({
     queryKey: workspaceId ? [...HISTORY_KEY, workspaceId] : HISTORY_KEY,
-    queryFn: () => sessionsApi.history({ workspaceId: workspaceId ?? undefined }),
+    queryFn: async () => {
+      const feed = await sessionsApi.history({ workspaceId: workspaceId ?? undefined });
+      return archiving.size ? { ...feed, sessions: asArchived(feed.sessions, (s) => archiving.has(s.id)) } : feed;
+    },
     enabled,
     refetchInterval: 60_000,
   });
@@ -565,14 +645,27 @@ type CacheSnapshot = [QueryKey, unknown];
 /**
  * Drop a session id from every rail-facing cache (workspace trees,
  * needs-review, the rail GET) and return the prior values so a failed
- * mutation can restore them. Deliberately leaves the History cache alone
- * — archived executions still belong there, just flipped in status.
+ * mutation can restore them. History keeps it: archived executions still
+ * belong there, so it reads as archived, with its execution's other chats,
+ * which archiving takes too.
  */
 function dropSessionFromCaches(
   qc: ReturnType<typeof useQueryClient>,
   id: string,
 ): CacheSnapshot[] {
   const snapshots: CacheSnapshot[] = [];
+  const rail = qc.getQueryData<RailResponse>(RAIL_KEY);
+
+  for (const [key, data] of qc.getQueriesData<HistoryResponse>({ queryKey: HISTORY_KEY })) {
+    if (!data) continue;
+    const executionId = rail?.sessions.find((s) => s.id === id)?.executionId
+      ?? data.sessions.find((s) => s.id === id)?.executionId;
+    snapshots.push([key, data]);
+    qc.setQueryData<HistoryResponse>(key, {
+      ...data,
+      sessions: asArchived(data.sessions, (s) => s.id === id || (!!executionId && s.executionId === executionId)),
+    });
+  }
 
   // Per-workspace session lists live at ['workspaces', <id>, 'sessions'].
   for (const [key, data] of qc.getQueriesData<ChatSessionWithExecution[]>({
@@ -596,7 +689,6 @@ function dropSessionFromCaches(
     );
   }
 
-  const rail = qc.getQueryData<RailResponse>(RAIL_KEY);
   if (rail) {
     snapshots.push([RAIL_KEY, rail]);
     qc.setQueryData<RailResponse>(RAIL_KEY, {
@@ -608,10 +700,14 @@ function dropSessionFromCaches(
   return snapshots;
 }
 
+/** Archives in flight, by chat id in their variables: every place a chat shows can say it's archiving. */
+export const ARCHIVE_SESSION_MUTATION_KEY = ['session', 'archive'] as const;
+
 /**
  * Archive a single execution. The row vanishes from the rail immediately
- * (optimistic remove across all session caches); a failed request rolls
- * the snapshots back so the row reappears exactly where it was. The
+ * (optimistic remove across all session caches) and stays gone while the
+ * request runs ({@link holdArchiving}); a failed request rolls the
+ * snapshots back so the row reappears exactly where it was. The
  * dirty-worktree 409 is an expected "failure" here — the caller catches
  * it, the optimistic remove rolls back, and the row is gone again if
  * the person archives anyway after seeing the files.
@@ -619,29 +715,43 @@ function dropSessionFromCaches(
 export function useArchiveSession() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: ARCHIVE_SESSION_MUTATION_KEY,
     mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
       sessionsApi.archive(id, { force }),
     onMutate: async ({ id }) => {
+      // First, so a refetch already on its way can't list it again either.
+      const release = holdArchiving([id]);
       // Halt in-flight refetches so they can't clobber the optimistic
       // edit with stale (pre-archive) data mid-request.
       await Promise.all([
         qc.cancelQueries({ queryKey: WORKSPACES_KEY }),
         qc.cancelQueries({ queryKey: NEEDS_REVIEW_KEY }),
         qc.cancelQueries({ queryKey: RAIL_KEY }),
+        qc.cancelQueries({ queryKey: HISTORY_KEY }),
       ]);
-      return { snapshots: dropSessionFromCaches(qc, id) };
+      return { snapshots: dropSessionFromCaches(qc, id), release };
     },
     onError: (_err, _vars, context) => {
       for (const [key, data] of context?.snapshots ?? []) {
         qc.setQueryData(key, data);
       }
     },
-    onSettled: () => {
+    // Archived, as the server said: every card showing this chat says so at
+    // once, before the refetch below confirms the rest of its row.
+    onSuccess: (_row, { id }) => {
+      qc.setQueryData<ChatSessionWithExecution>(sessionKey(id), (row) => row && { ...row, status: 'archived' });
+    },
+    onSettled: (_data, _err, { id }, context) => {
+      context?.release();
       // Reconcile with the server on both success and (post-rollback)
       // failure so the caches match the truth.
       invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
       qc.invalidateQueries({ queryKey: RAIL_KEY });
+      qc.invalidateQueries({ queryKey: HISTORY_KEY });
+      // What the chat itself says, wherever its state shows (a returned
+      // result's card). The chat on screen was left on the click.
+      invalidateChatRows(qc, id, qc.getQueryData<ChatSessionWithExecution>(sessionKey(id))?.executionId);
     },
   });
 }
@@ -696,12 +806,14 @@ export interface BulkArchiveResult {
  * forced here — the caller re-invokes with `force: true` on just the
  * `dirty` ids after confirming the data loss.
  *
- * Mirrors `useArchiveSession`'s cache invalidation so both the single
- * and bulk paths refresh the same surfaces.
+ * Optimistic like `useArchiveSession`: the rows vanish at once and stay gone
+ * while the requests run. Settling refetches, which brings back the ones
+ * that were refused or failed. Mirrors its cache invalidation so both the
+ * single and bulk paths refresh the same surfaces.
  */
 export function useBulkArchiveSessions() {
   const qc = useQueryClient();
-  return useMutation<BulkArchiveResult, Error, { ids: string[]; force?: boolean }>({
+  return useMutation<BulkArchiveResult, Error, { ids: string[]; force?: boolean }, { release: () => void }>({
     mutationFn: async ({ ids, force }) => {
       const settled = await Promise.allSettled(
         ids.map((id) => sessionsApi.archive(id, { force }).then(() => id)),
@@ -726,10 +838,24 @@ export function useBulkArchiveSessions() {
       });
       return result;
     },
-    onSuccess: () => {
+    onMutate: async ({ ids }) => {
+      const release = holdArchiving(ids);
+      await Promise.all([
+        qc.cancelQueries({ queryKey: WORKSPACES_KEY }),
+        qc.cancelQueries({ queryKey: NEEDS_REVIEW_KEY }),
+        qc.cancelQueries({ queryKey: RAIL_KEY }),
+        qc.cancelQueries({ queryKey: HISTORY_KEY }),
+      ]);
+      for (const id of ids) dropSessionFromCaches(qc, id);
+      return { release };
+    },
+    onSettled: (_data, _err, { ids }, context) => {
+      context?.release();
       invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
       qc.invalidateQueries({ queryKey: RAIL_KEY });
+      qc.invalidateQueries({ queryKey: HISTORY_KEY });
+      for (const id of ids) invalidateChatRows(qc, id, qc.getQueryData<ChatSessionWithExecution>(sessionKey(id))?.executionId);
     },
   });
 }

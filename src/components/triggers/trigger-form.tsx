@@ -463,7 +463,9 @@ function Advanced({
               onChange={(e) => set({ concurrencyPolicy: e.target.value as TriggerConcurrencyPolicy })}
               className={inputCls}
             >
-              <option value="skip_if_running">Skip this run</option>
+              <option value="skip_if_running">
+                {target === 'session' && values.schedule.kind === 'once' ? 'Wait until the chat is free' : 'Skip this run'}
+              </option>
               <option value="coalesce_if_active">
                 {target === 'session' ? 'Add it to the turn under way' : 'Add it to the running chat'}
               </option>

@@ -12,10 +12,12 @@ import { Tip } from '@/components/ui/tip';
 import { cn } from '@/lib/utils';
 
 /** A visible conversation relationship, with native link behavior and dashboard navigation. */
-export function ChatMessageLink({ sessionId, eventId, label, direction, preview, header = false, compact = false }: {
+export function ChatMessageLink({ sessionId, eventId, label, title: givenTitle, direction, preview, header = false, compact = false }: {
   sessionId: string;
   eventId?: string;
   label: string;
+  /** What to call the linked chat, when its own name wouldn't say what it is here. */
+  title?: string;
   direction: 'incoming' | 'outgoing';
   preview?: string;
   header?: boolean;
@@ -26,10 +28,10 @@ export function ChatMessageLink({ sessionId, eventId, label, direction, preview,
   const { data: agent } = useWorkspace(session?.workspaceId ?? null);
   const orchestratorName = useOrchestratorName();
   const unavailable = apiErrorStatus(error) === 404;
-  const title = unavailable ? 'Deleted chat'
+  const title = givenTitle ?? (unavailable ? 'Deleted chat'
     : session?.type === 'orchestration' ? session.label ?? agent?.name ?? (session.workspaceId ? 'Agent main chat' : orchestratorName)
-    : session?.label ?? session?.execution?.label ?? (session ? 'Untitled chat' : error ? 'Chat temporarily unavailable' : 'Loading chat…');
-  const context = session?.type === 'orchestration' ? (session.workspaceId ? 'Agent main chat' : 'Main chat') : agent?.name ? `${agent.name} agent` : null;
+    : session?.label ?? session?.execution?.label ?? (session ? 'Untitled chat' : error ? 'Chat temporarily unavailable' : 'Loading chat…'));
+  const context = session?.type === 'orchestration' ? (session.workspaceId ? 'Agent main chat' : session.createdByRunId ? 'Scheduled run' : 'Main chat') : agent?.name ? `${agent.name} agent` : null;
   const view = executionView(sessionId, eventId, true);
   const className = cn(
     'group/chat-link flex min-w-0 text-left transition-colors',

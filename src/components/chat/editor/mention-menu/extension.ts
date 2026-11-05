@@ -13,7 +13,8 @@ import {
   buildItems,
   canBrowseReference,
   entitySearchFor,
-  narrowedQueryText,
+  filterQueryText,
+  kindSuggestions,
   parseMentionQuery,
   parseReferenceDrillDown,
   toReferenceMention,
@@ -107,9 +108,10 @@ interface MentionMenuOptions {
  * PRs are gated behind a `#` after the `@` (`@#193`) — see `pr-trigger.ts`.
  * This replaced a standalone `#` trigger whose send-time raw-text expansion
  * surprised users by rewriting numbers they meant literally. `task:`,
- * `note:`, `agent:` and `file:` narrow the same way (`parseMentionQuery`),
- * and the task, note and agent filters take spaces, since titles and names
- * have them.
+ * `note:`, `agent:`, `app:`, `connector:` and `file:` narrow the same way
+ * (`parseMentionQuery`), and all but `file:` take spaces, since titles and
+ * names have them. The kind chips above the list and the kind suggestions
+ * (`@ta` offers Tasks) only write those prefixes into the query.
  */
 export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
   name: 'mentionMenu',
@@ -192,7 +194,8 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
         if (request.signal.aborted || scope !== this.options.getScopeKey?.()) return settledItems([])
         const sourceItems: MentionItem[] = sources ? [...sources.items] : []
         if (sources && sources.total > sources.items.length) sourceItems.push({ kind: 'more', of: 'app', total: sources.total, shown: sources.items.length, query: parsed.text, narrowed: !!parsed.filter })
-        return settledItems([...sourceItems, ...appMentionItems(appMentions, parsed.filter === 'app'), ...buildItems({
+        // A kind whose name is being typed leads, so Tab or Enter narrows to it.
+        return settledItems([...kindSuggestions(query), ...sourceItems, ...appMentionItems(appMentions, parsed.filter === 'app'), ...buildItems({
           files: getFiles(),
           agents: getAgents(),
           entities,
@@ -255,7 +258,11 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
         } else if (item.kind === 'more') {
           // Narrow to that kind, keeping the search. The suggestion stays
           // active on the new text, as with a reference folder.
-          if (!item.narrowed) chain.insertContent(narrowedQueryText(item.of, item.query)).run()
+          if (!item.narrowed) chain.insertContent(filterQueryText(item.of, item.query)).run()
+        } else if (item.kind === 'filter') {
+          // A kind chip or suggestion: the query is rewritten, never a chip
+          // inserted, so the text stays the one record of the filter.
+          chain.insertContent(filterQueryText(item.filter, item.query)).run()
         } else if (item.kind === 'pr') {
           // Drop the picker discriminator; the rest is exactly PrChipAttrs,
           // so the chip is self-describing and serializes without re-reading

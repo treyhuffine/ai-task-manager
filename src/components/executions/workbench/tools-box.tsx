@@ -206,26 +206,7 @@ export function ToolsList({
         'Every change in this worktree, from every chat, against the base branch',
       )}
       {row('files', <FileText size={15} />, 'Files', touch ? null : <Kbd aria-hidden>{HOTKEYS.goToFile.label}</Kbd>)}
-      {terminal && (
-        <Tip label={terminal.open ? 'Hide the terminal. Shells keep running.' : undefined}>
-          <button
-            type="button"
-            onClick={terminal.onToggle}
-            className={cn(
-              'group flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left font-medium text-foreground/85 transition-colors hover:bg-muted/60 hover:text-foreground',
-              rowH,
-              terminal.open && 'bg-muted/50 text-foreground',
-            )}
-          >
-            <SquareTerminal size={15} className="flex-shrink-0 text-muted-foreground group-hover:text-foreground" />
-            Terminal
-            <span className="ml-auto text-[11.5px] font-normal text-muted-foreground/80">
-              {terminal.open ? 'Open below' : <Kbd aria-hidden>{HOTKEYS.toggleTerminal.label}</Kbd>}
-            </span>
-            {terminal.open ? <ChevronDown size={13} className="flex-shrink-0 text-muted-foreground/60" /> : go}
-          </button>
-        </Tip>
-      )}
+      {terminal && <TerminalToolsRow {...terminal} touch={touch} />}
 
       <ToolsDivider />
       {row('notes', <ListTodo size={15} />, 'Notes & tasks', linkedCount > 0 ? <span>{linkedCount} linked</span> : null)}
@@ -308,6 +289,39 @@ export function ToolsRow({
   );
 }
 
+/**
+ * The terminal's row in a tools list, the execution view's and the agent
+ * view's: it shows or hides the drawer below rather than opening the panel,
+ * so it says "Open below" while the drawer is open.
+ */
+export function TerminalToolsRow({ open, onToggle, touch = false }: { open: boolean; onToggle: () => void; touch?: boolean }) {
+  return (
+    <Tip label={open ? 'Hide the terminal. Shells keep running.' : undefined}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          'group flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left font-medium text-foreground/85 transition-colors hover:bg-muted/60 hover:text-foreground',
+          touch ? 'h-11 text-[14.5px]' : 'h-9 text-[13px]',
+          open && 'bg-muted/50 text-foreground',
+        )}
+      >
+        <SquareTerminal size={15} className="flex-shrink-0 text-muted-foreground group-hover:text-foreground" />
+        Terminal
+        <span className="ml-auto text-[11.5px] font-normal text-muted-foreground/80">
+          {open ? 'Open below' : <Kbd aria-hidden>{HOTKEYS.toggleTerminal.label}</Kbd>}
+        </span>
+        {open ? <ChevronDown size={13} className="flex-shrink-0 text-muted-foreground/60" /> : <RowChevron />}
+      </button>
+    </Tip>
+  );
+}
+
+/** The terminal in the folded icon strip, shown as on while its drawer is open. */
+export function TerminalToolsMini({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return <ToolsMini onClick={onToggle} icon={<SquareTerminal size={16} />} label={open ? 'Hide the terminal' : 'Terminal'} active={open} />;
+}
+
 /** A divider between groups of rows. */
 export function ToolsDivider() {
   return <div className="my-1.5 h-px bg-border" />;
@@ -369,9 +383,7 @@ export function ToolsBox(props: ToolsListProps) {
           <ToolsMini onClick={() => onShow('preview')} icon={<AppWindow size={16} />} label="Preview" />
           <ToolsMini onClick={() => onShow('changes')} icon={<GitCompareArrows size={16} />} label={diffStats?.files ? `Changes · ${filesLabel(diffStats.files)}` : 'Changes'} badge={diffStats?.files ? 'bg-amber-500' : undefined} />
           <ToolsMini onClick={() => onShow('files')} icon={<FileText size={16} />} label="Files" />
-          {terminal && (
-            <ToolsMini onClick={terminal.onToggle} icon={<SquareTerminal size={16} />} label={terminal.open ? 'Hide the terminal' : 'Terminal'} active={terminal.open} />
-          )}
+          {terminal && <TerminalToolsMini {...terminal} />}
           <ToolsStripDivider />
           <ToolsMini onClick={() => onShow('notes')} icon={<ListTodo size={16} />} label="Notes & tasks" />
           <ToolsMini onClick={() => onShow('scratch')} icon={<NotebookPen size={16} />} label="Scratchpad" badge={props.scratchHasContent ? 'bg-muted-foreground/70' : undefined} />

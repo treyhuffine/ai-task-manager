@@ -24,6 +24,8 @@ import { useSearch } from '@/hooks/use-search';
 import { useCreateTask } from '@/hooks/use-tasks';
 import { useStartSkill } from '@/hooks/use-start-skill';
 import { closeTaskBoard, openBoard } from '@/lib/client/task-board';
+import { openScratchpad, useScratchpadAvailable } from '@/components/scratchpad/scratchpad-host';
+import { useViewportTier } from '@/hooks/use-viewport-tier';
 import { closeCalendarModal, openCalendarModal } from '@/lib/client/calendar-modal';
 import { useLocalApps } from '@/components/local-apps/app-hooks';
 import { appPlaces } from '@/components/local-apps/app-places';
@@ -42,6 +44,8 @@ import { useResultCapabilities } from '@/hooks/use-results';
 export function SearchOverlay() {
   const router = useRouter();
   const capabilities = useResultCapabilities();
+  const scratchpadAvailable = useScratchpadAvailable();
+  const tier = useViewportTier();
   const [open, setOpen] = useState(false);
   const [rawQuery, setRawQuery] = useState('');
   if (!open && rawQuery !== '') setRawQuery('');
@@ -152,6 +156,10 @@ export function SearchOverlay() {
         setOpen(false);
         triggerVoiceChat();
         break;
+      case 'open-scratchpad':
+        setOpen(false);
+        openScratchpad(tier === 'desktop');
+        break;
       case 'search-chats':
         setOpen(false);
         openChatSearch();
@@ -182,7 +190,7 @@ export function SearchOverlay() {
         }
         break;
     }
-  }, [createTask, createNote, newSkill, openTask, openNote, toggleTheme, handleNavigate, triggerVoiceChat, router, setActiveView, appList]);
+  }, [createTask, createNote, newSkill, openTask, openNote, toggleTheme, handleNavigate, triggerVoiceChat, router, setActiveView, appList, tier]);
 
   // Hotkey + custom event listeners
   useEffect(() => {
@@ -230,7 +238,7 @@ export function SearchOverlay() {
     searchQuery={isCommand ? '' : searchQuery} results={filteredResults} searching={isSearching} fetching={isFetching}
     onSelect={handleSelect} inputRef={inputRef} typeFilter={typeFilter}
     placeholder={isCommand ? 'Type a command...' : 'Search or type > for commands...'}
-    beforeResults={<>          {isCommand && <CommandSearchItems commands={[...PALETTE_COMMANDS, ...appCommands].filter(command => command.capability !== 'handoffs' || capabilities.data?.handoffsEnabled)} query={searchQuery} onSelect={executeCommand} icon={getCommandIcon} label={getCommandLabel}/>}
+    beforeResults={<>          {isCommand && <CommandSearchItems commands={[...PALETTE_COMMANDS, ...appCommands].filter(command => (command.capability !== 'handoffs' || capabilities.data?.handoffsEnabled) && (command.capability !== 'privatePlanning' || scratchpadAvailable))} query={searchQuery} onSelect={executeCommand} icon={getCommandIcon} label={getCommandLabel}/>}
 
           {/* ── Recent items (empty query, no command mode) ── */}
           {!isCommand && searchQuery.length === 0 && recents && recents.length > 0 && (

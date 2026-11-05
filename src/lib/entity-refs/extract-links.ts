@@ -26,9 +26,13 @@ import {
   parseEntitySegments,
   listNonFileMarkers,
   type EntityMarker,
+  type RemoteMarker,
 } from './parse-markers';
 
 export type NonFileMarker = Exclude<EntityMarker, { kind: 'file' }>;
+
+/** A marker that links a record, in this Home or another. */
+export type LinkMarker = { kind: 'task' | 'note'; id: string } | RemoteMarker;
 
 /** Replace inline code spans on a single line with equal-length spaces. */
 function maskInlineCode(line: string): string {
@@ -79,13 +83,13 @@ export function extractEntityMarkers(text: string | null | undefined): NonFileMa
 }
 
 /**
- * Rewrite task/note markers outside code via `replace`. Returning `null`
- * leaves the marker verbatim. File and scratchpad markers are always left
- * verbatim. Markers inside code are never touched.
+ * Rewrite task, note and remote markers outside code via `replace`. Returning
+ * `null` leaves the marker verbatim. File and scratchpad markers are always
+ * left verbatim. Markers inside code are never touched.
  */
 export function rewriteEntityMarkers(
   text: string | null | undefined,
-  replace: (marker: { kind: 'task' | 'note'; id: string }) => string | null,
+  replace: (marker: LinkMarker) => string | null,
 ): string {
   if (!text) return text ?? '';
   const masked = maskCodeRegions(text); // equal length → offsets align
@@ -94,8 +98,8 @@ export function rewriteEntityMarkers(
   for (const seg of parseEntitySegments(masked)) {
     const len = seg.kind === 'text' ? seg.text.length : seg.raw.length;
     const original = text.slice(offset, offset + len);
-    if (seg.kind === 'marker' && (seg.marker.kind === 'task' || seg.marker.kind === 'note')) {
-      const replacement = replace({ kind: seg.marker.kind, id: seg.marker.id });
+    if (seg.kind === 'marker' && (seg.marker.kind === 'task' || seg.marker.kind === 'note' || seg.marker.kind === 'remote')) {
+      const replacement = replace(seg.marker);
       out += replacement ?? original;
     } else {
       out += original;

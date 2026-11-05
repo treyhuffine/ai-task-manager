@@ -1,4 +1,5 @@
 import type { PreviewPlace } from '@/lib/client/preview-place';
+import { composerTarget, composerWithin } from '@/components/chat/editor/composer-focus';
 import { artifactSequence, cardShown, sameArtifact, type ArtifactPreview } from './artifact-previews';
 
 /** An open preview: what it shows, the card it came from, and that card's
@@ -41,6 +42,20 @@ export function previewHost(element: Element): string | null {
   return element.closest(`[${PREVIEW_HOST_ATTRIBUTE}]`)?.getAttribute(PREVIEW_HOST_ATTRIBUTE) ?? null;
 }
 
+/** A field being typed in. A file opening never takes focus from one. */
+const TEXT_FIELD = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
+
+/** The composer of the chat on surface `host`: the copy on screen, where a
+ * surface has hidden ones. With no surface, the composer ⌘I goes to. */
+function chatComposer(host: string | null) {
+  if (host === null) return composerTarget();
+  for (const surface of document.querySelectorAll(`[${PREVIEW_HOST_ATTRIBUTE}]`)) {
+    const composer = surface.getAttribute(PREVIEW_HOST_ATTRIBUTE) === host ? composerWithin(surface) : null;
+    if (composer) return composer;
+  }
+  return null;
+}
+
 function samePlacement(a: OpenPreview, b: OpenPreview): boolean {
   return a.preview === b.preview && a.trigger === b.trigger && a.sequence.length === b.sequence.length && a.sequence.every((card, index) => card === b.sequence[index]);
 }
@@ -65,6 +80,8 @@ type Options = {
 export class ArtifactPreviewStore {
   private readonly cards = new Map<HTMLElement, ArtifactPreview>();
   private readonly regions = new Map<string, Map<symbol, BesideRegion>>();
+  /** The file views beside each chat, by host: more than one where a surface has copies (the dashboard's hidden layouts). */
+  private readonly views = new Map<string, Set<HTMLElement>>();
   private readonly listeners = new Set<() => void>();
   private state: PreviewState = { dialog: null, beside: new Map() };
   private place: PreviewPlace;
@@ -73,6 +90,8 @@ export class ArtifactPreviewStore {
   private readonly schedule: (run: () => void) => void;
   /** The card focus returns to when the dialog closes: the last one it showed. */
   dialogReturn: HTMLElement | null = null;
+  /** The chat the dialog's file came from, and whether the file moved beside it, which focus follows. */
+  private dialogFrom: { host: string | null; movedBeside: boolean } = { host: null, movedBeside: false };
 
   constructor(private readonly options: Options) {
     this.place = options.place;
@@ -92,6 +111,7 @@ export class ArtifactPreviewStore {
     // A dialog that opens starts from its own card, or none. Previous and
     // Next, or a remount finding the card again, move it along.
     if (next.dialog && (!this.state.dialog || next.dialog.trigger)) this.dialogReturn = next.dialog.trigger;
+    if (next.dialog && !this.state.dialog) this.dialogFrom = { host: next.dialog.host, movedBeside: false };
     this.state = { ...this.state, ...next };
     this.emit();
   }
@@ -140,11 +160,16 @@ export class ArtifactPreviewStore {
   }
 
   /** Open `preview` from `trigger`: beside its chat when files open there and
-   * the chat has a panel on screen, else in the dialog. */
-  open = (preview: ArtifactPreview, trigger: HTMLElement) => {
+   * the chat has a panel on screen, else in the dialog. Returns the chat's
+   * host when it opened beside it. */
+  open = (preview: ArtifactPreview, trigger: HTMLElement): string | null => {
     const host = previewHost(trigger);
-    if (host && this.place === 'beside' && this.region(host)) this.showBeside(host, this.locate(preview, trigger, host));
-    else this.set({ dialog: { ...this.locate(preview, trigger), host } });
+    if (host && this.place === 'beside' && this.region(host)) {
+      this.showBeside(host, this.locate(preview, trigger, host));
+      return host;
+    }
+    this.set({ dialog: { ...this.locate(preview, trigger), host } });
+    return null;
   };
 
   /** Make a card a stop for Previous and Next while mounted. Returns its release. */
@@ -156,6 +181,48 @@ export class ArtifactPreviewStore {
       this.queueReplace();
     };
   };
+
+  /** Make `view` a file view beside `host`'s chat while mounted, one focus can go to. Returns its release. */
+  registerView = (host: string, view: HTMLElement) => {
+    let views = this.views.get(host);
+    if (!views) this.views.set(host, views = new Set());
+    views.add(view);
+    return () => {
+      views.delete(view);
+      if (views.size === 0 && this.views.get(host) === views) this.views.delete(host);
+    };
+  };
+
+  /** Put focus in the file beside `host`'s chat, so its keys work straight
+   * away, as a dialog's do: in the copy of its view that can take it (in
+   * front, on screen), never from a field being typed in. Called once its
+   * panel has drawn it in front. Whether focus is in the view now. */
+  focusBeside(host: string): boolean {
+    for (const view of this.views.get(host) ?? []) {
+      const active = view.ownerDocument.activeElement;
+      if (active && view.contains(active)) return true;
+      if (active?.closest(TEXT_FIELD)) return false;
+      view.focus({ preventScroll: true });
+      if (view.ownerDocument.activeElement === view) return true;
+    }
+    return false;
+  }
+
+  /** Put focus back after a file closes: on `card`, the one it last showed,
+   * else on the composer of the chat on `host` (the card's transcript has
+   * gone), rather than the page. */
+  returnFocus(card: HTMLElement | null, host: string | null, options?: FocusOptions) {
+    if (card?.isConnected) card.focus(options);
+    else chatComposer(host)?.focus();
+  }
+
+  /** Once the dialog has closed: focus follows its file beside the chat when
+   * it moved there, else goes back to the card it last showed. */
+  focusAfterDialog() {
+    const { host, movedBeside } = this.dialogFrom;
+    if (host && movedBeside && this.focusBeside(host)) return;
+    this.returnFocus(this.dialogReturn, host);
+  }
 
   /** Move an open preview to the previous or next card in its group. `target` is `dialog` or a host. */
   step(target: 'dialog' | { host: string }, delta: 1 | -1) {
@@ -199,6 +266,7 @@ export class ArtifactPreviewStore {
     const dialog = this.state.dialog;
     if (!dialog?.host || !this.region(dialog.host)) return;
     this.choose('beside');
+    this.dialogFrom = { host: dialog.host, movedBeside: true };
     const { host, ...open } = dialog;
     const beside = new Map(this.state.beside);
     beside.set(host!, open);

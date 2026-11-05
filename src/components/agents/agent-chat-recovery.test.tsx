@@ -54,7 +54,7 @@ vi.mock('@/components/executions/execution-composer', async () => {
 vi.mock('@/components/agents/agent-header', () => ({ AgentHeader: () => 'Header' }));
 vi.mock('@/components/agents/agent-tools', async () => {
   const React = await import('react');
-  return { AgentTools: ({ tab, onSelectTab }: { tab: string; onSelectTab: (t: string) => void }) => React.createElement('button', { 'data-tab': '1', onClick: () => onSelectTab('files') }, `Tools ${tab}`) };
+  return { AGENT_TOOL_TABS: [], AgentTools: ({ tab, onSelectTab }: { tab: string; onSelectTab: (t: string) => void }) => React.createElement('button', { 'data-tab': '1', onClick: () => onSelectTab('files') }, `Tools ${tab}`) };
 });
 vi.mock('@/components/ui/resizable', async () => {
   const React = await import('react');
@@ -74,6 +74,8 @@ beforeEach(async () => {
   const store = new Map<string, string>();
   const ls = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k), clear: () => store.clear(), key: () => null, length: 0 };
   Object.defineProperty(dom.window, 'localStorage', { value: ls, configurable: true });
+  // The view asks which layout the viewport shows (`useViewportTier`): the phone's here, with no terminal.
+  Object.defineProperty(dom.window, 'matchMedia', { value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }), configurable: true });
   vi.stubGlobal('window', dom.window); vi.stubGlobal('document', dom.document); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', ls);
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
@@ -158,7 +160,7 @@ it('L4: confirmed-null member chat + failed refresh -> number of refresh notices
   h.main = async () => { if (fail) throw new ApiError(503, { error: 'Temporary' }, '/fixture'); return { session: null }; };
   h.url = new URL('http://team.test/?view=chat');
   await mount();
-  await until(() => text().includes('Start a conversation'));
+  await until(() => !!container.querySelector('[data-composer="main:new:agent"]'));
   fail = true;
   await act(async () => { void client.invalidateQueries({ queryKey: ['agent-chat', 'agent'] }); });
   await until(() => text().includes('Could not refresh'), 30_000);

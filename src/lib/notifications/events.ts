@@ -47,11 +47,25 @@ export const EVENT_CATALOG = [
     defaultOn: true,
   },
   {
+    type: 'agent.message',
+    label: 'Message from your main agent',
+    description: 'Your main agent has something worth telling you, from a background check-in.',
+    routing: 'matrix',
+    defaultOn: true,
+  },
+  {
     type: 'trigger.run_completed',
     label: 'Scheduled run result',
     description: "A scheduled job's result, delivered to the channels you bound it to.",
     routing: 'binding',
     defaultOn: false,
+  },
+  {
+    type: 'system.disk_low',
+    label: 'Disk almost full',
+    description: 'The disk this runs on has under 10 GiB free.',
+    routing: 'matrix',
+    defaultOn: true,
   },
 ] as const satisfies readonly EventCatalogEntry[];
 

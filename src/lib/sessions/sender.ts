@@ -20,6 +20,8 @@ export function describeSender(senderSessionId: string): string {
   const where = workspace ? ` in "${workspace.name}"` : '';
   switch (sender.type) {
     case 'orchestration':
+      // A scheduled run's chat is orchestration too, and no one's main chat.
+      if (sender.createdByRunId) return `the scheduled "${sender.label ?? 'background'}" run`;
       // The UI calls a workspace an agent. Its main chat is an orchestration
       // chat with a workspace. The app's main chat has none.
       if (workspace) return `the "${workspace.name}" agent's main chat`;

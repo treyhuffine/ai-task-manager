@@ -1,8 +1,8 @@
 'use client';
 import { Command } from 'cmdk';
-import { Calendar, FileText, FileCheck2, LayoutDashboard, ListTodo, MessagesSquare, Mic, Moon, Plus, Radio, Settings, SquareKanban, StickyNote, Sun, TextSearch, LayoutGrid, type LucideIcon } from 'lucide-react';
+import { Calendar, FileText, FileCheck2, LayoutDashboard, ListTodo, MessagesSquare, Mic, Moon, NotebookPen, Plus, Radio, Settings, SquareKanban, StickyNote, Sun, TextSearch, LayoutGrid, type LucideIcon } from 'lucide-react';
 import type { PaletteCommand } from '@/constants/commands';
-const icons: Record<string, LucideIcon> = { Calendar, FileText, FileCheck2, LayoutDashboard, ListTodo, MessagesSquare, Mic, Moon, Plus, Radio, Settings, SquareKanban, StickyNote, Sun, TextSearch, LayoutGrid };
+const icons: Record<string, LucideIcon> = { Calendar, FileText, FileCheck2, LayoutDashboard, ListTodo, MessagesSquare, Mic, Moon, NotebookPen, Plus, Radio, Settings, SquareKanban, StickyNote, Sun, TextSearch, LayoutGrid };
 
 /** One command matching and keyboard row implementation. Homes supply available actions. */
 export function CommandSearchItems({ commands, query, onSelect, icon = command => command.icon, label = command => command.label }: {

@@ -17,6 +17,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LiveWaveform } from '@/components/ui/live-waveform';
 import { useVoiceInput } from '@/hooks/use-voice-input';
+import { useConversationAudience } from '@/hooks/use-conversation-audience';
+import { useTouchFirst } from '@/hooks/use-touch-first';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import {
   useUpdateSession,
@@ -52,7 +54,7 @@ import {
   type ChatInputEditorHandle,
   type EditorSnapshot,
 } from '@/components/chat/editor/chat-input-editor';
-import { AttachButton } from '@/components/chat/editor/attach-button';
+import { ChatAddMenu } from '@/components/chat-ui/add-menu/chat-add-menu';
 import { HOTKEYS } from '@/constants/commands';
 import { useSlashCommands, slashCommandsKey } from '@/hooks/use-slash-commands';
 import { parseSlashInvocation } from '@/lib/agent-skills/parse-invocation';
@@ -114,7 +116,7 @@ export interface ExecutionComposerHandle {
   /**
    * Upload a file (or blob) and insert a chip at the cursor. Exposed so
    * a parent drop zone wrapping the whole chat column can route dropped
-   * files to the same attachment pipeline as paste / paperclip.
+   * files to the same attachment pipeline as paste / the + menu.
    */
   uploadFile: (file: File | Blob, name?: string) => Promise<void>;
 }
@@ -133,7 +135,7 @@ interface ExecutionComposerProps {
   serviceTier?: string | null;
   /** The session's harness: picks the model catalog and supported controls. */
   harness: HarnessId | null;
-  /** Rendered after Attach, in the left cluster: something else to bring into the chat (an app). */
+  /** Rendered after the + menu, in the left cluster. */
   leadingActions?: ReactNode;
   disabled?: boolean;
   disabledReason?: string;
@@ -141,13 +143,6 @@ interface ExecutionComposerProps {
   helperText?: string;
   /** Editor placeholder. Defaults to the execution wording. */
   placeholder?: string;
-  /**
-   * Whether a bare Enter submits. Defaults to true (desktop). The mobile
-   * chat column passes false so Enter inserts a newline and the user
-   * sends with the button — matching the native phone keyboard. See
-   * `ChatInputEditor.submitOnEnter` for the keymap detail.
-   */
-  submitOnEnter?: boolean;
   /** A turn is currently in flight — flips Send to Stop. */
   isRunning?: boolean;
   /**
@@ -191,8 +186,9 @@ interface ExecutionComposerProps {
  * Composer for executions. Adopts the same vertical-stack layout as
  * `ai-elements/slideout-chat.tsx` — textarea on top, action row below
  * — so the placeholder centers naturally and the buttons get their own
- * baseline. Enter submits; Shift+Enter (or Alt/Option+Enter) inserts a
- * newline.
+ * baseline. Enter follows the device (`useTouchFirst`): on a computer it
+ * submits and Shift+Enter inserts a newline, on a phone or tablet it inserts
+ * a newline and Send submits.
  *
  * Voice input goes through the project's `useVoiceInput` hook, which
  * already handles the parakeet local STT, groq cloud, and the
@@ -216,7 +212,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       disabledReason,
       helperText,
       placeholder,
-      submitOnEnter = true,
       isRunning,
       autoFocus = true,
       onSend,
@@ -226,6 +221,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     },
     externalRef,
   ) {
+    const { data: externalConversation } = useConversationAudience(sessionId || null);
     const [hasContent, setHasContent] = useState(false);
     const [hasPendingUploads, setHasPendingUploads] = useState(false);
     const [sending, setSending] = useState(false);
@@ -233,6 +229,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const [modeMenuOpen, setModeMenuOpen] = useState(false);
     const [modelMenuOpen, setModelMenuOpen] = useState(false);
     const [editorFocused, setEditorFocused] = useState(false);
+    // The same signal the editor reads for Enter, so Send names the key that sends.
+    const touchFirst = useTouchFirst();
     // Whether ⌘I comes to this composer, when there's more than one on screen.
     const [hotkeyTarget, setHotkeyTarget] = useState(true);
     const editorRef = useRef<ChatInputEditorHandle | null>(null);
@@ -687,6 +685,10 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
         {/* No top padding: a band of solid background above the card would
             cut scrolling transcript text off short of the card's edge. */}
         <ChatComposer disabled={disabled && !showStopButton} hint="⇧⇥ to cycle modes" status={statusLine} statusIsError={statusIsError}>
+            {externalConversation && <p className="break-words px-3 pt-2 text-xs text-muted-foreground" role="status">
+              {externalConversation.provider === 'slack' ? 'Slack' : 'Buzz'} · {externalConversation.name} · {externalConversation.enabled ? `Shared with ${externalConversation.channelId}. Messages and replies return there.` : 'External delivery is paused.'}
+              {externalConversation.team && ' Visible to the Ri team.'}
+            </p>}
             <CoordinationControls sessionId={sessionId} />
             {/* Top: rich editor — or live waveform while recording. The
               editor preserves typed text + inline paste chips across
@@ -740,7 +742,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   onContentChange={setHasContent}
                   onPendingUploadsChange={setHasPendingUploads}
                   onSubmit={() => handleSend()}
-                  submitOnEnter={submitOnEnter}
                   onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
                   onFocus={handleEditorFocus}
                   onHotkeyTargetChange={setHotkeyTarget}
@@ -769,7 +770,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
             {/* Bottom toolbar. Two layouts behind the same flex row so
               vertical height stays steady:
-                · idle  : [📎][mode]  ………  [model][effort][context][mic][send]
+                · idle  : [+][mode]  ………  [model][effort][context][mic][send]
                 · record: [auto-send labeled toggle]  …  [X cancel][stop]
               While recording the pre-send controls are out of context
               (you can't change model mid-record meaningfully), so we
@@ -784,13 +785,15 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 <div className="flex-1" />
               ) : (
                 <>
-                  {/* ─── Left: attach · mode ─────────────────── */}
-                  <AttachButton
+                  {/* ─── Left: add · mode ─────────────────── */}
+                  <ChatAddMenu
+                    sessionId={sessionId}
+                    editor={editorRef}
                     onPick={(file) => {
                       void editorRef.current?.uploadFile(file);
                     }}
                     disabled={disabled}
-                    title="Attach file"
+                    skills={(slashCommandsQuery.data?.commands.length ?? 0) > 0}
                   />
                   {leadingActions}
 
@@ -919,12 +922,13 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 </Tip>
               ) : !voice.isRecording ? (
                 <Tip
-                  label={
+                  label={hasPendingUploads ? 'Waiting for upload to finish…' : 'Send'}
+                  shortcut={
                     hasPendingUploads
-                      ? 'Waiting for upload to finish…'
-                      : submitOnEnter
-                        ? 'Send (Enter)'
-                        : 'Send'
+                      ? undefined
+                      : touchFirst
+                        ? HOTKEYS.sendMessageAnywhere.label
+                        : HOTKEYS.sendMessage.label
                   }
                 >
                   <button

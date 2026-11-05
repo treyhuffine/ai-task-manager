@@ -8,6 +8,7 @@ import Suggestion, {
 } from '@tiptap/suggestion';
 import { createSuggestionPopupRenderer, settledItems } from '@/components/chat/editor/suggestion/renderer';
 import { searchApi } from '@/lib/api/search';
+import { trpcClient } from '@/lib/trpc/client';
 import { EntityLinkMenuList } from './popup';
 import type { EntityLinkItem } from './types';
 
@@ -23,12 +24,20 @@ const ENTITY_LINK_PLUGIN_KEY = new PluginKey('entityLinkSuggestion');
  * serializes to `[[task:id]]` / `[[note:id]]`. Also reachable from the slash
  * menu ("Link"), which just types an `@`. `allowSpaces` is on because titles
  * contain spaces.
+ *
+ * In a team's shared body (`teamId`) it searches that team only: what's linked
+ * there has to be something teammates can open, so private records aren't offered.
  */
-export const EntityLinkMenuExtension = Extension.create({
+export const EntityLinkMenuExtension = Extension.create<{ teamId: string | null }>({
   name: 'entityLinkMenu',
   priority: 200,
 
+  addOptions() {
+    return { teamId: null };
+  },
+
   addProseMirrorPlugins() {
+    const { teamId } = this.options;
     const suggestion: Partial<SuggestionOptions<EntityLinkItem, EntityLinkItem>> = {
       pluginKey: ENTITY_LINK_PLUGIN_KEY,
       char: '@',
@@ -38,6 +47,7 @@ export const EntityLinkMenuExtension = Extension.create({
         const q = query.trim();
         if (!q) return settledItems<EntityLinkItem>([]);
         try {
+          if (teamId) return settledItems<EntityLinkItem>(await trpcClient.spaces.searchRecords.query({ teamId, q }));
           const results = await searchApi.query(q, { mode: 'keyword', limit: 8 });
           return settledItems(results
             .filter((r) => r.entityType === 'task' || r.entityType === 'note')

@@ -1,0 +1,72 @@
+/* Ri's tasks view. The host's own variables (MCP Apps host styles) come first, Ri's neutral palette after.
+   No color-scheme: a frame whose scheme differs from the host page gets an opaque canvas in Chromium, hiding the host's background. */
+:root {
+  --ri-fg: #1b1d1b; --ri-muted: #636963; --ri-faint: #959b95; --ri-rule: rgba(20, 24, 20, 0.08); --ri-line: rgba(20, 24, 20, 0.18);
+  --ri-hover: rgba(20, 24, 20, 0.045); --ri-chip: rgba(20, 24, 20, 0.06); --ri-danger: #b42318; --ri-warning: #9a5b00; --ri-check: #1b1d1b; --ri-on-check: #fff;
+  --fg: var(--color-text-primary, var(--ri-fg));
+  --muted: var(--color-text-secondary, var(--ri-muted));
+  --faint: var(--color-text-tertiary, var(--ri-faint));
+  --rule: var(--color-border-tertiary, var(--ri-rule));
+  --line: var(--color-border-secondary, var(--ri-line));
+  --hover: var(--color-background-secondary, var(--ri-hover));
+  --chip: var(--color-background-tertiary, var(--ri-chip));
+  --danger: var(--color-text-danger, var(--ri-danger));
+  --warning: var(--color-text-warning, var(--ri-warning));
+  --check: var(--color-text-primary, var(--ri-check));
+  --on-check: var(--color-background-primary, var(--ri-on-check));
+  --radius: var(--border-radius-md, 8px);
+  --font: var(--font-sans, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif);
+}
+:root[data-theme='dark'] {
+  --ri-fg: #ecefec; --ri-muted: #a3aaa3; --ri-faint: #737a73; --ri-rule: rgba(236, 239, 236, 0.08); --ri-line: rgba(236, 239, 236, 0.2);
+  --ri-hover: rgba(236, 239, 236, 0.06); --ri-chip: rgba(236, 239, 236, 0.08); --ri-danger: #ff8a7a; --ri-warning: #f0b44c; --ri-check: #ecefec; --ri-on-check: #161816;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --ri-fg: #ecefec; --ri-muted: #a3aaa3; --ri-faint: #737a73; --ri-rule: rgba(236, 239, 236, 0.08); --ri-line: rgba(236, 239, 236, 0.2);
+    --ri-hover: rgba(236, 239, 236, 0.06); --ri-chip: rgba(236, 239, 236, 0.08); --ri-danger: #ff8a7a; --ri-warning: #f0b44c; --ri-check: #ecefec; --ri-on-check: #161816;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: transparent; }
+body { font: 14px/1.4 var(--font); color: var(--fg); -webkit-font-smoothing: antialiased; }
+#root { padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 16px; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+button:disabled { cursor: default; }
+button:focus-visible { outline: 2px solid var(--color-ring-primary, var(--line)); outline-offset: 2px; border-radius: 4px; }
+ul, ol { list-style: none; margin: 0; padding: 0; }
+
+.section-head { display: flex; align-items: baseline; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); }
+.section-head h2 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.section-meta { font-size: 12px; color: var(--faint); }
+.aside { margin-left: auto; }
+
+.row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--rule); }
+.row:last-child { border-bottom: 0; }
+.check { flex: none; display: grid; place-items: center; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; border: 1.5px solid var(--line); transition: background 120ms, border-color 120ms; }
+.check:not(:disabled):hover { border-color: var(--check); }
+.row.done .check { background: var(--check); border-color: var(--check); color: var(--on-check); }
+.body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.title { font-weight: 500; overflow-wrap: anywhere; }
+.title.link:hover .title-text { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--line); }
+.row.done .title { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--line); }
+.row.busy .check { opacity: 0.55; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.dot { color: var(--faint); }
+.chip { display: inline-flex; align-items: center; padding: 0 6px; border-radius: 4px; background: var(--chip); font-size: 11.5px; line-height: 18px; color: var(--muted); }
+.tone-danger { color: var(--danger); font-weight: 500; }
+.tone-warning { color: var(--warning); }
+.reason { font-size: 12px; color: var(--faint); display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.reason.open { -webkit-line-clamp: unset; display: block; }
+.framing { margin: 8px 0 2px; }
+.start { flex: none; margin-top: -1px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); font-size: 12px; color: var(--muted); opacity: 0; transition: opacity 120ms; }
+.row:hover .start, .start:focus-visible, :root[data-hover='none'] .start { opacity: 1; }
+.start:not(:disabled):hover { color: var(--fg); background: var(--hover); }
+.row-error { margin: 4px 0 0; font-size: 12px; color: var(--danger); }
+.note, .empty, .loading, .notice { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+.empty { padding: 6px 0; }
+footer { display: flex; }
+.open { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.open:hover { color: var(--fg); }
+@media (max-width: 420px) { #root { padding: 12px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

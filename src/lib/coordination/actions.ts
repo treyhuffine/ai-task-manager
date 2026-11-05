@@ -7,6 +7,7 @@ import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { isBrowserEnabled } from '@/lib/browser/config';
 import { defineAction, ActionError } from '@/lib/orchestrator/types';
 import { stableCoordinationId } from './ids';
+import { TURN_STATUS_EFFORTS } from '@/lib/sessions/turn-status';
 import { callerChat, currentAgentAddresses, drainAgentCoordination, inCoordinationServer, personalChat, submitAgentRequest, verifiedCoordinationRun } from './service';
 
 const requestShape = {
@@ -147,6 +148,31 @@ export const coordinationActions = [
       }
       void drainAgentCoordination();
       return q.getAgentRequest(request.id);
+    }),
+  }),
+  defineAction({
+    name: 'set_chat_status',
+    strictParams: true,
+    description: 'Set this chat\'s status line before you end a turn: one short line the person reads in their chat lists without opening the chat. When you need something from them, set needs_you, start the line with what they need to do (verb first), and give effort (their time: quick, minutes or block) and what it unblocks. When you need nothing, say what you did or where things stand. A new message to this chat clears it.',
+    params: {
+      line: z.string().trim().min(1).max(160).describe('Where this chat stands, or what the person needs to do, verb first. Under 100 characters is best.'),
+      needs_you: z.boolean().describe('True when you are waiting on the person.'),
+      effort: z.enum(TURN_STATUS_EFFORTS).optional().describe('Their part, when needs_you: quick (a click or a short reply), minutes (a few minutes to read or try something), block (a real decision or a long test).'),
+      unblocks: z.string().trim().min(1).max(160).optional().describe('What answering unblocks, briefly.'),
+    },
+    mutating: true,
+    handler: (ctx, input) => inCoordinationServer(ctx, 'set_chat_status', input, () => {
+      const chat = callerChat(ctx);
+      if (!q.chatStatusLinesEnabled()) throw new ActionError('unsupported', 'Status lines are turned off in Settings. End your turn normally.');
+      const status = {
+        line: input.line,
+        needsYou: input.needs_you,
+        effort: input.needs_you ? input.effort ?? null : null,
+        unblocks: input.needs_you ? input.unblocks ?? null : null,
+        at: new Date().toISOString(),
+      };
+      q.setChatTurnStatus(chat.id, status);
+      return { ok: true, status };
     }),
   }),
 ];

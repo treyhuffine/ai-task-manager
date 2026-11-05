@@ -18,7 +18,7 @@
 import type { StreamEvent } from '@agentex/agent';
 import { getRun, updateRun, listRecentChatEvents } from '@/lib/db/queries';
 import { captureFromResultEvent } from '@/lib/pricing/models';
-import { HEARTBEAT_QUIET_REASON } from '@/lib/heartbeat/constants';
+import { HEARTBEAT_HELD_REASON, HEARTBEAT_QUIET_REASON, HEARTBEAT_TOLD_REASON } from '@/lib/heartbeat/constants';
 import { getActiveRunForSession } from './artifact-bucket';
 
 /**
@@ -67,10 +67,12 @@ function handleResultEvent(
   // event lets the parent's final message win when it lands. Falls
   // back to the prior value if the chat has no assistant events yet
   // (e.g. tool-only turn before the agent text).
-  // A quiet heartbeat check-in already carries its settled summary; a late
-  // result event must not put the raw reply token back.
+  // A settled heartbeat check-in already carries its summary. A late result
+  // event must not put the raw note or reply token back.
   const summary =
     current.statusReason === HEARTBEAT_QUIET_REASON
+    || current.statusReason === HEARTBEAT_TOLD_REASON
+    || current.statusReason === HEARTBEAT_HELD_REASON
       ? current.summary
       : extractSummaryFromChat(chatSessionId) ?? current.summary;
   updateRun(runId, {

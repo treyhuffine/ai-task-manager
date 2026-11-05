@@ -33,6 +33,7 @@ import { isDeviceConnected, requestWorker, sendToWorker, WorkerUnavailableError 
 import type { WorkerFolderSetup } from '@/lib/workers/protocol';
 import { checkFoldersHere, listFoldersHere, type FolderListing, FolderListingError } from './folders-here';
 import { isReadOnly } from '@/lib/reference-folders/read-only';
+import { gitFactsAt } from '@/lib/workspaces';
 
 export class FoldersUnavailableError extends Error {}
 
@@ -157,17 +158,32 @@ async function folderThere(deviceId: string, folder: string): Promise<boolean | 
 }
 
 /**
+ * Record an agent's folder on a device. On the home it's the agent's folder
+ * for the rest of the app, so what the agent says about git comes from it too
+ * (`gitFactsAt`). That's read first, and the two writes have nothing between
+ * them. Says whether the agent went from git to not, or back.
+ */
+export async function recordAgentFolder(workspaceId: string, deviceId: string, folder: string): Promise<boolean> {
+  const current = isHost(deviceId) ? getWorkspace(workspaceId) : null;
+  const git = current ? await gitFactsAt(folder, current) : null;
+  setAgentFolder(workspaceId, deviceId, folder);
+  if (!current || !git) return false;
+  updateWorkspace(workspaceId, git);
+  return git.isGit !== current.isGit;
+}
+
+/**
  * The agent's project folder on a device. On the home it's also the
  * agent's folder for the rest of the app, which its live sessions read when
  * they start, so they're restarted into it, as changing it in the agent's
- * settings does.
+ * settings does. Saving the same folder again reads its git state again.
  */
 export async function chooseWorkspaceFolder(workspaceId: string, deviceId: string, folder: string): Promise<void> {
   const chosen = await folderOn(deviceId, folder);
   const before = getWorkspaceSetup(workspaceId, deviceId)?.sourcePath ?? null;
-  setAgentFolder(workspaceId, deviceId, chosen);
+  const gitChanged = await recordAgentFolder(workspaceId, deviceId, chosen);
   await afterChange(deviceId);
-  if (isHost(deviceId) && before !== chosen) {
+  if (isHost(deviceId) && (before !== chosen || gitChanged)) {
     const { recycleWorkspaceSessions } = await import('@/lib/executor/adapter');
     await recycleWorkspaceSessions(workspaceId);
   }

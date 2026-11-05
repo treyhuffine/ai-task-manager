@@ -30,8 +30,10 @@ import { cn } from '@/lib/utils';
  * inner panel rather than on `Dialog.Content` itself. Reintroducing a transform
  * on that element will silently re-clip every popover in the launcher.
  *
- * Chat search's agent filter (`chat-search-modal.tsx`) uses it for the same
- * reason, so the same rule holds for that dialog's panel.
+ * Chat search's agent filter (`agent-filter.tsx`) uses it for the same
+ * reason, so the same rule holds for that dialog's panel. So do `SettingsPanel`
+ * (the heartbeat's model picker) and anything between it and the popover, and
+ * that includes `@container`: floating-ui treats one as a containing block.
  */
 export function LauncherPopoverContent({
   className,

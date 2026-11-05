@@ -18,6 +18,7 @@ import { trpcClient } from '@/lib/trpc/client';
 import { TaskDocument } from '@/components/tasks/task-document';
 import { TaskPlanningProperties } from '@/components/tasks/task-planning-properties';
 import { EntityLinkScope } from '@/components/editor/entity-link-scope';
+import { LinkedReferences } from '@/components/shared/linked-references';
 import { RichEditor } from '@/components/editor/rich-editor';
 import { AreaSelect } from '@/components/shared/area-select';
 
@@ -72,7 +73,7 @@ export function SharedTaskBody({ task, onOpenTask }: { task: TaskRecord; onOpenT
     notice={<SourceNotice task={task} teamName={teamName} lastSyncedAt={connection?.lastSyncedAt ?? null} lastError={connection?.lastError ?? null} />}
     bodyContent={task.sourceState !== 'unavailable' && <SharedBody task={task} memberId={connection?.memberId ?? null} />}
     afterProperties={<section aria-label="Only you" className="mx-4 my-4 space-y-4 rounded-lg border border-dashed p-4 md:mx-12"><div><h3 className="flex items-center gap-1.5 text-xs font-semibold"><Lock size={12}/>Only you</h3><p className="text-xs text-muted-foreground">Your private planning for this task. {teamName} never sees it.</p></div><PrivateNotes task={task} onSave={userContext => autosave({ userContext })}/><div className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-xs"><span className="font-medium text-muted-foreground">Area</span><AreaSelect value={task.areaId} onChange={areaId => save({ areaId })}/><TaskPlanningProperties task={task} save={save}/></div><SubtaskSection parentId={task.id} onOpenTask={onOpenTask}/></section>}
-    footer={<div className="space-y-4 px-4 pb-10 md:px-12"><SharedPublishedResults task={task} teamName={teamName}/><TaskResults key={task.id} taskId={task.id}/></div>}
+    footer={<div className="space-y-4 px-4 pb-10 md:px-12"><SharedPublishedResults task={task} teamName={teamName}/><TaskResults key={task.id} taskId={task.id}/><LinkedReferences entityType="task" entityId={task.id} onlyYou /></div>}
   />;
 }
 
@@ -145,7 +146,7 @@ function SharedBody({ task, memberId }: { task: TaskRecord; memberId: string | n
         qc.setQueryData(entityKeys.tasks.detail(task.id), (current: TaskRecord | undefined) =>
           current?.source ? { ...current, source: { ...current.source, bodyRevision } } : current,
         );
-        return { body: row.body ?? body, bodyRevision };
+        return { body, bodyRevision };
       },
     };
   }, [task.id, teamId, sourceTaskId, memberId, qc]);

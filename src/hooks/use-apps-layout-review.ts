@@ -26,7 +26,7 @@ export type AppsReviewProps = Omit<Parameters<typeof AppLibrary>[0], 'navigate'>
 };
 export type AppsReview = ReturnType<typeof useAppsLayoutReview>;
 
-/** All twelve screens share these queries and operations. Layouts never own installed state. */
+/** Library, discovery and settings share the existing queries and operations. */
 export function useAppsLayoutReview(props: AppsReviewProps, layout: LayoutId) {
   const { data, query, navigate, localEnabled } = props;
   const sources = useLibrary();
@@ -40,7 +40,6 @@ export function useAppsLayoutReview(props: AppsReviewProps, layout: LayoutId) {
   const newSkill = useStartSkill();
   const [chatItem, setChatItem] = useState<LibraryItem | null>(null);
   const [trySkill, setTrySkill] = useState<ReviewItem | null>(null);
-  const [settingsKey, setSettingsKey] = useState<string | null>(null);
   const [search, setSearch] = useState(query.q ?? '');
   const [lastSearch, setLastSearch] = useState(query.q ?? '');
   if (lastSearch !== (query.q ?? '')) { setLastSearch(query.q ?? ''); setSearch(query.q ?? ''); }
@@ -48,26 +47,32 @@ export function useAppsLayoutReview(props: AppsReviewProps, layout: LayoutId) {
     connections: sources.connections.data?.connections, servers: sources.servers.data?.servers,
     skills: sources.skills.data?.skills, connectedApps: connected.data }, catalog.data),
   [data, sources.providers.data, sources.connections.data, sources.servers.data, sources.skills.data, connected.data, catalog.data]);
-  const filter = (['All', 'Work', 'Life', 'Create', 'Added', 'Available', 'Apps', 'Skills', 'Custom MCP', INTEGRATION_LABELS.plural].includes(query.filter) ? query.filter : 'All') as ReviewFilter;
+  const filter = (['All', 'Apps', 'Skills', INTEGRATION_LABELS.plural].includes(query.filter) ? query.filter : 'All') as ReviewFilter;
   const library = items.filter(item => item.added && !item.draft);
   const drafts = items.filter(item => item.draft);
   const selected = items.find(item => item.key === query.item) ?? null;
   const inLibrary = query.browse === 'yours';
   const collection = COLLECTIONS.find(group => group.id === query.collection);
-  const patch = (values: Record<string, string | undefined>) => navigate(libraryRoute(query, { layout, q: search || undefined, ...values }));
+  const patch = (values: Record<string, string | undefined>) => navigate(libraryRoute(query, { layout: undefined, filter: filter === 'All' ? undefined : filter, q: search || undefined, ...values }));
   const matching = (list: ReviewItem[]) => list.filter(item => matchesReview(item, search, filter));
   const discovered = items.filter(discoverable);
   const available = discovered.filter(item => !item.added || item.draft);
   const discovery = matching(collection ? collectionItems(items, collection.id) : search || filter !== 'All' ? discovered : available);
   const showLibrary = () => patch({ browse: 'yours', item: undefined, panel: undefined, app: undefined, collection: undefined, filter: undefined });
   const showDiscover = () => patch({ browse: undefined, item: undefined, panel: undefined, app: undefined, collection: undefined, filter: undefined });
-  const details = (item: ReviewItem, settings = false) => patch({ item: item.key, panel: settings ? 'settings' : undefined });
+  const details = (item: ReviewItem, settings = false) => {
+    setTrySkill(null);
+    patch({ item: item.key, panel: settings ? 'settings' : undefined, provider: undefined, mcp: undefined, app: undefined });
+  };
   const manage = (item: ReviewItem) => {
     const target = item.target;
-    if (target.kind === 'app') setSettingsKey(item.key);
+    if (target.kind === 'app') details(item, true);
     else if (target.kind === 'skill') dashboard.openSkill(target.ref);
     else if (target.kind === 'draft') navigate(draftRoute(target.id));
-    else if (target.kind === 'provider' || target.kind === 'mcp') patch({ [target.kind === 'provider' ? 'provider' : 'mcp']: target.id });
+    else if (target.kind === 'provider' || target.kind === 'mcp') {
+      setTrySkill(null);
+      patch({ provider: undefined, mcp: undefined, item: undefined, panel: undefined, [target.kind === 'provider' ? 'provider' : 'mcp']: target.id });
+    }
     else details(item);
   };
   const open = (item: ReviewItem) => {
@@ -98,7 +103,7 @@ export function useAppsLayoutReview(props: AppsReviewProps, layout: LayoutId) {
   });
   const primary = (item: ReviewItem) => {
     if (!item.added) add(item);
-    else if (primaryLabel(item) === 'Manage' || item.draft) manage(item);
+    else if (['Manage', 'Manage connection', 'Edit skill'].includes(primaryLabel(item)) || item.draft) manage(item);
     else if (item.view) open(item);
     else chat(item);
   };
@@ -139,15 +144,16 @@ export function useAppsLayoutReview(props: AppsReviewProps, layout: LayoutId) {
     { name: 'Skills', error: sources.skills.error, retry: refresh },
     { name: 'Connected apps', error: connected.error, retry: () => void connected.refetch() },
   ].filter(failure => failure.error);
-  const loading = props.localLoading || sources.providers.isPending || sources.connections.isPending || sources.servers.isPending || sources.skills.isPending || (localEnabled && catalog.isPending);
-  const settingsItem = items.find(item => item.key === settingsKey);
-  const settingsTarget = settingsItem?.target;
-  const settingsInstance = settingsTarget?.kind === 'app' ? data?.instances.find(instance => instance.id === settingsTarget.id) : undefined;
+  const libraryLoading = {
+    apps: props.localLoading,
+    connectors: sources.providers.isPending || sources.connections.isPending || sources.servers.isPending || connected.isPending,
+    skills: sources.skills.isPending,
+  };
+  const loading = libraryLoading.apps || libraryLoading.connectors || libraryLoading.skills || (localEnabled && catalog.isPending);
   return { ...props, layout, items, library, drafts, discovered, discovery, selected, inLibrary, collection, matching, filter,
     search, setSearch, commitSearch: () => { if (search !== (query.q ?? '')) patch({}); }, clearSearch: () => { setSearch(''); patch({ q: undefined }); },
-    preferences, busy: busy || createSkill.isPending || newSkill.isPending, loading, failures, patch, showLibrary, showDiscover, details, manage, open, chat, primary, toggle,
+    preferences, busy: busy || createSkill.isPending || newSkill.isPending, loading, libraryLoading, failures, patch, showLibrary, showDiscover, details, manage, open, chat, primary, toggle,
     buildApp, buildSkill: newSkill.start, importApp, importSkill, chatItem, setChatItem, trySkill, setTrySkill,
-    settingsInstance, closeSettings: () => setSettingsKey(null),
     pin: (item: ReviewItem) => updateReviewPreferences(previous => ({ ...previous, pinned: previous.pinned.includes(item.key) ? previous.pinned.filter(key => key !== item.key) : [...previous.pinned, item.key] })),
     isPinned: (item: ReviewItem) => preferences.pinned.includes(item.key),
     selectedApp: items.find(item => item.key === query.app) ?? null,

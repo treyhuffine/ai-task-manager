@@ -392,9 +392,15 @@ Archive happens on the click, with no "are you sure". It's undone from History, 
 
 For non-git workspaces, archive is just the DB update; nothing on disk to clean.
 
+A viewer on the execution being archived leaves it on the click, before the request starts (`useLeaveArchivedChat`): for its agent's screen, or Home if it has no agent. That includes viewing a sibling chat, and archiving from the rail or from a bulk selection. A chat open beside an agent's main chat is put away instead, staying on that agent (the agent view's `leaveChat`). Nothing navigates when the request returns. Removing a worktree can take a while, and by then the viewer may be somewhere else. So the uncommitted-files dialog and any error toast show wherever they are, naming the chat. Review changes reopens it on its Changes. Cancel, or a failure, leaves the viewer where they are, and the chat comes back in the rail. Archive anyway doesn't move them. Archiving a different execution leaves the current screen in place.
+
+Delegated work is also archived where its result is read. Every result a chat returns to the main chat that asked for it (an answer, or a failure the chat produced) shows Archive chat beside the responding chat's link (`ReturnedChatArchive` in `src/components/chat-ui/coordination/`), through the same `useArchiveExecution`. Blocked updates, cancellations and messages that aren't results don't get it, and neither does an agent's or Ri's main chat that answered. The card shows the chat as it is now: Archived with Reopen (the Continue path, `useContinueSession`) once it's archived from anywhere. The four archive and reopen writes in the query layer publish a `lifecycle` session update, and the page stream refreshes the chat's row and its siblings'. Nothing archives on its own: the chat saying it's done is only its opinion, and the main chats' briefs say to archive only when the user asks.
+
 ### Workspace deletion / archive
 
 Archiving a workspace doesn't archive its sessions automatically. Sessions stay queryable by id; the workspace row sets `status='archived'`, `archived_at`. Active worktrees are not pruned (user might still want to look at them).
+
+In the app, Archive agent (in its setup) goes Home on the confirming click, not when the request returns, and a failure is a toast naming the agent.
 
 Hard delete is not exposed in v1. If we need it later, add a confirm flow that walks every session and runs the worktree-archive flow above.
 

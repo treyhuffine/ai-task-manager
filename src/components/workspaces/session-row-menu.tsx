@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils';
 
 interface SessionRowMenuProps {
   sessionId: string;
+  /** The row's execution: archiving it leaves a viewer on any of its chats. */
+  executionId: string | null;
   workspaceId: string | null;
   /** True when the parent workspace is git-backed. Gates the
    *  "Execution from git…" item. */
@@ -66,6 +68,7 @@ interface SessionRowMenuProps {
  */
 export function SessionRowMenu({
   sessionId,
+  executionId,
   workspaceId,
   isUnread,
   isPinned,
@@ -82,7 +85,7 @@ export function SessionRowMenu({
   const unpin = useUnpinSession();
 
   const handleArchive = () => {
-    void archive({ id: sessionId, label });
+    void archive({ id: sessionId, executionId, workspaceId, label });
   };
 
   const showWorkspaceGroup =
@@ -123,7 +126,7 @@ export function SessionRowMenu({
         onClick={(e) => e.stopPropagation()}
       >
         {isUnread ? (
-          <DropdownMenuItem onSelect={() => markRead.mutate(sessionId)}>
+          <DropdownMenuItem onSelect={() => markRead.mutate({ id: sessionId, dismiss: true })}>
             <Eye size={12} /> Mark as read
           </DropdownMenuItem>
         ) : (

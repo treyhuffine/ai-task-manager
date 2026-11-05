@@ -5,14 +5,16 @@ import { TaskList } from './task-list';
 import { TaskKanban } from './task-kanban';
 import { TASK_VIEW_KEY, TaskViewToggle, type TaskView } from './task-view';
 import { KANBAN_COLUMNS } from '@/lib/tasks/lanes';
+import { Columns3 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 /**
  * The task surface: List and Kanban are two views over the same records and the
  * same lifecycle. The chosen view survives reload. The List/Board switcher is
- * rendered inside each view's own toolbar (see TaskViewToggle), so there is no
- * separate strip — the surface only owns the view state and swaps the body.
+ * rendered inside each view's own toolbar. A host that opens a separate Board
+ * presents a primary action instead of an inline view switcher.
  */
-export function TaskSurface({ onOpenTask, privatePlanning = true, viewKey = TASK_VIEW_KEY, initialView = 'list', contextControls, rowMeta, legacyViewKey, onOpenBoard, ...board }: {
+export function TaskSurface({ onOpenTask, privatePlanning = true, viewKey = TASK_VIEW_KEY, initialView = 'list', boardControls, filterControls, rowMeta, assigneeNames, legacyViewKey, onOpenBoard, ...board }: {
   onOpenTask: (id: string) => void;
   privatePlanning?: boolean;
   viewKey?: string;
@@ -20,8 +22,10 @@ export function TaskSurface({ onOpenTask, privatePlanning = true, viewKey = TASK
   legacyViewKey?: string;
   /** The host can open its Board overlay. Otherwise the same Board renders inline. */
   onOpenBoard?: () => void;
-  contextControls?: ReactNode;
+  boardControls?: ReactNode;
+  filterControls?: ReactNode;
   rowMeta?: ComponentProps<typeof TaskKanban>['cardMeta'];
+  assigneeNames?: ComponentProps<typeof TaskList>['assigneeNames'];
 } & Pick<ComponentProps<typeof TaskKanban>, 'trailing' | 'assigneeMemberId' | 'createDefaults' | 'areaFilter' | 'onAreaFilterChange'>) {
   // Read the persisted view once at init (no setState-in-effect). Guarded for
   // SSR; this surface renders client-side in the dashboard.
@@ -47,6 +51,28 @@ export function TaskSurface({ onOpenTask, privatePlanning = true, viewKey = TASK
   };
 
   return view === 'list'
-    ? <TaskList onOpenTask={onOpenTask} view={view} onViewChange={set} privatePlanning={privatePlanning} initialLane={privatePlanning ? 'current' : 'all'} contextControls={contextControls} trailing={board.trailing} rowMeta={rowMeta} assigneeMemberId={board.assigneeMemberId} createDefaults={board.createDefaults} areaFilter={board.areaFilter} onAreaFilterChange={board.onAreaFilterChange} />
-    : <TaskKanban {...board} columnPreferenceKey={`${viewKey}:columns`} defaultColumns={privatePlanning ? undefined : KANBAN_COLUMNS} agents onOpenTask={onOpenTask} cardMeta={rowMeta} leading={<><TaskViewToggle value={view} onChange={set} />{contextControls}</>} />;
+    ? <TaskList
+        listPreferenceKey={privatePlanning ? undefined : `${viewKey}:list`}
+        assigneeNames={assigneeNames}
+        onOpenTask={onOpenTask}
+        view={onOpenBoard ? undefined : view}
+        onViewChange={onOpenBoard ? undefined : set}
+        privatePlanning={privatePlanning}
+        initialLane={privatePlanning ? 'current' : 'all'}
+        contextControls={<>
+          {onOpenBoard && <Button type="button" size="sm" aria-haspopup="dialog" onClick={onOpenBoard}
+            className="gap-1.5 rounded-lg text-xs font-semibold shadow-sm">
+            <Columns3 className="size-3.5" aria-hidden />
+            Open board
+          </Button>}
+        </>}
+        filterControls={filterControls}
+        trailing={board.trailing}
+        rowMeta={rowMeta}
+        assigneeMemberId={board.assigneeMemberId}
+        createDefaults={board.createDefaults}
+        areaFilter={board.areaFilter}
+        onAreaFilterChange={board.onAreaFilterChange}
+      />
+    : <TaskKanban {...board} columnPreferenceKey={`${viewKey}:columns`} defaultColumns={privatePlanning ? undefined : KANBAN_COLUMNS} agents onOpenTask={onOpenTask} cardMeta={rowMeta} leading={<><TaskViewToggle value={view} onChange={set} />{boardControls}</>} />;
 }

@@ -186,12 +186,16 @@ describe('optimisticRemove', () => {
 it.each(['tasks', 'notes', 'areas', 'workspaces'] as const)('settling %s refreshes typed titles and backlinks without touching a live body', async root => {
   const qc = new QueryClient();
   const keys = [trpc.entities.titlesGet.queryKey({ query: { refs: 'task:t1' } }),
-    trpc.entities.backlinksTypeGet.queryKey({ params: { type: 'task', id: 't1' } }),
-    trpc.spaces.entityTitles.queryKey({ teamId: 'team', refs: 'task:t1' })];
+    trpc.entities.backlinksTypeGet.queryKey({ params: { type: 'task', id: 't1' } })];
   for (const key of keys) qc.setQueryData<unknown>(key as QueryKey, { title: 'Before' });
   qc.setQueryData<unknown>(entityKeys.tasks.detail('t1') as QueryKey, { body: 'Current focused editor input' });
   settleEntity(qc, root);
   for (const key of keys) expect(qc.getQueryState(key)?.isInvalidated).toBe(true);
+  // A team chip is a request to the team, so a save here doesn't refetch them all.
+  const teamRecord = trpc.spaces.record.queryKey({ kind: 'task', homeId: 'team', id: 't1' }) as QueryKey;
+  qc.setQueryData<unknown>(teamRecord, { title: 'Before' });
+  settleEntity(qc, root);
+  expect(qc.getQueryState(teamRecord)?.isInvalidated).toBe(false);
   expect(qc.getQueryData(entityKeys.tasks.detail('t1'))).toEqual({ body: 'Current focused editor input' });
   qc.clear();
 });

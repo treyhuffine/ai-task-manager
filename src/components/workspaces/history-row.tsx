@@ -10,8 +10,10 @@ import type { RailSession } from '@/lib/api/sessions';
 import { hasChatStatus, StatusPip, useChatStatus } from './chat-status';
 import { ROW_ACTIONS_GIVE_WAY, SessionRowActions } from './session-row-actions';
 import { useSessionRowHover } from './session-hover-context';
+import { SelectionCheck, useRowSelection } from './workspace-selection-context';
 import { executionView } from '@/lib/client/active-view';
 import { agentInitials } from '@/lib/client/agent-initials';
+import { ChatStatusLine } from './chat-status-line';
 
 interface HistoryRowProps {
   session: RailSession;
@@ -27,7 +29,9 @@ interface HistoryRowProps {
  * One row in the rail's Recent tab. Two-line layout:
  *
  *   Line 1 — execution label (bold when unread), with the right-edge date.
- *   Line 2 — workspace name · branch.
+ *   Line 2 — workspace name · branch, or the chat's status line when its
+ *            agent set one (docs/chat-status-lines.md): what it did or
+ *            what it needs from you. The avatar still names the agent.
  *
  * The avatar carries the workspace identity so a vertical scan parses
  * "which project did this work happen in" before reading the label, and its
@@ -42,6 +46,12 @@ interface HistoryRowProps {
  * On hover the date gives way to the pin toggle and the kebab
  * (`SessionRowActions`). Archived rows can't be pinned, so they get the
  * kebab alone.
+ *
+ * While the rail selects chats to archive, a click (or Enter) ticks the row
+ * instead of opening it, and Shift-click ticks every row from the last one
+ * ticked. A checkbox sits before the avatar, which stays so each row still
+ * says whose it is. The actions and the hover preview step aside. Archived
+ * rows can't be ticked.
  */
 export function HistoryRow({
   session,
@@ -58,8 +68,13 @@ export function HistoryRow({
   // Only active executions live in the rail, so only they can be pinned.
   // Archived rows carry a cleared pin and drop the pin toggle entirely.
   const isPinned = !isArchived && !!session.execution?.pinnedAt;
+  const { selectable, selected, toggle } = useRowSelection(session.id, { enabled: !isArchived });
 
-  const handleOpen = () => {
+  const handleOpen = (e: { shiftKey: boolean; currentTarget: Element }) => {
+    if (selectable) {
+      toggle(e);
+      return;
+    }
     closeNow();
     setActiveView(executionView(session.id));
   };
@@ -78,22 +93,32 @@ export function HistoryRow({
     <div
       ref={rowRef}
       onClick={handleOpen}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={selectable ? undefined : onMouseEnter}
+      onMouseLeave={selectable ? undefined : onMouseLeave}
       role="button"
+      aria-pressed={selectable ? selected : undefined}
+      data-select-row={selectable ? session.id : undefined}
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          handleOpen();
+          handleOpen(e);
         }
       }}
       className={cn(
         'relative group flex items-start gap-1.5 px-2 py-1.5 rounded-md transition-colors text-left cursor-pointer',
-        isActive ? 'bg-secondary' : 'hover:bg-muted/40',
+        selectable
+          // Shift-click ranges, so it mustn't select the text between.
+          ? cn('select-none', selected ? 'bg-primary/10' : 'hover:bg-muted/40')
+          : isActive ? 'bg-secondary' : 'hover:bg-muted/40',
         isArchived && !isActive && 'opacity-60',
       )}
     >
+      {selectable && (
+        <span className="mt-px flex h-5 flex-shrink-0 items-center">
+          <SelectionCheck checked={selected} />
+        </span>
+      )}
       <span className="relative flex-shrink-0">
         <WorkspaceAvatar wsImage={wsImage} wsEmoji={wsEmoji} wsName={wsName} />
         {hasChatStatus(status) && (
@@ -118,7 +143,7 @@ export function HistoryRow({
             >
               {label}
             </span>
-            <span className={cn('text-[9px] text-muted-foreground/60 flex-shrink-0', ROW_ACTIONS_GIVE_WAY)}>
+            <span className={cn('text-[9px] text-muted-foreground/60 flex-shrink-0', !selectable && ROW_ACTIONS_GIVE_WAY)}>
               {formatCompactRelative(timestamp)}
             </span>
           </div>
@@ -126,20 +151,28 @@ export function HistoryRow({
             {isPinned && (
               <Pin size={9} className="fill-current text-muted-foreground/50 flex-shrink-0 -rotate-45" aria-label="Pinned" />
             )}
-            <span className="truncate">{wsName}</span>
-            {branch && (
-              <span className="flex items-center gap-0.5 truncate min-w-0">
-                <GitBranch size={8} className="opacity-60 flex-shrink-0" />
-                <span className="truncate">{branch}</span>
-              </span>
+            {session.turnStatus ? (
+              <ChatStatusLine status={session.turnStatus} />
+            ) : (
+              <>
+                <span className="truncate">{wsName}</span>
+                {/* Ticking, the agent's name matters more than the branch. */}
+                {branch && !selectable && (
+                  <span className="flex items-center gap-0.5 truncate min-w-0">
+                    <GitBranch size={8} className="opacity-60 flex-shrink-0" />
+                    <span className="truncate">{branch}</span>
+                  </span>
+                )}
+              </>
             )}
           </div>
           {snippet && <SearchSnippet snippet={snippet} />}
         </div>
 
         {/* Beside the title line, pulled up so it doesn't push the row taller. */}
-        <SessionRowActions
+        {!selectable && <SessionRowActions
           sessionId={session.id}
+          executionId={session.executionId ?? null}
           workspaceId={session.workspaceId ?? null}
           isUnread={status.isUnread || status.isPending}
           isPinned={isArchived ? undefined : isPinned}
@@ -147,7 +180,7 @@ export function HistoryRow({
           onOpenWorkspaceSettings={onOpenWorkspaceSettings}
           onOpenLauncher={onOpenLauncher}
           className="-my-1"
-        />
+        />}
       </div>
     </div>
   );

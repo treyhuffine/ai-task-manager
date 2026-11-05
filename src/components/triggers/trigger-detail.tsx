@@ -21,6 +21,8 @@ import {
 } from '@/hooks/use-triggers';
 import { openSettings } from '@/components/settings/settings-store';
 import { RunActivityBadge } from '@/components/runs/run-activity-badge';
+import { APP_NAME } from '@/constants/app';
+import { isWaitingForChat, lateBy, overdueLabel } from '@/lib/triggers/lateness';
 import { isReservedTrigger, lockedFieldsFor, RESERVED_TRIGGER_IDS, type ReservedLockableField } from '@/lib/triggers/reserved';
 import { TriggerForm } from './trigger-form';
 
@@ -37,9 +39,18 @@ export function TriggerDetail({ trigger, onDeleted }: { trigger: TriggerView; on
   const lastFailedRun = (recentRuns ?? []).find((r) => r.status === 'failed');
   const managed = isReservedTrigger(id);
   const isHeartbeat = id === RESERVED_TRIGGER_IDS.heartbeat;
+  const overdue = overdueLabel(trigger);
 
   return (
     <div className="space-y-6">
+      {overdue && (
+        <p className="rounded-md px-3 py-2 text-sm bg-amber-500/10 border border-amber-500/30">
+          {overdue}.{' '}
+          {isWaitingForChat(trigger)
+            ? 'It goes when the chat is free or its Hold is released.'
+            : `Check the computer has free disk space. If this stays, restart ${APP_NAME}.`}
+        </p>
+      )}
       {failing && (
         <div className="rounded-md px-3 py-3 bg-destructive/10 border border-destructive/30 flex items-start gap-3">
           <AlertTriangle size={16} className="text-destructive mt-0.5 flex-shrink-0" />
@@ -180,6 +191,7 @@ export function TriggerDetail({ trigger, onDeleted }: { trigger: TriggerView; on
 }
 
 function RunRowSmall({ run }: { run: RunRecord }) {
+  const late = run.startedAt ? lateBy(run.scheduledFor, run.startedAt) : null;
   const terminal =
     run.status === 'completed' || run.status === 'failed' || run.status === 'skipped' || run.status === 'cancelled'
       ? run.status
@@ -197,6 +209,7 @@ function RunRowSmall({ run }: { run: RunRecord }) {
             ? describeSkip(run.statusReason)
             : run.summary ?? '-'}
       </span>
+      {late && <span className="text-[10px] text-amber-700 dark:text-amber-400 tabular-nums whitespace-nowrap">{late} late</span>}
       <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">
         {run.startedAt ? humanize(run.startedAt) : '-'}
       </span>

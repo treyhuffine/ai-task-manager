@@ -37,7 +37,8 @@ function setup(place: PreviewPlace = 'beside') {
 describe('ArtifactPreviewStore', () => {
   it('opens a card beside its chat as a tab, and brings that tab forward', () => {
     const { store, card, previews, show } = setup();
-    store.open(previews.get('a2')!, card('a2'));
+    // It says where it opened, for focus to go in.
+    expect(store.open(previews.get('a2')!, card('a2'))).toBe('home:a');
     const beside = store.getState().beside.get('home:a')!;
     expect(beside.preview).toBe(previews.get('a2'));
     expect(beside.sequence.map(el => el.id)).toEqual(['a1', 'a2', 'a3']);
@@ -54,7 +55,7 @@ describe('ArtifactPreviewStore', () => {
 
   it('opens large where there is no panel beside the chat, or while files open large', () => {
     const { store, card, previews, key } = setup();
-    store.open(previews.get('s1')!, card('s1'));
+    expect(store.open(previews.get('s1')!, card('s1'))).toBeNull();
     expect(store.getState().dialog).toMatchObject({ preview: previews.get('s1'), host: null });
     store.closeDialog();
     store.open(previews.get('x1')!, card('x1'));

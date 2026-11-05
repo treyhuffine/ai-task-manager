@@ -188,3 +188,119 @@ describe('dispatchRun for a chat target', () => {
     expect(queries.getTrigger(trigger.id)?.enabled).toBe(false);
   });
 });
+
+describe('a one-time job for a chat', () => {
+  async function oneTime(over: { concurrencyPolicy?: 'skip_if_running' | 'coalesce_if_active' } = {}) {
+    const seeded = await seed();
+    const { runTick } = await import('@/lib/scheduler/runner');
+    const due = new Date(Date.now() - 60_000).toISOString();
+    const job = seeded.queries.createTrigger({
+      name: 'restart-window',
+      targetKind: 'session',
+      targetSessionId: seeded.chat.id,
+      workspaceId: seeded.workspace.id,
+      harness: 'codex',
+      prompt: 'Start the restart.',
+      kind: 'at',
+      runAt: due,
+      nextRunAt: due,
+      concurrencyPolicy: over.concurrencyPolicy ?? 'skip_if_running',
+    });
+    const runs = () => seeded.queries.listRuns({}).filter((r) => r.triggerId === job.id);
+    return { ...seeded, runTick, job, due, runs };
+  }
+
+  it('waits while the chat is busy, then goes when it is free, once', async () => {
+    const { queries, runTick, chat, job, due, runs } = await oneTime();
+    live.running.add(chat.id);
+
+    expect(await runTick(new Date())).toBe(0);
+    expect(await runTick(new Date())).toBe(0);
+    // Nothing used up and nothing recorded, so an hour's wait leaves no trail of skips.
+    expect(runs()).toHaveLength(0);
+    expect(queries.getTrigger(job.id)).toMatchObject({ nextRunAt: due, lastFiredAt: null, enabled: true });
+
+    live.running.delete(chat.id);
+    expect(await runTick(new Date())).toBe(1);
+    await settle();
+    expect(runs()).toHaveLength(1);
+    expect(queries.getTrigger(job.id)?.nextRunAt).toBeNull();
+    expect(queries.listChatEvents(chat.id).filter((e) => e.content?.includes('Start the restart.'))).toHaveLength(1);
+
+    expect(await runTick(new Date())).toBe(0);
+    expect(runs()).toHaveLength(1);
+  });
+
+  it('waits while the chat is on Hold, even when it would otherwise coalesce', async () => {
+    const { db, queries, runTick, chat, job, due, runs } = await oneTime({ concurrencyPolicy: 'coalesce_if_active' });
+    const { chatSessions } = await import('@/lib/db/schema');
+    db.update(chatSessions).set({ coordinationHeldAt: new Date().toISOString() }).where(eq(chatSessions.id, chat.id)).run();
+
+    expect(await runTick(new Date())).toBe(0);
+    expect(runs()).toHaveLength(0);
+    expect(queries.getTrigger(job.id)?.nextRunAt).toBe(due);
+
+    db.update(chatSessions).set({ coordinationHeldAt: null }).where(eq(chatSessions.id, chat.id)).run();
+    expect(await runTick(new Date())).toBe(1);
+    await settle();
+    expect(runs()).toHaveLength(1);
+  });
+
+  it('joins the turn under way when it coalesces, with nothing to wait for', async () => {
+    const { queries, runTick, chat, job, runs } = await oneTime({ concurrencyPolicy: 'coalesce_if_active' });
+    live.running.add(chat.id);
+    expect(await runTick(new Date())).toBe(1);
+    expect(runs()).toHaveLength(1);
+    expect(queries.getTrigger(job.id)?.nextRunAt).toBeNull();
+    expect(queries.listChatEvents(chat.id).some((e) => e.content?.includes('Start the restart.'))).toBe(true);
+    await settle();
+  });
+
+  it('does not wait for an archived chat: the fire fails and pauses the trigger', async () => {
+    const { queries, runTick, chat, job, runs } = await oneTime();
+    queries.archiveChatSession(chat.id);
+    await runTick(new Date());
+    expect(runs()[0]).toMatchObject({ status: 'failed', errorCode: 'target_chat_unavailable' });
+    expect(queries.getTrigger(job.id)?.enabled).toBe(false);
+  });
+
+  it('Run now still skips and shows why', async () => {
+    const { dispatchRun, chat, job } = await oneTime();
+    live.running.add(chat.id);
+    const fired = await dispatchRun({ trigger: job, triggerKind: 'manual' });
+    expect(fired.run).toMatchObject({ status: 'skipped', statusReason: 'chat_busy' });
+  });
+
+  it('leaves a repeating schedule to skip, since its next slot is coming', async () => {
+    const { oneTimeFireMustWait } = await import('./dispatch');
+    const { chat, trigger } = await seed();
+    live.running.add(chat.id);
+    expect(oneTimeFireMustWait(trigger)).toBe(false);
+  });
+});
+
+describe('lateFireNote', () => {
+  it('names the slot in the schedule\'s timezone and how late it is', async () => {
+    const { lateFireNote } = await import('./dispatch');
+    expect(lateFireNote('2026-11-03T15:00:00Z', 'America/Denver', new Date('2026-11-03T18:39:32Z')))
+      .toBe('This scheduled run was due at Tue, Nov 3, 8:00 AM MST and is starting 3h 39m late. Do the work unless being this late makes it pointless or unsafe. If you skip it, say why.');
+    expect(lateFireNote('2026-11-01T15:00:00Z', 'UTC', new Date('2026-11-03T17:30:00Z')))
+      .toContain('and is starting 2d 2h late.');
+  });
+
+  it('stays out of the way until a fire is 5 minutes late', async () => {
+    const { lateFireNote } = await import('./dispatch');
+    const due = '2026-11-03T15:00:00Z';
+    expect(lateFireNote(due, 'UTC', new Date('2026-11-03T15:04:59Z'))).toBeNull();
+    expect(lateFireNote(due, 'UTC', new Date('2026-11-03T15:05:00Z'))).toContain('is starting 5m late.');
+    expect(lateFireNote(null, 'UTC')).toBeNull();
+  });
+
+  it('goes under the trigger\'s name in a chat, so the message still says who sent it', async () => {
+    const { queries, dispatchRun, chat, trigger } = await seed();
+    await dispatchRun({ trigger, triggerKind: 'every', scheduledFor: new Date(Date.now() - 2 * 60 * 60_000).toISOString() });
+    await settle();
+    const sent = queries.listChatEvents(chat.id).find((e) => e.role === 'user')!;
+    expect(sent.content).toMatch(new RegExp(`^\\[from trigger backfill-check \\(${trigger.id}\\)\\]\\n\\nThis scheduled run was due at .+ and is starting 2h late\\. .+\\n\\nCheck the backfill\\.$`));
+  });
+});

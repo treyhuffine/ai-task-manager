@@ -5,6 +5,7 @@
  */
 
 import { extractEntityMarkers } from './extract-links';
+import { remoteLinkTarget } from './parse-markers';
 
 export type LinkEntityType = 'task' | 'note';
 
@@ -20,11 +21,20 @@ export interface DerivedEdge {
  * dropped. Self-links are KEPT — the invariant is "iff the text has a
  * resolvable marker to T", and a note may legitimately link itself; the
  * backlinks panel filters self at render (docs/entity-links-spec.md §2).
+ *
+ * A link to a task or note in another Home targets `<homeId>/<id>`, an ID no
+ * row here has, so it can't be mistaken for one. These edges stay in this Home:
+ * the team never learns of them. Areas have no backlinks.
  */
 export function linksFromTexts(texts: Array<string | null | undefined>): DerivedEdge[] {
   const out = new Map<string, DerivedEdge>();
   for (const text of texts) {
     for (const m of extractEntityMarkers(text)) {
+      if (m.kind === 'remote' && m.recordKind !== 'area') {
+        const targetId = remoteLinkTarget(m.homeId, m.id);
+        out.set(`${m.recordKind}:${targetId}`, { targetType: m.recordKind, targetId });
+        continue;
+      }
       if (m.kind !== 'task' && m.kind !== 'note') continue; // drop scratchpad
       out.set(`${m.kind}:${m.id}`, { targetType: m.kind, targetId: m.id });
     }

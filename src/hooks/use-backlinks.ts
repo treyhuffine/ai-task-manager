@@ -1,5 +1,4 @@
 import { trpc, trpcClient } from '@/lib/trpc/client';
-import { useEntityLinkHome } from '@/components/editor/entity-link-scope';
 import { rpcQuery } from '@/lib/trpc/request-options';
 import { useQuery } from '@tanstack/react-query';
 
@@ -56,11 +55,10 @@ export function useBacklinks(type: LinkEntityType, id: string | null | undefined
  * so React Query dedupes across the many chips in a document.
  */
 export function useEntityTitle(type: LinkEntityType, id: string | null | undefined) {
-  const sourceHome = useEntityLinkHome();
   return useQuery({
-    queryKey: sourceHome ? trpc.spaces.entityTitles.queryKey({ teamId: sourceHome, refs: `${type}:${id}` }) : trpc.entities.titlesGet.queryKey({ query: { refs: `${type}:${id}` } }),
+    queryKey: trpc.entities.titlesGet.queryKey({ query: { refs: `${type}:${id}` } }),
     queryFn: async () => {
-      const res = sourceHome ? await trpcClient.spaces.entityTitles.query({ teamId: sourceHome, refs: `${type}:${id}` }) : await trpcClient.entities.titlesGet.query({query: rpcQuery({ refs: `${type}:${id}` })});
+      const res = await trpcClient.entities.titlesGet.query({query: rpcQuery({ refs: `${type}:${id}` })});
       return res.titles[0] ?? null;
     },
     enabled: !!id,

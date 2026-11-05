@@ -13,7 +13,8 @@ import { useSendMessage, useSessionEvents } from '@/hooks/use-execution';
 import { useNote, useUpdateNote } from '@/hooks/use-notes';
 import { useTask, useUpdateTask } from '@/hooks/use-tasks';
 import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
-import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
+import { calendarDaysUntil, formatLocalDate, isPastDate } from '@/lib/dates';
+import { TaskDatePicker } from '@/components/tasks/task-date-field';
 import { cn } from '@/lib/utils';
 import { Clock, Flame, Loader2, RefreshCw, Zap } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -58,9 +59,9 @@ export function EntityAgentView({
     },
     [entityType, entityId, updateTask, updateNote],
   );
-  // Phones send with the button (Enter inserts a newline), same as the other
-  // chat surfaces.
-  const isMobile = useIsNarrow();
+  // A narrow screen gets the short placeholder. Enter follows the device in
+  // the editor itself (`useTouchFirst`), the same in every chat.
+  const narrow = useIsNarrow();
 
   const brief = useEntityBrief(entityType, entityId);
   const sendMessage = useSendMessage(chat.sessionId ?? '');
@@ -153,12 +154,11 @@ export function EntityAgentView({
         ) : (
           <HarnessChatSession
             sessionId={chat.sessionId}
-            isMobile={isMobile}
             // Existing document: the conversation is the front door, so the
             // caret lands here. New document: the title wins (see EntityTitle).
             autoFocusComposer={!isNew}
             composerPlaceholder={
-              isMobile
+              narrow
                 ? isNew
                   ? `Describe this ${entityType}`
                   : 'Ask or add anything. Or just talk.'
@@ -294,7 +294,6 @@ function TaskMetaStrip({ task }: { task: TaskRecord }) {
     (patch: Partial<TaskRecord>) => updateTask.mutate({ id: task.id, ...patch } as Parameters<typeof updateTask.mutate>[0]),
     [task.id, updateTask],
   );
-  const deadlineInput = useRef<HTMLInputElement>(null);
 
   const deadlineLabel = (() => {
     const days = calendarDaysUntil(task.hardDeadline);
@@ -310,23 +309,22 @@ function TaskMetaStrip({ task }: { task: TaskRecord }) {
       <LifecycleStatusControl taskId={task.id} status={task.status} className="-ml-1.5" />
       <span className="text-muted-foreground/30">&middot;</span>
 
-      {/* Deadline: a native date input, opened by the chip. */}
-      <label
-        className={cn(
-          'relative inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 font-medium transition-colors hover:bg-muted',
-          isPastDate(task.hardDeadline) ? 'text-destructive' : 'text-muted-foreground',
-        )}
+      <TaskDatePicker
+        label="Deadline"
+        value={task.hardDeadline}
+        onChange={(hardDeadline) => save({ hardDeadline } as Partial<TaskRecord>)}
       >
-        <Clock size={10} />
-        {deadlineLabel ?? 'Deadline'}
-        <input
-          ref={deadlineInput}
-          type="date"
-          defaultValue={task.hardDeadline?.split('T')[0] ?? ''}
-          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-          onChange={(e) => save({ hardDeadline: dateInputToStored(e.target.value) } as Partial<TaskRecord>)}
-        />
-      </label>
+        <button
+          type="button"
+          className={cn(
+            'inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium transition-colors hover:bg-muted',
+            isPastDate(task.hardDeadline) ? 'text-destructive' : 'text-muted-foreground',
+          )}
+        >
+          <Clock size={10} />
+          {deadlineLabel ?? 'Deadline'}
+        </button>
+      </TaskDatePicker>
 
       <span className="text-muted-foreground/30">&middot;</span>
       {ENERGY_OPTIONS.map((opt) => (

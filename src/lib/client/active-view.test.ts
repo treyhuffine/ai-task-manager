@@ -126,8 +126,10 @@ describe('comparing views', () => {
   });
 
   it('knows the agent tabs', () => {
-    expect(['overview', 'files', 'terminal', 'preview', 'setup'].every(isAgentTab)).toBe(true);
+    expect(['overview', 'files', 'preview', 'setup'].every(isAgentTab)).toBe(true);
     expect(isAgentTab('chat')).toBe(false);
+    // The terminal is a drawer now. An old link to its tab opens the agent on its last tab.
+    expect(isAgentTab('terminal')).toBe(false);
     expect(isAgentTab(null)).toBe(false);
   });
 });

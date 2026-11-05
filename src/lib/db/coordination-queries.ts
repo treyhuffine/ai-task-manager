@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull, lte, or, desc, ne, gt, sql } from 'drizzle-orm';
 import { publishChatEvent } from '@/lib/realtime/bus';
 import { getDb } from '@/lib/db';
-import { agentCoordinationRequests as requests, agentCoordinationDeliveries as deliveries, chatSessions, executions, workspaces, userState, workerCommands, runs } from './schema';
+import { type AgentCoordinationPayload, agentCoordinationRequests as requests, agentCoordinationDeliveries as deliveries, chatSessions, executions, workspaces, userState, workerCommands, runs } from './schema';
 import type { AgentRequestRecord, ChatEventRecord, AgentDeliveryRecord, CreateAgentRequestInput, CreateAgentDeliveryInput, RunRecord } from '@/db/types';
 import { inputIsPreparing } from '@/lib/coordination/input-reservations';
 import { addressOf, isManagerChat } from '@/lib/coordination/address';
@@ -107,7 +107,9 @@ export function humanCoordinationContext(sessionId: string, producingRunId: stri
   const reserved = reservedCoordinationInputs(sessionId);
   const assigned = producingRunId ? agentRequestForRun(producingRunId) : null;
   const assignmentPending = !producingRunId && openAgentRequestsForTarget(sessionId).some(request => request.runId && ['queued', 'running'].includes(getRun(request.runId)?.status ?? ''));
-  return pendingAgentDeliveries(sessionId).filter(input => !reserved.has(input.id) && !inputIsPreparing(input.id) && (input.payload.contextOnly || !assignmentPending && (!assigned || input.kind === 'message' && input.payload.relatedRequestId === assigned.id || !!input.requestId && getAgentRequest(input.requestId)?.parentRequestId === assigned.id && input.kind !== 'request')));
+  // A check-in's note is never context for what a person just typed: it tells
+  // the agent it may stay silent, and it gets a reply of its own afterwards.
+  return pendingAgentDeliveries(sessionId).filter(input => !input.payload.checkIn && !reserved.has(input.id) && !inputIsPreparing(input.id) && (input.payload.contextOnly || !assignmentPending && (!assigned || input.kind === 'message' && input.payload.relatedRequestId === assigned.id || !!input.requestId && getAgentRequest(input.requestId)?.parentRequestId === assigned.id && input.kind !== 'request')));
 }
 export function pendingAgentApprovals(sessionId: string): AgentDeliveryRecord[] {
   return getDb().select().from(deliveries).where(and(eq(deliveries.sourceSessionId, sessionId), eq(deliveries.status, 'awaiting_approval'))).orderBy(deliveries.createdAt, deliveries.id).limit(100).all();
@@ -184,7 +186,7 @@ export function persistAgentDelivery(id: string): AgentDeliveryRecord {
     const saved = getChatEventById(delivery.eventId);
     if (saved && (saved.sessionId !== delivery.targetSessionId || saved.content !== delivery.payload.prompt || (saved.senderSessionId ?? null) !== (delivery.senderKind === 'agent' ? delivery.sourceSessionId : null) || saved.role !== (delivery.senderKind === 'system' ? 'system' : 'user'))) throw new Error('The delivery event belongs to different intent.');
     insertChatEvent({ id: delivery.eventId, sessionId: delivery.targetSessionId, role: delivery.senderKind === 'system' ? 'system' : 'user', source: delivery.senderKind === 'system' ? 'error' : 'user', senderSessionId: delivery.senderKind === 'agent' ? delivery.sourceSessionId : null, content: delivery.payload.prompt, attachments: delivery.payload.attachments,
-      raw: { agentCoordination: { deliveryId: delivery.id, kind: delivery.kind, senderKind: delivery.senderKind, sourceSessionId: delivery.sourceSessionId, sourceEventId: delivery.sourceEventId, requestId: delivery.requestId, content: delivery.payload.content, directions: delivery.payload.directions, originalRequest: delivery.payload.originalRequest, relatedRequestId: delivery.payload.relatedRequestId, lateFollowup: !!delivery.payload.relatedRequestId && !isOpenAgentRequest(getAgentRequest(delivery.payload.relatedRequestId) ?? {status: 'completed'} as AgentRequestRecord) } } }, broadcasts);
+      raw: { agentCoordination: { deliveryId: delivery.id, kind: delivery.kind, senderKind: delivery.senderKind, sourceSessionId: delivery.sourceSessionId, sourceEventId: delivery.sourceEventId, requestId: delivery.requestId, content: delivery.payload.content, directions: delivery.payload.directions, originalRequest: delivery.payload.originalRequest, relatedRequestId: delivery.payload.relatedRequestId, checkIn: delivery.payload.checkIn, lateFollowup: !!delivery.payload.relatedRequestId && !isOpenAgentRequest(getAgentRequest(delivery.payload.relatedRequestId) ?? {status: 'completed'} as AgentRequestRecord) } } }, broadcasts);
     if (delivery.sourceSessionId && delivery.senderKind !== 'agent') insertChatEvent({ id: stableCoordinationId('sent', delivery.eventId), sessionId: delivery.sourceSessionId, role: 'system', source: 'system', content: CHAT_MESSAGE_SENT,
       raw: { chatMessageSent: { version: 1, targetSessionId: delivery.targetSessionId, targetEventId: delivery.eventId, preview: delivery.payload.content.slice(0, 240) } } }, broadcasts);
     updateAgentDelivery(id, { status: 'delivered', error: null, nextAttemptAt: now() });
@@ -371,14 +373,14 @@ export function activeCoordinationChats(sessionId: string) {
 export function createInitiatingAgentDelivery(input: {
   id: string; source: NonNullable<ReturnType<typeof getChatSession>>; sourceRunId: string | null; address: string; targetSessionId: string | null;
   requestKey: string; parentRequestId: string | null; kind: AgentRequestRecord['kind'] | 'message'; content: string; options: AgentRequestRecord['options'];
-  eventId: string; prompt: string; relatedRequestId?: string; status: 'queued' | 'awaiting_approval';
+  eventId: string; prompt: string; relatedRequestId?: string; status: 'queued' | 'awaiting_approval'; checkIn?: AgentCoordinationPayload['checkIn'];
 }): AgentDeliveryRecord {
   return withCoordinationEvents(events => {
     const existing = getAgentDelivery(input.id);
     if (existing) return existing;
     const request = input.kind === 'message' ? null : createAgentRequest({ id: input.id, sourceSessionId: input.source.id, sourceAddress: addressOf(input.source), targetAddress: input.address, targetSessionId: input.targetSessionId, requestKey: input.requestKey, parentRequestId: input.parentRequestId, kind: input.kind, options: input.options });
     const delivery = createAgentDelivery({ id: input.id, requestId: request?.id ?? input.relatedRequestId, kind: request ? 'request' : 'message', senderKind: 'agent', sourceSessionId: input.source.id, sourceRunId: input.sourceRunId, targetAddress: input.address, targetSessionId: input.targetSessionId, eventId: input.eventId,
-      payload: { version: 1, content: input.content, prompt: input.prompt, attachments: [], requestKey: input.requestKey, ...(input.relatedRequestId ? { relatedRequestId: input.relatedRequestId } : {}) }, status: input.status, nextAttemptAt: input.status === 'queued' ? now() : null });
+      payload: { version: 1, content: input.content, prompt: input.prompt, attachments: [], requestKey: input.requestKey, ...(input.relatedRequestId ? { relatedRequestId: input.relatedRequestId } : {}), ...(input.checkIn ? { checkIn: input.checkIn } : {}) }, status: input.status, nextAttemptAt: input.status === 'queued' ? now() : null });
     if (input.status === 'awaiting_approval') coordinationAudit(input.source.id, input.id, 'coordination_proposed', { deliveryId: delivery.id, status: delivery.status }, events);
     return delivery;
   });

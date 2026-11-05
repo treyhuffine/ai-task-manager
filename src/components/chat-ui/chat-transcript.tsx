@@ -412,7 +412,7 @@ const RENDERABLE_SYSTEM_SUBTYPES = new Set<string>([...MCP_TOOL_RESULT_EVENTS, M
  *   - `agent` events that are Claude Code's synthetic
  *     `No response requested.` placeholder — see the constant above.
  */
-function filterRenderable(events: ChatEventDTO[]): ChatEventDTO[] {
+export function filterRenderable(events: ChatEventDTO[]): ChatEventDTO[] {
   return events.filter((e) => {
     if (e.source === 'result') return false;
     if (e.source === 'agent' && e.content === NO_RESPONSE_REQUESTED) return false;

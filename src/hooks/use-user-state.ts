@@ -76,12 +76,15 @@ export interface OrchestratorIdentity {
   emoji: string | null;
   /** Where its image is served, when it has one. */
   imageUrl: string | null;
+  imageFit?: 'cover' | 'contain';
   color: string | null;
 }
 
 /** The orchestrator's name and look, as `OrchestratorMark` draws them. */
 export function useOrchestratorIdentity(): OrchestratorIdentity {
+  const home = useOptionalHomeContext();
   const { data } = useUserState();
+  if (home?.home.kind === 'team') return { name: home.home.name, emoji: null, imageUrl: data?.orchestratorImage ? attachmentUrl(data.orchestratorImage.fileName) : null, imageFit: 'contain', color: null };
   return {
     name: resolveOrchestratorName(data?.orchestratorName),
     emoji: data?.orchestratorEmoji ?? null,

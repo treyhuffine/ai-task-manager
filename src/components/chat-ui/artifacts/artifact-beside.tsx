@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useSyncExternalStore, type ComponentProps } from 'react';
+import { flushSync } from 'react-dom';
 import { X } from 'lucide-react';
 import { Tip } from '@/components/ui/tip';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
@@ -21,14 +22,15 @@ import { PlaceSwitch, PreviewBody, PreviewSource, PreviewDownload, PreviewIcon, 
 const BESIDE_FILE = 'data-beside-file';
 
 /** Close the file beside `host`'s chat. Focus that was on the tab or the
- * view goes back to the file's card, as the dialog's does. */
+ * view goes back to the file's card, as the dialog's does, or to the chat's
+ * composer when the card has gone. */
 export function useCloseBesideFile(host: string) {
   const store = useArtifactPreviewStore();
   return useCallback(() => {
     const active = document.activeElement;
     const losingFocus = !active || active === document.body || !!active.closest(`[${BESIDE_FILE}]`);
     const card = store.closeBeside(host);
-    if (losingFocus) card?.focus({ preventScroll: true });
+    if (losingFocus) store.returnFocus(card, host, { preventScroll: true });
   }, [store, host]);
 }
 
@@ -47,13 +49,19 @@ export function BesideFileTab({ host, active, onSelect, className, selectProps, 
   selectProps?: ComponentProps<'button'>;
   withClose?: boolean;
 }) {
+  const store = useArtifactPreviewStore();
   const open = useBesidePreview(host);
   if (!open) return null;
   const name = previewName(open.preview);
+  // Its panel draws it in front now, so focus is in it before the next key, as from its card.
+  const select = () => {
+    flushSync(onSelect);
+    store.focusBeside(host);
+  };
   return (
     <div {...{ [BESIDE_FILE]: '' }} data-active={active || undefined} className={cn('flex min-w-0 shrink items-center', className)}>
       <Tip label={name} onlyWhenTextHidden>
-        <button type="button" aria-pressed={selectProps?.role ? undefined : active} {...selectProps} onClick={onSelect} className="flex min-w-0 items-center gap-1.5 self-stretch outline-none focus-visible:underline">
+        <button type="button" aria-pressed={selectProps?.role ? undefined : active} {...selectProps} onClick={select} className="flex min-w-0 items-center gap-1.5 self-stretch outline-none focus-visible:underline">
           <PreviewIcon preview={open.preview} size={12} className="shrink-0" />
           <span className="max-w-40 truncate">{name}</span>
         </button>
@@ -88,6 +96,8 @@ export function BesideFileClose({ host, className }: { host: string; className?:
  * Next through the chat's other files, the Large or Beside switch, then the
  * file. Escape inside it closes it. The arrow keys move through the chat's
  * files while focus is in it (not in the chat, where they belong to text).
+ * Picking the file, by its card or its tab, puts focus here
+ * (`ArtifactPreviewStore.focusBeside`), as a dialog takes it.
  */
 export function BesideFileView({ host }: { host: string }) {
   const store = useArtifactPreviewStore();
@@ -95,6 +105,10 @@ export function BesideFileView({ host }: { host: string }) {
   const close = useCloseBesideFile(host);
   const side = useSyncExternalStore(store.subscribe, () => store.region(host)?.side ?? 'right', () => 'right' as const);
   const sectionRef = useRef<HTMLElement>(null);
+  const viewRef = useCallback((section: HTMLElement | null) => {
+    sectionRef.current = section;
+    return section ? store.registerView(host, section) : undefined;
+  }, [store, host]);
   if (!open) return null;
   const { preview, trigger, sequence } = open;
   const index = trigger ? sequence.indexOf(trigger) : -1;
@@ -110,7 +124,7 @@ export function BesideFileView({ host }: { host: string }) {
   };
   return (
     <section
-      ref={sectionRef}
+      ref={viewRef}
       {...{ [BESIDE_FILE]: '' }}
       aria-label={`${previewName(preview)}, beside the chat`}
       // Focusable, so a click on the image or the header lands here and the arrow keys reach it.

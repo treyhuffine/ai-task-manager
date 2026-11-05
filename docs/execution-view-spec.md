@@ -71,7 +71,9 @@ The header, Close chat, tools list and tooltip shortcuts use the shared
 `Kbd` component, with the same compact monospace text and corner radius.
 The badges hide below 1200px of chat-view width, before the labels fold to
 icons below 1040px. Both controls keep accessible names and their tooltip
-shortcuts at every width.
+shortcuts at every width. The toggles are `WorkbenchToggles`
+(`workbench/workbench-toggles.tsx`), shared with the agent view's header,
+which folds them at its own widths (docs/agents-view-spec.md §10).
 
 **Status is precise and scoped.** The header describes the selected chat:
 Working, Needs input, Finished 5m ago (never "Ready", since a finished
@@ -184,7 +186,10 @@ open large.
 
 **Terminal.** A drawer across the whole bottom (under the chat and the
 panel), resizable and expandable. Mounted only while open. Hiding it never
-kills a shell: PTYs live on the server and reattach with their output.
+kills a shell: PTYs live on the server and reattach with their output. The
+drawer and the chat and panel split are `TerminalSplit` and `PanelSplit`
+(`workbench/workbench-layout.tsx`), shared with the agent view, whose
+drawer runs in the agent's own folder (docs/agents-view-spec.md §10).
 
 **Navigation rules** (`workbench/workbench-state.ts`, tested):
 1. A tab, box row or More item is a peer switch and builds no history.
@@ -195,7 +200,8 @@ kills a shell: PTYs live on the server and reattach with their output.
 4. Escape restores an expanded panel first, then closes it. It never
    touches the terminal, text fields, menus or dialogs.
 5. The panel view and terminal persist per execution. Panel width and
-   terminal height are global.
+   terminal height are global, and the terminal height is one preference
+   with the agent view's drawer.
 6. Chat tabs hold conversations only, never files. Switching chats keeps
    the workbench, the preview, the files and the terminal.
 7. A file opened from the chat is a jump to the `file` view. Closing it
@@ -221,8 +227,30 @@ shows a few of each, and each kind ends with "All N tasks" (or notes, or
 agents), which narrows to it. A path-like query (`src/`, `.tsx`) puts files first.
 A filter after the `@` searches one kind: `task:`, `note:` and `agent:` (spaces
 allowed, since titles and names have them, up to 50 with a "Showing 50 of N"
-caption), `file:`, and `#` for pull requests. The plain list ends with a
-line naming them. While a search is in flight the last list stays up
+caption), `app:` (every app and connector the chat can use) and `connector:`
+(connected accounts only), both with spaces too, `file:`, and `#` for pull
+requests. The plain list ends with a line naming them all.
+
+Kind chips sit above the list from the first `@`: All, Tasks, Notes, Agents,
+Apps, Connectors, Files, PRs, the current one pressed. A chip only writes its
+prefix into the query (`@task:`, keeping the search), so the editor text stays
+the one record of the filter and the chips, the text and the results can't
+disagree. All removes the prefix. While nothing is searched yet, ← and →
+(`HOTKEYS.mentionKindPrevious` / `mentionKindNext`) move between the chips and
+Enter or Tab applies one. Up and down go back to the results. Once a search is
+typed the arrows move the caret again, so a typo can still be fixed. A path
+(`@src/`, `@backend/`) shows no chips, since it is about files.
+
+Typing the start of a kind's name, two letters or more (`ta`, `no`, `ag`,
+`ap`, `co`, `fi`, `pr`), puts that kind on top ("Search tasks", `task:`).
+Tab or Enter completes the query to its prefix without choosing anything,
+and the search continues inside that kind. The results stay listed below,
+one ↓ away, and the row goes as soon as the typing leaves the kind's name, so
+"Take out trash" is the top result again at `@tak`. One letter never offers a
+kind, since it starts too many titles. Kinds, prefixes and labels come from
+one list, `MENTION_KINDS` in `mention-menu/ranking.ts`.
+
+While a search is in flight the last list stays up
 (`asyncItems` in `suggestion/renderer.ts`) instead of flashing empty. The
 popup has its own React root, outside the app's providers, so its rows take
 resolved data (an agent's picture through `resolveAgentPicture`) and call
@@ -249,8 +277,9 @@ Files selector (⋯ for the rest). If the chat needs an answer meanwhile, a
 
 **Hotkeys** (`src/constants/commands.ts`): ⌃` toggles the terminal
 (captured so a focused terminal can't swallow it), ⌃. shows or hides the
-tools panel the way the Tools toggle does (the agent view uses it for its
-tools too). Both toggles use the literal Ctrl key on macOS, Windows and
+tools panel the way the Tools toggle does. The agent view has the same
+keys, through the same hook (`workbench/use-workbench-hotkeys.ts`,
+docs/agents-view-spec.md §10). Both toggles use the literal Ctrl key on macOS, Windows and
 Linux, declared with `ctrl: true` rather than the shared Cmd/Ctrl modifier.
 ⌘P opens Files and focuses the tree search, Esc as above.
 

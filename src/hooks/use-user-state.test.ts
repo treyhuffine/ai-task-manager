@@ -34,6 +34,7 @@ function record(overrides: Partial<UserStateRecord> = {}): UserStateRecord {
     workResultGuidance: 'Original guidance',
     voiceAutoSend: false,
     usageWarnings: null,
+    chatStatusLines: null,
     voiceModel: null,
     defaultHarness: null,
     defaultModel: null,

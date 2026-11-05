@@ -18,12 +18,14 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { useQueryClient } from '@tanstack/react-query';
-import { useWorkspaces, useReorderWorkspaces } from '@/hooks/use-workspaces';
+import { useRailSessions, useWorkspaces, useReorderWorkspaces } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { NeedsReviewSection } from './needs-review-section';
+import { UnreadRow } from './unread-row';
 import { WorkspaceRow } from './workspace-row';
 import { AgentRailRow } from './agent-rail-row';
+import { SelectAllInactive } from './agent-selection-section';
 import { useRailStyle } from '@/lib/client/rail-style';
 import { openWorkspaceCreate } from './workspace-create-store';
 import { startExecution } from '@/lib/executions/start-execution';
@@ -37,10 +39,13 @@ import { executionView } from '@/lib/client/active-view';
  * agents with their executions (DnD reorder). Its header (the Agents |
  * Recent switch, select-to-archive, New agent) is the rail list's header
  * (`rail-list.tsx`), and the archive selection it drives arrives through
- * `WorkspaceSelectionProvider`, which the rail provides above both.
+ * `WorkspaceSelectionProvider`, which the rail provides above both. While
+ * selecting, each agent shows its chats under it in any rail style
+ * (`AgentSelectionSection`), under one Select all for the inactive ones.
  */
 export function WorkspaceNav() {
   const { data: workspaces, isLoading } = useWorkspaces({ status: 'active' });
+  const { data: rail } = useRailSessions();
   // Agents first, or the classic rows (docs/rail-agents-first.md).
   const { style: railStyle } = useRailStyle();
   const reorder = useReorderWorkspaces();
@@ -93,10 +98,16 @@ export function WorkspaceNav() {
     <div className="flex flex-col">
       {/* The needs-review triage surface duplicates tree rows; hide it
           while selecting so a session never shows two checkboxes (or a
-          checkbox up top and a plain row below). */}
-      {!selecting && <NeedsReviewSection />}
+          checkbox up top and a plain row below). Agents only, it's one
+          Unread row with a count, its chats peeking beside the rail: the
+          agents say what they want on their own rows. */}
+      {!selecting && (railStyle === 'agentsOnly' ? <UnreadRow /> : <NeedsReviewSection />)}
+      {selecting && <SelectAllInactive />}
+      {selecting && rail?.sessions.length === 0 && (
+        <div className="px-3 py-4 text-center text-[10px] leading-relaxed text-muted-foreground/70">No chats to archive.</div>
+      )}
 
-      <div className={cn('px-1', railStyle === 'agents' ? 'space-y-1' : 'space-y-0.5')}>
+      <div className={cn('px-1', railStyle === 'classic' ? 'space-y-0.5' : 'space-y-1')}>
         {isLoading && (
           <div className="flex flex-col gap-1 pt-1">
             <WorkspaceHeaderSkeleton />
@@ -109,7 +120,7 @@ export function WorkspaceNav() {
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={workspaces.map((w) => w.id)} strategy={verticalListSortingStrategy}>
               {workspaces.map((ws) =>
-                railStyle === 'agents' ? (
+                railStyle !== 'classic' ? (
                   <AgentRailRow
                     key={ws.id}
                     workspace={ws}

@@ -7,7 +7,6 @@ import { DRAFT_STORAGE_PREFIX, encodeChatDraft, scopedDraftKey } from '@/compone
 import type { EditorSnapshot } from '@/components/chat/editor/chat-input-editor';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import { AppCompanion } from '@/components/local-apps/app-companion';
-import { AppCompanionButton } from '@/components/local-apps/app-companion-button';
 import { ChatRecovery } from '@/components/chat-ui/chat-recovery';
 import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 import { BackgroundTasksBar } from '@/components/chat-ui/activity/background-tasks-bar';
@@ -187,7 +186,6 @@ export function useStartExecutionChat(sessionId: string, open: (chatId: string) 
 export function ExecutionChatColumn({
   chat,
   composerRef,
-  submitOnEnter,
   autoFocus,
   tabs,
   overlay,
@@ -200,8 +198,6 @@ export function ExecutionChatColumn({
 }: {
   chat: ExecutionChatState;
   composerRef: RefObject<ExecutionComposerHandle | null>;
-  /** Desktop submits on Enter. The phone inserts a newline, and the send button submits. */
-  submitOnEnter: boolean;
   autoFocus?: boolean;
   /** Above the conversation: the execution's sibling chats, in the workbench. */
   tabs?: ReactNode;
@@ -320,10 +316,8 @@ export function ExecutionChatColumn({
             effort={session.effort}
             serviceTier={session.serviceTier}
             harness={session.harness}
-            leadingActions={<AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />}
             disabled={composerDisabled}
             disabledReason={disabledReason}
-            submitOnEnter={submitOnEnter}
             isRunning={isRunning}
             onSwitchProvider={onSwitchProvider}
             switchingProvider={switchingProvider}

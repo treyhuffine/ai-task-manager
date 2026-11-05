@@ -11,7 +11,7 @@ Reviewed source: `37716e77e3f41335aec2e57e73a692c4c8c16524`. This ledger superse
 | H2 | Ordinary New/model/resume adds a Team chat. `sessions/team-main-chat.test.ts`, two members with running/queued work |
 | H3 | Await close, compare original handle, scope prompts to handle, block after failed close. `ai/stop-collision.test.ts`, delayed and failed close recovery |
 | H4 | Phone slots hidden above mobile breakpoint. Actual shell/rail and CSS at 390/1280px in `team-shell.browser.test.ts` |
-| M1 | Refuse unsupported explicit Home targets before unknown-key stripping. `spaces/native-access.test.ts`, create_area/rank_task/create_stream_item leave personal data unchanged |
+| M1 | Refuse unsupported explicit Home targets before unknown-key stripping. `spaces/native-access.test.ts`, rank_task/create_stream_item leave personal data unchanged (create_area was a third case until it became a team tool on 2026-11-03) |
 | M2 | Common Home startup recovery. Actual instrumentation in `team/startup.test.ts`, surviving real stand-in process, `ai/http-restart.test.ts` and stale runs |
 | M3 | Prompt buttons use server answer/approve capabilities. Typed runtime key and independent permissions in `pending-input-area.test.tsx` |
 | M4 | Shared attention/titles, source-Home editor links. `team/capability-conformance.test.ts` and scoped title/navigation helpers |

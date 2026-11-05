@@ -9,7 +9,7 @@ function composer({ shown = true, inert = false } = {}): ComposerEntry & { state
     getClientRects: () => (state.shown ? [{}] : []),
     closest: (selector: string) => (selector === '[inert]' && state.inert ? {} : null),
   } as unknown as HTMLElement;
-  return { el, focus: () => {}, state };
+  return { el, focus: () => {}, insert: () => {}, state };
 }
 
 describe('composerTarget', () => {

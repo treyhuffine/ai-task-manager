@@ -3,7 +3,15 @@
 import { useState } from 'react';
 import type { TriggerRecord } from '@/db/types';
 import { validateCronExpression } from '@/lib/scheduler/cron';
-import { frequencyToTrigger, type FrequencyChoice, type FrequencyKind, type Weekday } from '@/lib/scheduler/frequency';
+import {
+  frequencyToTrigger,
+  INTERVAL_SECONDS_UNIT,
+  INTERVAL_UNITS,
+  intervalUnitFor,
+  type FrequencyChoice,
+  type FrequencyKind,
+  type Weekday,
+} from '@/lib/scheduler/frequency';
 
 export type ScheduleChoice = FrequencyChoice & { timezone: string };
 
@@ -164,18 +172,6 @@ function DaysField({ days, onChange }: { days: Weekday[]; onChange: (days: Weekd
   );
 }
 
-const UNITS = [
-  { label: 'minutes', seconds: 60 },
-  { label: 'hours', seconds: 3600 },
-  { label: 'days', seconds: 86_400 },
-] as const;
-
-/** The largest unit the interval is a whole number of, so 7200 reads as 2 hours. */
-function unitFor(seconds: number): number {
-  const unit = [...UNITS].reverse().find((u) => seconds > 0 && seconds % u.seconds === 0);
-  return unit?.seconds ?? 1;
-}
-
 /**
  * "Every [n] [minutes|hours|days]", stored as seconds. The unit is chosen once
  * from the saved interval and then follows the select, so typing 120 minutes
@@ -183,8 +179,8 @@ function unitFor(seconds: number): number {
  * minutes (only the API makes one) offers seconds too.
  */
 function IntervalField({ seconds, onChange }: { seconds: number; onChange: (seconds: number) => void }) {
-  const [unit, setUnit] = useState(() => unitFor(seconds));
-  const units = unit === 1 ? [{ label: 'seconds', seconds: 1 }, ...UNITS] : UNITS;
+  const [unit, setUnit] = useState(() => intervalUnitFor(seconds));
+  const units = unit === INTERVAL_SECONDS_UNIT.seconds ? [INTERVAL_SECONDS_UNIT, ...INTERVAL_UNITS] : INTERVAL_UNITS;
   return (
     <div className="flex items-end gap-2">
       <label className="min-w-0 flex-1 space-y-1 text-[12px] font-medium">

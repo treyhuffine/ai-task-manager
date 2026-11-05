@@ -51,6 +51,7 @@ import type { Attachment, PermissionMode, WorkerCommandActor, WorkerCommandRecor
 import { budgetGate } from '@/lib/runs/budget';
 import { beginRun } from '@/lib/runs/artifact-bucket';
 import { finishRun } from '@/lib/runs/finish';
+import { bindConversationRun } from '@/lib/db/queries';
 import { claimPreparingInputs } from '@/lib/coordination/input-reservations';
 import { isUnacceptedCoordinationRun, humanCoordinationContext, noteCoordinationHumanDirection, agentRequestMessageRefusal, agentMessageAdmission } from '@/lib/db/queries';
 import { explicitHarnessSelection, type ProviderId } from '@/lib/harness/options';
@@ -74,6 +75,7 @@ import { localEventWriter } from './event-writer';
 import { installHomeSink } from './home-sink';
 import { renderStandingAgentInstructionsPrompt } from './prompts/standing-instructions';
 import { withWorkResultSessionInstructions } from '@/lib/work-results/instructions';
+import { turnStatusInstructions } from '@/lib/sessions/turn-status-instructions';
 import { workResultOperationMetadata } from '@/lib/db/queries';
 import { isRunning, hasBackgroundTasks } from './live-state';
 import { activeSendCount } from './live-state';
@@ -807,6 +809,7 @@ async function sendAdmitted(
     runId = created.id;
   }
 
+  if (runId) bindConversationRun(chatSessionId, runId);
   const turnId = policy.teamTurnId ?? uuidv7();
   let closing: Promise<unknown> | undefined;
   const turn = awaitTurn(turnId, policy.teamTurnId ? options.signal : undefined).finally(async () => { await closing; });
@@ -831,7 +834,7 @@ async function sendAdmitted(
     const request: SendRequest = {
       chatSessionId,
       message: policy.personalContext
-        ? withWorkResultSessionInstructions(remote ? userMessage : placeFilesAtHome(userMessage, attachments), session.surfaceKind)
+        ? withWorkResultSessionInstructions(remote ? userMessage : placeFilesAtHome(userMessage, attachments), session.surfaceKind, [turnStatusInstructions(session)])
         : remote ? userMessage : placeFilesAtHome(userMessage, attachments),
       standingInstructions: renderStandingAgentInstructionsPrompt(session.workspaceId ? getWorkspace(session.workspaceId) ?? null : null),
       currentStandingInstructions: () => renderStandingAgentInstructionsPrompt(session.workspaceId ? getWorkspace(session.workspaceId) ?? null : null),

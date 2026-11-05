@@ -8,6 +8,16 @@ import { beamdCheck } from '@/lib/preview/beamd/cli';
 import { openOwnedTunnel } from '@/lib/preview/beamd/ownership';
 import { isValidPreviewLabel, MAX_LABEL_LENGTH, previewName } from '@/lib/preview/preview-name';
 
+/** Where people reach the team: its address if it has one, else where this client reached it. */
+export function teamWebBase(request: Request): string {
+  const tunnel = baseUrlSnapshot().tunnel;
+  if (tunnel) return tunnel.replace(/\/+$/, '');
+  const url = new URL(request.url);
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
+  const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || url.protocol.replace(':', '');
+  return host ? `${proto}://${host}` : url.origin;
+}
+
 /** Suggest from the name the owner chose, without changing existing addresses. */
 export function teamAddressSettings() {
   const snapshot = baseUrlSnapshot();
@@ -19,6 +29,19 @@ export function teamAddressSettings() {
     suggestedName: snapshot.tunnelName ?? previewName(getHome()?.name ?? 'team'),
     nameLocked: snapshot.tunnelNameLocked,
   };
+}
+
+/** Check the saved address against this Team, without changing its configuration. */
+export async function checkTeamAddress() {
+  const { address, autoTunnel } = teamAddressSettings();
+  const method = autoTunnel ? 'beamd' as const : 'custom' as const;
+  if (!address) return { address, method, status: 'not_configured' as const, checkedAt: new Date().toISOString(), message: null };
+  try {
+    await verifyTeamAddress(address);
+    return { address, method, status: 'online' as const, checkedAt: new Date().toISOString(), message: null };
+  } catch (error) {
+    return { address, method, status: 'offline' as const, checkedAt: new Date().toISOString(), message: error instanceof Error ? error.message : 'Could not reach this team at its saved address.' };
+  }
 }
 
 function validatedTeamPrefix(requestedName: string) {

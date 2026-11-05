@@ -33,9 +33,17 @@ import { useViewportTier } from '@/hooks/use-viewport-tier';
 import { useTeamRefresh } from '@/components/spaces/use-team-refresh';
 import { TaskLaunchIntent } from '@/components/tasks/task-launch-intent';
 import { HomeShell } from '@/components/home/home-shell';
-import { HomeBoundary } from '@/components/home/home-context';
+import { HomeBoundary, useHomeContext } from '@/components/home/home-context';
+import { TeamSettings } from '@/components/team/team-settings';
+import { useSearchParams } from 'next/navigation';
+import { MobileAgentsView } from '@/components/mobile/mobile-agents-view';
+import { TeamSearch } from '@/components/team/team-search';
+import { ScratchpadColumn, ScratchpadSheet, ScratchpadShortcut } from '@/components/scratchpad/scratchpad-host';
 
-function DashboardShell() {
+export function DashboardShell() {
+  const team = useHomeContext().home.kind === 'team';
+  const params = useSearchParams();
+  const allAgents = team && params.get('view') === 'agents';
   const {
     theme,
     activeView,
@@ -47,13 +55,13 @@ function DashboardShell() {
     toggleQuickCapture,
     toggleRailCollapsed,
     toggleExecutionRailOpen,
+    toggleAppsRailOpen,
   } = useDashboard();
 
   // Home, an agent's view, or an execution (see `ActiveView`). A missing or
   // archived id renders "not found" inside its view and offers a way back.
-  // Only the execution view collapses the rail: Home and the agent view keep
-  // whatever the user set, which is part of what makes the execution view
-  // read as a separate workbench.
+  // Execution and Apps have their own compact rail state. Home and agent
+  // views retain the person's global preference.
   const isExecutionView = activeView.kind === 'execution';
   const isHome = activeView.kind === 'home';
 
@@ -63,13 +71,10 @@ function DashboardShell() {
   // background sessions, with the rail poll as a safety net.
   useRailContextHydrate();
   useGlobalSessionStream();
-  // Connected teams' work, read again when someone comes back (P7.2).
-  useTeamRefresh();
-
-  // Keep a ref so the keyboard handler can read `isExecutionView`
+  // Keep a ref so the keyboard handler can read the current rail context
   // without re-binding on every navigation.
-  const isExecutionViewRef = useRef(isExecutionView);
-  useEffect(() => { isExecutionViewRef.current = isExecutionView; }, [isExecutionView]);
+  const railViewRef = useRef(activeView.kind);
+  useEffect(() => { railViewRef.current = activeView.kind; }, [activeView.kind]);
 
   // Latest validated execution id — drives ⌘E "reopen" from the
   // dashboard. Kept in a ref so the global keydown handler can read
@@ -79,25 +84,26 @@ function DashboardShell() {
   useEffect(() => { latestExecutionIdRef.current = latestExecutionId; }, [latestExecutionId]);
 
   // Global hotkeys: voice chat (⌘J), quick capture (⌘⇧K), rail toggle (⌘\)
-  // ⌘\ targets `executionRailOpen` when on an execution surface and
-  // `railCollapsed` elsewhere, so each context's rail state is
-  // independently persisted.
+  // ⌘\ toggles the current view's rail override, or the global preference
+  // on Home and agent views.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (matchesHotkey(e, HOTKEYS.voiceChat)) {
+      if (!team && matchesHotkey(e, HOTKEYS.voiceChat)) {
         e.preventDefault();
         triggerVoiceChat();
         return;
       }
-      if (matchesHotkey(e, HOTKEYS.quickCapture)) {
+      if (!team && matchesHotkey(e, HOTKEYS.quickCapture)) {
         e.preventDefault();
         toggleQuickCapture();
         return;
       }
       if (matchesHotkey(e, HOTKEYS.toggleRail)) {
         e.preventDefault();
-        if (isExecutionViewRef.current) {
+        if (railViewRef.current === 'execution') {
           toggleExecutionRailOpen();
+        } else if (railViewRef.current === 'apps') {
+          toggleAppsRailOpen();
         } else {
           toggleRailCollapsed();
         }
@@ -119,7 +125,7 @@ function DashboardShell() {
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [triggerVoiceChat, toggleQuickCapture, toggleRailCollapsed, toggleExecutionRailOpen, goHome, openExecution, isHome]);
+  }, [triggerVoiceChat, toggleQuickCapture, toggleRailCollapsed, toggleExecutionRailOpen, toggleAppsRailOpen, goHome, openExecution, isHome, team]);
 
   const hasHistory = slideoutStack.length > 1;
   const tier = useViewportTier();
@@ -128,6 +134,7 @@ function DashboardShell() {
     <div className={cn(
       theme === 'dark' ? 'dark' : '',
     )}>
+      {!team && <PersonalDashboardServices />}
       <HomeShell header={<div className="hidden md:block"><TopHud /></div>}>
         {/* One layout for the viewport (useViewportTier). All three render
             only while the viewport isn't known yet, hidden by CSS. */}
@@ -156,16 +163,17 @@ function DashboardShell() {
             ) : activeView.kind === 'skill' ? (
               <SkillView skillRef={activeView.ref} />
             ) : (
-              <PanelLayout />
+              allAgents ? <MobileAgentsView /> : <PanelLayout />
             )}
+            {/* Working memory beside every screen (docs/scratchpad.md). */}
+            {!team && <ScratchpadColumn />}
           </div>
         )}
 
-        <FocusView />
-        <SearchOverlay />
+        {!team && <FocusView />}
+        {team ? <TeamSearch /> : <SearchOverlay />}
         <TaskBoardModal />
-        <CalendarModal />
-        <TriggersModal />
+        {!team && <><CalendarModal /><TriggersModal /></>}
         <NoteSlideout
           noteId={openNoteId}
           onClose={popSlideout}
@@ -188,14 +196,19 @@ function DashboardShell() {
           open={areasListOpen}
           onOpenChange={(open) => { if (!open) closeAllSlideouts() }}
         />
-        <SettingsModal />
+        {team ? <TeamSettings /> : <SettingsModal />}
         <LaunchModal />
-        <TaskLaunchIntent />
+        {!team && <TaskLaunchIntent />}
         <ChatSearchModal />
-        <AuthRecoveryCard />
+        {!team && <><ScratchpadSheet /><ScratchpadShortcut /><AuthRecoveryCard /></>}
       </HomeShell>
     </div>
   );
+}
+
+function PersonalDashboardServices() {
+  useTeamRefresh();
+  return null;
 }
 
 export function Dashboard() {

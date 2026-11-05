@@ -23,15 +23,6 @@ export function toDateOnly(value: string | null | undefined): string | null {
   return match ? match[0] : null;
 }
 
-/**
- * Normalize an `<input type="date">` value for storage: a bare `YYYY-MM-DD`
- * string, or null when empty. Use this instead of `new Date(val).toISOString()`,
- * which would pin the date to UTC midnight.
- */
-export function dateInputToStored(value: string | null | undefined): string | null {
-  return toDateOnly(value);
-}
-
 /** Parse a calendar-date field to a local `Date` at local midnight (no TZ shift). */
 export function parseLocalDate(value: string | null | undefined): Date | null {
   const date = toDateOnly(value);

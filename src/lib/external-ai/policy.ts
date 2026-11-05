@@ -13,6 +13,16 @@ export function permitsHomeContentAction(name: string): boolean {
   return (HOME_CONTENT_ACTIONS as readonly string[]).includes(name);
 }
 
+/**
+ * MCP tool hints for a content tool, which ChatGPT and Claude use to decide
+ * what to confirm. Reads say so. Writes change the person's own work and
+ * nothing beyond it, and none deletes (there is no delete, and archiving
+ * is undone with restore).
+ */
+export function contentToolAnnotations(action: { mutating?: boolean }) {
+  return { readOnlyHint: !action.mutating, destructiveHint: false, openWorldHint: false };
+}
+
 /** Member-bound keys belong to teams. Device-bound keys are never personal MCP credentials. */
 export function isPersonalAiClientKey(key: Pick<ApiKeyRecord, 'role' | 'memberId' | 'deviceId'>): boolean {
   return key.role === 'ai_client' && key.memberId === null && key.deviceId === null;

@@ -30,27 +30,6 @@ export function AppSettingsDialog({
   onOpenChange: (open: boolean) => void;
   onRemoved: () => void;
 }) {
-  const id = instance.id;
-  const { busy, run } = useAppAction();
-  const configure = (patch: { slug?: string; enabled?: boolean; archived?: boolean }) =>
-    run(() => trpcClient.localApps.configure.mutate({ id, revision: data.revision, patch }));
-
-  const description = useQuery({
-    queryKey: [...KEY, 'describe', id],
-    queryFn: () => trpcClient.localApps.describe.query({ id }),
-    enabled: open,
-  });
-  const serviceStatus = useQuery({
-    queryKey: [...KEY, 'service-status', id],
-    queryFn: () => trpcClient.localApps.serviceStatus.query({ id }),
-    enabled: open && instance.enabled && !instance.archived,
-    refetchInterval: open ? 5000 : false,
-    retry: false,
-  });
-
-  const grants = data.grants.filter((grant) => grant.instanceId === id && !grant.revokedAt);
-  const activity = data.invocations.filter((item) => item.instanceId === id).slice(-15).reverse();
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-auto sm:max-w-xl">
@@ -60,7 +39,41 @@ export function AppSettingsDialog({
             {instance.packageId} · {instance.version}. This package runs trusted native code as your user.
           </DialogDescription>
         </DialogHeader>
+        <AppSettingsContent instance={instance} data={data} active={open} onRemoved={() => { onOpenChange(false); onRemoved(); }} />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
+/** The same settings can sit beside the library or above an open app. */
+export function AppSettingsContent({ instance, data, active = true, onRemoved }: {
+  instance: LocalAppInstance;
+  data: LocalAppsList;
+  active?: boolean;
+  onRemoved: () => void;
+}) {
+  const id = instance.id;
+  const { busy, run } = useAppAction();
+  const configure = (patch: { slug?: string; enabled?: boolean; archived?: boolean }) =>
+    run(() => trpcClient.localApps.configure.mutate({ id, revision: data.revision, patch }));
+
+  const description = useQuery({
+    queryKey: [...KEY, 'describe', id],
+    queryFn: () => trpcClient.localApps.describe.query({ id }),
+    enabled: active,
+  });
+  const serviceStatus = useQuery({
+    queryKey: [...KEY, 'service-status', id],
+    queryFn: () => trpcClient.localApps.serviceStatus.query({ id }),
+    enabled: active && instance.enabled && !instance.archived,
+    refetchInterval: active ? 5000 : false,
+    retry: false,
+  });
+
+  const grants = data.grants.filter((grant) => grant.instanceId === id && !grant.revokedAt);
+  const activity = data.invocations.filter((item) => item.instanceId === id).slice(-15).reverse();
+
+  return (
         <div className="space-y-6">
           <section className="space-y-2">
             <GroupHeading>App</GroupHeading>
@@ -225,7 +238,6 @@ export function AppSettingsDialog({
                 onClick={() =>
                   void run(async () => {
                     await trpcClient.localApps.remove.mutate({ id, revision: data.revision });
-                    onOpenChange(false);
                     onRemoved();
                   })
                 }
@@ -235,7 +247,5 @@ export function AppSettingsDialog({
             </section>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
   );
 }

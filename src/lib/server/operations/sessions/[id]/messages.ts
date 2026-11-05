@@ -19,6 +19,8 @@ import {
   recordSkillUse,
   skipOnboardingStepOnScreen,
   failAgentRequestForMessage,
+  failConversationMessage,
+  queueConversationHumanMessage,
 } from '@/lib/db/queries';
 import { expandEntityMarkers } from '@/lib/entity-refs/expand-markers';
 import * as executor from '@/lib/executor/adapter';
@@ -246,6 +248,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
       // means a write torn between sessions or schema drift.
       return reply({ error: 'failed to persist user message' }, { status: 500 });
     }
+    if (!isRetry) queueConversationHumanMessage(id, row.id);
 
     if (row.sessionId !== id || row.content !== content || row.role !== 'user' || row.source !== 'user' || (row.senderSessionId ?? null) !== senderSessionId)
       return reply({ error: 'This message ID already belongs to different content or a different chat.' }, { status: 409 });
@@ -351,6 +354,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
       const refused = (reason: string) => {
         if (taken) return;
         recordSendRefused(id, row.id, reason);
+        failConversationMessage(row.id, reason);
         if (failAgentRequestForMessage(row.id, reason)) {
           void import('@/lib/coordination/service').then(({ drainAgentCoordination }) => drainAgentCoordination());
         }

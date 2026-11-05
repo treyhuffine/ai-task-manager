@@ -1,6 +1,7 @@
 import { getWorkspace, updateWorkspace, validateWorkspaceUpdate, listChatSessions, WorkspaceFieldError } from '@/lib/db/queries';
 import { getRequestKey } from '@/lib/auth/request-key';
 
+import { gitFactsAt } from '@/lib/workspaces';
 import { workspaceAuthority, executionOperationFailure } from '@/lib/workspaces/access';
 import { stopTeamAiWork } from '@/lib/team/ai/chat';
 import { chatLifecycleClosing, closeChatAdmission } from '@/lib/sessions/lifecycle-admission';
@@ -90,10 +91,12 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, request: Op
       // A new folder for the agent on the home (docs/homes-spec.md §4.1):
       // checked first, and recorded once the agent is saved.
       const { setHomeFolder, SetupError } = await import('@/lib/setups/home-context');
+      // What it says about git comes from the folder, unless this patch says.
+      const git = await gitFactsAt(body.cwd, before);
       try {
         await setHomeFolder(id, body.cwd, {
           finish: () => {
-            row = updateWorkspace(id, body);
+            row = updateWorkspace(id, { ...git, ...body });
             if (!row) throw new WorkspaceMissingError();
           },
         });

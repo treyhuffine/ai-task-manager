@@ -31,6 +31,7 @@ import { toast } from 'sonner';
 import { uuidv7 } from 'uuidv7';
 
 import { sessionKey as SESSION_KEY } from '@/lib/query/session-keys';
+import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 
 /**
  * Cache scope for anything derived from the worktree.
@@ -501,6 +502,9 @@ export function useRetrySetupScript(id: string) {
   });
 }
 
+/** A chat's resumes in flight: every place it shows can say it's reopening. */
+export const continueSessionMutationKey = (id: string) => ['session', id, 'continue'] as const;
+
 /**
  * Conductor-style "Continue" — unarchive an archived execution AND
  * re-provision a fresh worktree off the workspace base. Returns
@@ -513,9 +517,13 @@ export function useRetrySetupScript(id: string) {
 export function useContinueSession(id: string) {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: continueSessionMutationKey(id),
     mutationFn: (opts?: { baseBranch?: string | null }) =>
       sessionsApi.continueWork(id, opts),
     onSuccess: (row) => {
+      // Active again, as the server said, everywhere it shows (a returned
+      // result's card), while the refetch brings the rest of the row.
+      qc.setQueryData<ChatSessionWithExecution>(SESSION_KEY(id), (current) => current && { ...current, status: 'active' });
       qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
       void qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: id } }) });
       // Only a genuine re-provision — the worktree was torn down and is

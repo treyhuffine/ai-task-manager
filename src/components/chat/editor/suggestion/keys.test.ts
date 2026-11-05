@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isSuggestionCommitKey, suggestionNavDelta } from './keys';
+import { isSuggestionCommitKey, suggestionKindDelta, suggestionNavDelta } from './keys';
 
 describe('isSuggestionCommitKey', () => {
   it('commits on a bare Enter', () => {
@@ -57,5 +57,32 @@ describe('suggestionNavDelta', () => {
 
   it('stays out of the way mid-IME-composition', () => {
     expect(suggestionNavDelta({ key: 'ArrowDown', isComposing: true })).toBe(0);
+  });
+});
+
+describe('suggestionKindDelta', () => {
+  it('maps left and right to the previous and next kind chip', () => {
+    expect(suggestionKindDelta({ key: 'ArrowLeft' })).toBe(-1);
+    expect(suggestionKindDelta({ key: 'ArrowRight' })).toBe(1);
+  });
+
+  it('leaves the vertical arrows, Enter and Tab to the results', () => {
+    expect(suggestionKindDelta({ key: 'ArrowUp' })).toBe(0);
+    expect(suggestionKindDelta({ key: 'ArrowDown' })).toBe(0);
+    expect(suggestionKindDelta({ key: 'Enter' })).toBe(0);
+    expect(suggestionKindDelta({ key: 'Tab' })).toBe(0);
+  });
+
+  // Shift extends a selection and Alt or Cmd jump by word or line. Those
+  // stay the editor's.
+  it('ignores modified arrows', () => {
+    expect(suggestionKindDelta({ key: 'ArrowLeft', shiftKey: true })).toBe(0);
+    expect(suggestionKindDelta({ key: 'ArrowRight', altKey: true })).toBe(0);
+    expect(suggestionKindDelta({ key: 'ArrowRight', metaKey: true })).toBe(0);
+    expect(suggestionKindDelta({ key: 'ArrowLeft', ctrlKey: true })).toBe(0);
+  });
+
+  it('stays out of the way mid-IME-composition', () => {
+    expect(suggestionKindDelta({ key: 'ArrowRight', isComposing: true })).toBe(0);
   });
 });

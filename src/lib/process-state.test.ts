@@ -32,7 +32,8 @@ describe('processState', () => {
 const ROOT = path.resolve(__dirname, '../..');
 const SERVER = ['src/lib', 'src/service', 'src/app/api', 'src/proxy.ts', 'instrumentation.ts'];
 /** Browser code (no server bundles to split across) and the service controller (its own process). */
-const NOT_SERVER = ['src/lib/client/', 'src/lib/query/', 'src/lib/api/', 'src/lib/_debug/', 'src/service/main.ts'];
+// The MCP view's own code runs in its page in an app's frame (`pnpm mcp-views:build`), never in a server bundle.
+const NOT_SERVER = ['src/lib/client/', 'src/lib/query/', 'src/lib/api/', 'src/lib/_debug/', 'src/service/main.ts', 'src/lib/external-ai/views/client/'];
 const DECLARATION = /^(?:export\s+)?(?:let\s+(\w+)|const\s+(\w+)\s*(?::[^=]+)?=\s*new\s+(?:Map|Set|WeakMap|WeakSet)\s*(?:<[^()]*>)?\(\s*\))/;
 
 /** Module-level state whose copies may safely disagree, and why. */
@@ -78,6 +79,7 @@ const PER_COPY: Record<string, string> = {
   'src/lib/work/commits.ts:rememberedLines': 'the size of commitLines, kept beside it',
   'src/lib/pricing/models.ts:warnedUnknownModels': 'log dedupe only',
   'src/lib/skills/manage.ts:sessionControlOverride': 'test seam',
+  'src/lib/oauth/clients.ts:metadataFetchOverride': 'test seam',
   'src/lib/attachments/pdf-render.ts:library': "the PDF worker's own source string: it runs in its worker thread, never in a server bundle",
   'src/lib/attachments/pdf-render.ts:open': "the PDF worker's own source string: it runs in its worker thread, never in a server bundle",
   'src/lib/attachments/heic.ts:said': "the HEIC worker's own source string: it runs in its worker thread, never in a server bundle",

@@ -94,7 +94,7 @@ describe('the brief', () => {
       `\`${FOLDER}\`, a git repository`,
       'Purpose: Ship Ri',
       'Plain English.',
-      'manage the agent\'s work',
+      'you coordinate its work',
       'list_workspace_sessions',
       'get_session_messages',
       'search_sessions',
@@ -105,7 +105,7 @@ describe('the brief', () => {
       'Answer its questions when the user\'s intent is clear',
       'labeled as\ncoming from the "ri" agent\'s main chat',
       '"ws-1"',
-      '**When the user asks you to build something, use `delegate_work`.**',
+      '**If the work would fill this chat\'s context or take a while, it\'s an\nexecution\'s job.**',
       'Consult another agent\'s main chat with `message_agent`',
       'delegate_work',
     ]) {
@@ -117,16 +117,66 @@ describe('the brief', () => {
     expect(brief).not.toContain('@USER.md');
   });
 
-  it('sends a non-git agent\'s building to an execution too, editing directly only on request', async () => {
+  it('draws the line by how much work it takes, not whether it is code, so research goes to an execution too', async () => {
+    const { renderAgentMainChatBrief } = await import('@/lib/orchestrator/harness-surface');
+    const ws = { id: 'ws-1', name: 'ri', cwd: FOLDER, isGit: true, purpose: null, instructions: null };
+    // Wrapping is cosmetic, so compare the words.
+    const brief = renderAgentMainChatBrief(ws).replace(/\s+/g, ' ');
+    for (const expected of [
+      // What stays here.
+      'Do it here: coordination (reading transcripts, writing briefs, answering about work in progress, steering, closing out)',
+      'quick lookups of a handful of tool calls, including the reading a good brief needs',
+      'answers that come from this conversation',
+      // What goes to an execution, code or not.
+      'Start an execution with `delegate_work`: building, fixing or changing files, research, investigation and debugging, writing a doc or report',
+      'anything that reads more than a few files or web pages or runs more than a couple of minutes',
+      'anything the user would want to watch, steer or come back to',
+      // Why, and what a research brief asks for.
+      'This chat runs for days',
+      'A research brief asks for a short report of conclusions and evidence (paths, links), not raw dumps',
+      'says to change no files unless asked',
+      'says to install no dependencies unless the work needs them',
+      'wait for it and relay what matters, without also doing the work here',
+      // The git rule agrees: reading to answer a quick question or to brief is fine, wide reading is not.
+      'Reading a few files to answer a quick question or write a good brief is fine. Wider reading, like research or debugging, is an execution\'s job.',
+      'That work and every change go through `delegate_work` with `workspace_id` "ws-1"',
+    ]) {
+      expect(brief).toContain(expected);
+    }
+    expect(brief).not.toContain('Reading files to answer questions is fine');
+    expect(brief).not.toContain('When the user asks you to build something');
+  });
+
+  it('gives a shared team main chat the same rule, naming the team launch tool', async () => {
+    const { renderAgentWorkPolicy } = await import('@/lib/orchestrator/harness-surface');
+    const git = renderAgentWorkPolicy({ id: 'ws-1', isGit: true }, 'execution').replace(/\s+/g, ' ');
+    expect(git).toContain('Wider reading, like research or debugging, is an execution\'s job.');
+    expect(git).toContain('That work and every change go through `start_execution` with `workspaceId` "ws-1"');
+    expect(git).toContain('Pass a fresh `requestId`');
+    expect(git).not.toContain('delegate_work');
+    const plain = renderAgentWorkPolicy({ id: 'ws-2', isGit: false }, 'execution').replace(/\s+/g, ' ');
+    expect(plain).toContain('building and wider reading, like research or debugging, still happen in an execution: start one with `start_execution` and `workspaceId` "ws-2"');
+    expect(plain).not.toContain('delegate_work');
+  });
+
+  it('sends a non-git agent\'s building and research to an execution too, editing directly only on request', async () => {
     const { renderAgentMainChatBrief } = await import('@/lib/orchestrator/harness-surface');
     const brief = renderAgentMainChatBrief({ id: 'ws-2', name: 'notes', cwd: FOLDER, isGit: false, purpose: null, instructions: null });
     expect(brief).toContain('not a git repository');
-    expect(brief).toContain('building still happens in an execution');
-    expect(brief).toContain('only when the user asks you to make that edit in this\nchat');
+    expect(brief).toContain('building and wider reading, like research or debugging, still\nhappen in an execution');
+    expect(brief).toContain('only\nwhen the user asks you to make that edit in this chat');
     expect(brief).not.toContain('you may make it here directly');
     expect(brief).not.toContain('Never edit files in this folder');
     expect(brief).toContain('Purpose: Not set yet');
     expect(brief).toContain('None yet.');
+  });
+
+  it('archives a chat only when the user asks, since every returned result has its own Archive button', async () => {
+    const { renderAgentMainChatBrief } = await import('@/lib/orchestrator/harness-surface');
+    const brief = renderAgentMainChatBrief({ id: 'ws-1', name: 'ri', cwd: FOLDER, isGit: true, purpose: null, instructions: null }).replace(/\s+/g, ' ');
+    expect(brief).toContain('`archive_execution`: close out a chat, only when the user asks. Each returned result has an Archive button for the user, so don\'t offer to archive or remind them.');
+    expect(brief).toContain('Only pass `force` when the user has said that work can go.');
+    expect(brief).not.toContain('close out finished work');
   });
 
   it('mentions integrations and the browser only when they are attached', async () => {

@@ -1,5 +1,6 @@
 /**
  * Actual mobile agents view and sheet in Chromium at phone width; data hooks only are fixtures.
+ * Adapted when the agent terminal became a desktop drawer: the menu has no Terminal item.
  * Adapted at the simplification pass: the fixture hooks gain the setup ones
  * the sheet now uses (a device the agent isn't on offers to set it up).
  * Adapted again for inactive executions: the view folds idle rows through
@@ -90,13 +91,14 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
       expect(await page.evaluate(()=>document.activeElement?.tagName)).toBe('BUTTON');
       await plus.tap();
     }
-    for(const name of ['Files','Terminal','Setup']){
+    // No Terminal: the phone has none, as an execution's doesn't (docs/agents-view-spec.md §10).
+    for(const name of ['Files','Setup']){
       await menu.tap();await page.getByRole('menuitem',{name,exact:true}).tap();
       await page.waitForFunction(()=>getComputedStyle(document.body).pointerEvents!=='none');
     }
     expect(await page.evaluate(()=>(window as unknown as {actions:unknown[]}).actions)).toEqual([
       {kind:'start',value:'default'},{kind:'start',value:'worker'},{kind:'start',value:'default'},{kind:'start',value:'default'},
-      {kind:'open',value:'files'},{kind:'open',value:'terminal'},{kind:'open',value:'setup'},
+      {kind:'open',value:'files'},{kind:'open',value:'setup'},
     ]);
     expect(pageErrors, 'Phone fixture browser errors').toEqual([]);
   }finally{

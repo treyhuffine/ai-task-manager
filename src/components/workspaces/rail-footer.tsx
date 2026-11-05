@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 import { Tip } from '@/components/ui/tip';
 import { SpaceSelector } from '@/components/spaces/space-selector';
 import { RailCount, RailDot } from './rail-count';
+import { TeamRailFooter } from '@/components/team/team-rail-footer';
+import { useOptionalHomeContext } from '@/components/home/home-context';
 import { RailIconButton } from './rail-icon-button';
 
 // The bottom of the rail: what you set up rather than visit. Settings, and
@@ -58,6 +60,11 @@ function AppTile({ id, className }: { id: (typeof APPS)[number]; className?: str
 }
 
 export function RailFooter({ collapsed }: { collapsed: boolean }) {
+  const team = useOptionalHomeContext()?.home.kind === 'team';
+  return team ? <TeamRailFooter collapsed={collapsed} /> : <PersonalRailFooter collapsed={collapsed} />;
+}
+
+function PersonalRailFooter({ collapsed }: { collapsed: boolean }) {
   const needingYou = useAccountsNeedingYou();
   const reconnect = reconnectLabel(needingYou);
   const connectAccounts = () => openSettings('plugins', { anchor: connectAccountsAnchor(needingYou) });

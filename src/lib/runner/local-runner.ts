@@ -597,9 +597,10 @@ async function sendPrepared(req: SendRequest): Promise<SendResult> {
     const currentStanding = req.currentStandingInstructions?.() ?? req.standingInstructions ?? req.spec?.standingInstructions;
     const native = providerDeliversSessionInstructions(harnessDefinition(harness).agentexProviderId);
     if (currentInfo && currentStanding !== undefined && currentStanding !== currentInfo.standingInstructions) currentInfo.requiresMessageSnapshot = true;
-    const instructions = !native || currentInfo?.requiresMessageSnapshot
+    const fallbackInstructions = !native || currentInfo?.requiresMessageSnapshot
       ? [currentStanding, currentInfo?.messagePreamble].filter(Boolean).join('\n\n') || null
       : null;
+    const instructions = [fallbackInstructions, currentInfo?.conversationInstructions].filter(Boolean).join('\n\n') || null;
     req.beforeSend?.();
     const provisional = `turn:${req.turnId}`;
     recordSend(chatSessionId, provisional, req.runId);
@@ -878,6 +879,7 @@ async function startSession(spec: SessionSpec, admission?: () => boolean | Promi
     selectionKey: sessionSelectionKey(spec),
     standingInstructions: spec.standingInstructions,
     messagePreamble,
+    conversationInstructions: spec.conversationInstructions,
     requiresMessageSnapshot: spec.harness === 'antigravity' && !!spec.nativeSessionId,
     readOnlyReview: spec.readOnlyReview ?? null,
   });

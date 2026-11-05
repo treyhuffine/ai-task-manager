@@ -22,11 +22,10 @@ import {
   getWorkspace,
   listWorkspaceSetups,
   listReferenceFoldersForWorkspace,
-  setAgentFolder,
   setFolderLink,
 } from '@/lib/db/queries';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
-import { announceFolders, checkDeviceFolders } from './folders';
+import { announceFolders, checkDeviceFolders, recordAgentFolder } from './folders';
 import {
   applySetupHere,
   planSetupHere,
@@ -102,7 +101,7 @@ export async function applySetup(
 ): Promise<Omit<SetupOutcome, 'runOn'>> {
   const request = await requestFor(workspaceId, deviceId, 'apply', input);
   const result = (await runOn(deviceId, request, APPLY_TIMEOUT_MS)) as SetupResultHere;
-  setAgentFolder(workspaceId, deviceId, result.folder);
+  await recordAgentFolder(workspaceId, deviceId, result.folder);
   for (const ref of listReferenceFoldersForWorkspace(workspaceId)) {
     if (ref.targetWorkspaceId || !(ref.alias in result.links)) continue;
     const place = result.links[ref.alias]!;

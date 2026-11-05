@@ -8,18 +8,20 @@
  * same run (a timeout, then the interrupted turn's result) does nothing.
  *
  * `finishRunInTransaction` does the database part inside the caller's
- * transaction and queues the notification there too. Closing a quiet
- * heartbeat's harness waits for commit.
+ * transaction and queues the notification there too. Closing a finished
+ * check-in's harness waits for commit.
  */
 
 import type { RunRecord } from '@/db/types';
 import { bumpSessionOutcome, getRun, markRunCompleted, markRunFailed, setTriggerLastRun, settleAgentRequestsForRun, hasAgentApprovalForRun } from '@/lib/db/queries';
 import { queueRunTerminal, queueNeedsInput } from '@/lib/notifications/emit';
 import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
-import { settleHeartbeatRun } from '@/lib/heartbeat/quiet';
+import { settleHeartbeatRun } from '@/lib/heartbeat/settle';
+import { settleDeclinedNote } from '@/lib/heartbeat/handoff';
 import { runnerFor } from '@/lib/executor/placement';
 import { inTransaction, type AfterCommit } from '@/lib/effects/after-commit';
 import { endRun } from './artifact-bucket';
+import { settleConversationRun } from '@/lib/db/queries';
 
 /** `stopped`: a person stopped the run's turn. The run completes, while a
  * coordination request riding on it learns the work is unfinished. */
@@ -42,22 +44,33 @@ export function finishRunInTransaction(runId: string, outcome: RunOutcome, after
     : markRunFailed(runId, { errorCode: outcome.errorCode, errorMessage: outcome.errorMessage });
   if (before.triggerId) setTriggerLastRun(before.triggerId, runId, outcome.ok ? 'completed' : 'failed');
 
-  if (outcome.ok && before.triggerId === RESERVED_TRIGGER_IDS.heartbeat && chatSessionId) {
-    // A heartbeat check-in with nothing to report archives its own chat, so it
-    // never reaches Unread, and the notifier below skips delivering it. Its
-    // harness is closed with it: an archived chat keeps no process.
+  if (outcome.ok && !outcome.stopped && before.triggerId === RESERVED_TRIGGER_IDS.heartbeat && chatSessionId) {
+    // A check-in is background work, so it archives its own chat and never
+    // reaches Unread. What it found goes to the main agent. Its harness is
+    // closed with it: an archived chat keeps no process.
     try {
-      if (settleHeartbeatRun(runId, chatSessionId)) {
+      const settled = settleHeartbeatRun(runId, chatSessionId);
+      if (settled) {
         after.tasks.push(() => {
           void runnerFor(chatSessionId).stop(chatSessionId).catch((err: unknown) => {
-            console.warn(`[runs] could not close the quiet heartbeat chat ${chatSessionId}:`, err);
+            console.warn(`[runs] could not close the heartbeat chat ${chatSessionId}:`, err);
           });
         });
+        if (settled.handedOff) {
+          after.tasks.push(() => { void import('@/lib/coordination/service').then(({ drainAgentCoordination }) => drainAgentCoordination()); });
+        }
       }
     } catch (err) {
-      // The run already completed. Failing to archive a quiet check-in only
-      // leaves it visible in Unread; it must not flip the run to failed.
+      // The run already completed. Failing to settle a check-in only leaves it
+      // visible in Unread. It must not flip the run to failed.
       console.warn(`[runs] could not settle heartbeat run ${runId}:`, err);
+    }
+  }
+  if (outcome.ok && !before.triggerId && !before.executionId && chatSessionId) {
+    try {
+      settleDeclinedNote(runId, chatSessionId);
+    } catch (err) {
+      console.warn(`[runs] could not settle the reply to a check-in's note ${runId}:`, err);
     }
   }
   if (!outcome.ok && chatSessionId) {
@@ -78,6 +91,9 @@ export function finishRunInTransaction(runId: string, outcome: RunOutcome, after
   }
   if (settleAgentRequestsForRun(runId, outcome)) {
     after.tasks.push(() => { void import('@/lib/coordination/service').then(({ drainAgentCoordination }) => drainAgentCoordination()); });
+  }
+  if (settleConversationRun(runId, outcome)) {
+    after.tasks.push(() => { void import('@/lib/integrations/conversations/service').then(({ drainConversations }) => drainConversations()); });
   }
   return record ?? null;
 }

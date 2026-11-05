@@ -57,10 +57,17 @@ beforeAll(async () => {
       activeExecutionId:f.activeView.kind==='execution'?f.activeView.id:null,
       streamingSessionIds:new Set(['latest']),pendingInputSessionIds:new Set(),backgroundSessionIds:new Set()};}
     export const useRailSessions=()=>({data:{sessions:useFixture().sessions,mainChats:[]}});
+    // Every chat here is in the rail's feed, so no chat's own row is read.
+    export const useSession=()=>({data:undefined});
+    // The chats flyout carries the chat preview, which reads these.
+    export const useSessionEvents=()=>({data:[]});
+    export const useWorkspaces=()=>({data:[]});
     export const useWorkspaceSessions=()=>({data:null});
     export const useUpdateWorkspace=()=>({mutate:useFixture().update});
     export const useAgentViewMode=()=>({opensView:true});
-    export const useWorkspaceSelection=()=>({selecting:useFixture().state.selecting,isSelected:()=>false,toggle:()=>{}});
+    export const useWorkspaceSelection=()=>({selecting:useFixture().state.selecting,isSelected:()=>false,toggle:()=>{},setMany:()=>{},foldOpen:()=>undefined,setFoldsOpen:()=>{}});
+    export const useRowSelection=(id,{enabled=true}={})=>{const {selecting}=useFixture().state;return {selectable:enabled&&selecting,selected:false,toggle:()=>{}};};
+    export const SelectionCheck=()=>null;
     export const useAreas=()=>({data:[]});
     export const useInactivity=()=>({stored:null,isInactive,partition:ss=>({active:ss.filter(s=>!isInactive(s)),inactive:ss.filter(isInactive)})});
     export const useSetInactiveAfterDays=()=>({mutate:days=>record('inactive-after',days)});
@@ -81,6 +88,8 @@ beforeAll(async () => {
       import {SessionHoverProvider} from '@/components/workspaces/session-hover-context';
       window.actions=[];
       const params=new URLSearchParams(location.search);
+      // These are the agents-first and classic rows, whose agents fold their chats.
+      localStorage.setItem('ri.client.railStyle',params.get('style')==='classic'?'classic':'agents');
       function Rows(){
         const {workspace}=useFixture();
         const sensors=useSensors(useSensor(PointerSensor,{activationConstraint:{distance:4}}));
@@ -113,7 +122,7 @@ beforeAll(async () => {
     }) {
       api.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: 'navigation', namespace: 'navigation' }));
       api.onLoad({ filter: /.*/, namespace: 'navigation' }, () => ({ loader: 'tsx', resolveDir: process.cwd(), contents: `import {useSyncExternalStore} from 'react';const subscribe=fn=>{addEventListener('popstate',fn);return()=>removeEventListener('popstate',fn)};export const usePathname=()=>location.pathname;export const useSearchParams=()=>new URLSearchParams(useSyncExternalStore(subscribe,()=>location.search));` }));
-      api.onResolve({ filter: /^(?:fixture-hooks|@\/contexts\/dashboard-context|@\/hooks\/use-(?:workspaces|inactivity|areas|archive-execution)|@\/lib\/client\/agent-view-mode|\.\/workspace-selection-context)$/ },
+      api.onResolve({ filter: /^(?:fixture-hooks|@\/contexts\/dashboard-context|@\/hooks\/use-(?:workspaces|inactivity|areas|archive-execution|execution)|@\/lib\/client\/agent-view-mode|\.\/workspace-selection-context)$/ },
         () => ({ path: 'fixture-hooks', namespace: 'fixture' }));
       api.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: fixture, loader: 'tsx', resolveDir: process.cwd() }));
     } }],
@@ -214,8 +223,13 @@ it.each(['agents', 'classic'])('%s: chooses a collapsed chat without unfolding, 
     await page.keyboard.press('Escape');
     await flyout(page).waitFor({ state: 'hidden' });
     expect(await nameButton(page).evaluate(el => el === document.activeElement)).toBe(true);
-    // Selecting, expanding and empty agents never expose duplicate rows.
-    for (const patch of [{ selecting: true }, { selecting: false, collapsed: false }, { collapsed: true, empty: true }]) {
+    // Selecting shows the chats under the agent, with nothing opening beside it.
+    await page.evaluate(() => (window as unknown as FixtureWindow).fixture.patch({ selecting: true }));
+    await page.locator('#agent-row [role="checkbox"]').hover();
+    await page.waitForTimeout(250);
+    expect(await flyout(page).count()).toBe(0);
+    // Expanding and empty agents never expose duplicate rows.
+    for (const patch of [{ selecting: false, collapsed: false }, { collapsed: true, empty: true }]) {
       await page.evaluate(p => (window as unknown as FixtureWindow).fixture.patch(p), patch);
       await header.hover();
       await page.waitForTimeout(250);

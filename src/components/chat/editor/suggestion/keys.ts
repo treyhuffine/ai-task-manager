@@ -1,3 +1,5 @@
+import { HOTKEYS, matchesHotkey } from '@/constants/commands'
+
 /**
  * Shared key semantics for the composer's suggestion menus (`/`, `@`,
  * `#`). All three popups behave identically here, and the rules are
@@ -36,5 +38,25 @@ export function suggestionNavDelta(event: SuggestionKeyEvent): number {
   if (event.isComposing) return 0
   if (event.key === 'ArrowUp') return -1
   if (event.key === 'ArrowDown') return 1
+  return 0
+}
+
+/**
+ * Moving between the `@` menu's kind chips (`mentionKindPrevious` /
+ * `mentionKindNext`). Returns the delta, or 0. The menu only asks while
+ * nothing is searched yet, since the arrows move the caret through a search.
+ */
+export function suggestionKindDelta(event: SuggestionKeyEvent): number {
+  if (event.isComposing) return 0
+  const pressed = {
+    key: event.key,
+    code: '',
+    metaKey: !!event.metaKey,
+    ctrlKey: !!event.ctrlKey,
+    shiftKey: !!event.shiftKey,
+    altKey: !!event.altKey,
+  }
+  if (matchesHotkey(pressed, HOTKEYS.mentionKindPrevious)) return -1
+  if (matchesHotkey(pressed, HOTKEYS.mentionKindNext)) return 1
   return 0
 }

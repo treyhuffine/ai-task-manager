@@ -1,4 +1,10 @@
-/** The rail's real chat rows (agent tree, Pinned, Recent) with their real styling. Only data hooks are replaced. */
+/**
+ * The rail's real chat rows (agent tree, Pinned, Recent) with their real
+ * styling, and the real archive flow behind them (its dialog and toasts).
+ * Only data hooks are replaced: archive requests are held until a test
+ * settles them, so it can see what happens on the click and what happens
+ * when the request returns.
+ */
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -10,6 +16,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 
 interface FixtureWindow extends Window {
   actions: { kind: string; value: unknown }[];
+  requests: { resolve: (value: unknown) => void; reject: (reason: unknown) => void }[];
 }
 
 let server: http.Server;
@@ -26,25 +33,42 @@ beforeAll(async () => {
   // Pins live in fixture state, so a toggle re-renders the row the way the
   // optimistic cache patch does in the app.
   const fixture = `
-    import React, {createContext, useContext, useState} from 'react';
+    import React, {createContext, useContext, useMemo, useState} from 'react';
+    import {WorkContext} from '@/contexts/work-context';
     const Context=createContext(null);
     const record=(kind,value)=>window.actions.push({kind,value});
     export function FixtureProvider({children}) {
       const [pins,setPins]=useState({pinned:'2026-10-20T12:00:00Z','inactive-pinned':'2026-10-01T12:00:00Z'});
       const [activeView,setView]=useState({kind:'home'});
+      // The chat on screen: "fresh". Leaving it clears it, as the dashboard does.
+      const [openChat,setOpenChat]=useState('fresh');
+      const navigation=useMemo(()=>({
+        openAgent:id=>{record('openAgent',id);setOpenChat(null)},
+        goHome:()=>{record('goHome',null);setOpenChat(null)},
+        openExecution:id=>{record('openExecution',id);setOpenChat(id)},
+        openTask:()=>{},openNote:()=>{},
+      }),[]);
+      const activity={activeSessionId:openChat,activeExecutionId:openChat,streamingSessionIds:new Set(),
+        backgroundSessionIds:new Set(),pendingInputSessionIds:new Set(),setActiveExecutionId:()=>{},setSessionStreaming:()=>{}};
       const value={pins,setPins,activeView,setActiveView:view=>{record('navigate',view);setView(view)}};
-      return <Context.Provider value={value}>{children}</Context.Provider>;
+      return <Context.Provider value={value}><WorkContext navigation={navigation} activity={activity}>{children}</WorkContext></Context.Provider>;
     }
     export const useFixture=()=>useContext(Context);
     export function useDashboard(){const f=useFixture();return {...f,activeSessionId:null,activeExecutionId:null,
       streamingSessionIds:new Set(),pendingInputSessionIds:new Set(),backgroundSessionIds:new Set()};}
     export const useWorkspaceSelection=()=>null;
+    export const useRowSelection=()=>({selectable:false,selected:false,toggle:()=>{}});
+    export const SelectionCheck=()=>null;
     const setPin=(kind,at)=>()=>{const {setPins}=useFixture();
       return {mutate:id=>{record(kind,id);setPins(prev=>({...prev,[id]:at}))}};};
     export const usePinSession=setPin('pin','2026-10-26T12:00:00Z'), useUnpinSession=setPin('unpin',null);
     export const useMarkSessionRead=()=>({mutate:id=>record('read',id)});
     export const useMarkSessionUnread=()=>({mutate:id=>record('unread',id)});
-    export const useArchiveExecution=()=>({archive:input=>record('archive',input.id)});
+    export const useArchiveSession=()=>({isPending:false,mutateAsync:({id,force})=>{
+      record(force?'archive anyway':'archive',id);
+      return new Promise((resolve,reject)=>window.requests.push({resolve,reject}));
+    }});
+    export const dirtyWorktreeOf=err=>err?.dirty??null;
   `;
   const bundle = await build({
     stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
@@ -54,7 +78,10 @@ beforeAll(async () => {
       import {SessionRow} from '@/components/workspaces/session-row';
       import {HistoryRow} from '@/components/workspaces/history-row';
       import {SessionHoverProvider} from '@/components/workspaces/session-hover-context';
+      import {ConfirmProvider} from '@/components/ui/confirm-dialog';
+      import {Toaster} from 'sonner';
       window.actions=[];
+      window.requests=[];
       const session=(id,label,extra={})=>({id,label,status:'active',workspaceId:'agent',workspaceName:'Review agent',
         workspaceAttachments:[],workspaceEmoji:null,branchName:null,startedAt:'2026-10-26T09:00:00Z',lastActivityAt:'2026-10-26T09:00:00Z',
         lastViewedAt:'2026-10-26T10:00:00Z',lastOutcomeEventAt:null,unreadMarkerAt:null,location:null,executionId:id,...extra});
@@ -76,9 +103,9 @@ beforeAll(async () => {
           </section>
         </>;
       }
-      createRoot(document.getElementById('root')).render(<FixtureProvider><SessionHoverProvider disabled>
+      createRoot(document.getElementById('root')).render(<ConfirmProvider><FixtureProvider><SessionHoverProvider disabled>
         <aside style={{width:256}}><Rows/></aside><button id="outside">Outside</button>
-      </SessionHoverProvider></FixtureProvider>);
+      </SessionHoverProvider></FixtureProvider><Toaster/></ConfirmProvider>);
     ` },
     bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', logLevel: 'silent',
     define: { 'process.env.NODE_ENV': '"development"', 'process.env': '{}' },
@@ -88,8 +115,11 @@ beforeAll(async () => {
     }) {
       api.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: 'navigation', namespace: 'navigation' }));
       api.onLoad({ filter: /.*/, namespace: 'navigation' }, () => ({ loader: 'tsx', resolveDir: process.cwd(), contents: `export const usePathname=()=>location.pathname;export const useSearchParams=()=>new URLSearchParams(location.search);` }));
-      api.onResolve({ filter: /^(?:fixture-hooks|@\/contexts\/dashboard-context|@\/hooks\/use-(?:workspaces|archive-execution)|\.\/workspace-selection-context)$/ },
+      api.onResolve({ filter: /^(?:fixture-hooks|@\/contexts\/dashboard-context|@\/hooks\/use-workspaces|\.\/workspace-selection-context)$/ },
         () => ({ path: 'fixture-hooks', namespace: 'fixture' }));
+      // The icon theme is fetched at install time, and icons aren't what's under test.
+      api.onResolve({ filter: /^@\/lib\/file-icons$/ }, () => ({ path: 'file-icons', namespace: 'file-icons' }));
+      api.onLoad({ filter: /.*/, namespace: 'file-icons' }, () => ({ loader: 'tsx', resolveDir: process.cwd(), contents: `export const fileIconUrl=()=>'';export const folderIconUrl=()=>'';` }));
       api.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: fixture, loader: 'tsx', resolveDir: process.cwd() }));
     } }],
   });
@@ -267,5 +297,103 @@ it('reaches the pin from the keyboard, and Enter on it pins rather than opening 
     expect(await actions(page)).toEqual([
       { kind: 'pin', value: 'fresh' }, { kind: 'navigate', value: { kind: 'execution', id: 'fresh' } },
     ]);
+  } catch (error) { await failWith(page, error); } finally { await page.close(); }
+}, 20_000);
+
+/** Settle the latest held archive request: done, refused for uncommitted files, or failed. */
+const settle = (page: Page, outcome: 'archived' | 'dirty' | 'failed') => page.evaluate((how) => {
+  const request = (window as unknown as FixtureWindow).requests.at(-1)!;
+  if (how === 'archived') request.resolve({});
+  else if (how === 'dirty') request.reject({ dirty: { label: null, files: [{ path: 'notes/draft.md', change: 'untracked' }], omitted: 0 } });
+  else request.reject(new Error('The device is away'));
+}, outcome);
+/** Long enough for a settled request's follow-ups (dialog, toast, any navigation) to have run. */
+const afterSettling = (page: Page) => page.waitForTimeout(200);
+
+async function archiveFromMenu(page: Page, list: string, name: RegExp) {
+  const target = row(page, list, name);
+  await target.hover();
+  await target.getByRole('button', { name: 'Session actions' }).click();
+  await page.getByRole('menuitem', { name: 'Archive' }).click();
+  await page.getByRole('menu').waitFor({ state: 'hidden' });
+}
+
+const OPEN_CHAT = /Rework the onboarding/;
+const OPEN_CHAT_LABEL = 'Rework the onboarding checklist so every step has an owner';
+
+it('archiving the open chat leaves for its agent on the click, and the request returning moves nobody', async () => {
+  const page = await browser.newPage();
+  try {
+    await open(page);
+    await archiveFromMenu(page, 'agent', OPEN_CHAT);
+    // On the click, with the request still out.
+    const leftOnClick = [{ kind: 'openAgent', value: 'agent' }, { kind: 'archive', value: 'fresh' }];
+    expect(await actions(page)).toEqual(leftOnClick);
+    await settle(page, 'archived');
+    await afterSettling(page);
+    expect(await actions(page)).toEqual(leftOnClick);
+
+    // A chat that isn't on screen is archived where it is, and the view stays.
+    await clearActions(page);
+    await archiveFromMenu(page, 'recent', /Summarize the quarterly/);
+    expect(await actions(page)).toEqual([{ kind: 'archive', value: 'recent' }]);
+    await settle(page, 'archived');
+    await afterSettling(page);
+    expect(await actions(page)).toEqual([{ kind: 'archive', value: 'recent' }]);
+  } catch (error) { await failWith(page, error); } finally { await page.close(); }
+}, 20_000);
+
+it('asks about uncommitted files after leaving, names the chat, and only Review moves the person', async () => {
+  const page = await browser.newPage();
+  try {
+    await open(page);
+    const dialog = page.getByRole('alertdialog');
+    const leftOnClick = [{ kind: 'openAgent', value: 'agent' }, { kind: 'archive', value: 'fresh' }];
+
+    // Cancel: they stay where they went, and the chat is kept.
+    await archiveFromMenu(page, 'agent', OPEN_CHAT);
+    expect(await actions(page)).toEqual(leftOnClick);
+    await settle(page, 'dirty');
+    await dialog.waitFor();
+    if (process.env.RI_ROW_ACTIONS_SCREENSHOT) await page.screenshot({ path: `${process.env.RI_ROW_ACTIONS_SCREENSHOT}-archive-dialog.png` });
+    expect(await dialog.innerText()).toContain(`"${OPEN_CHAT_LABEL}" has work that isn't committed`);
+    expect(await dialog.innerText()).toContain('notes/draft.md');
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    await afterSettling(page);
+    expect(await actions(page)).toEqual(leftOnClick);
+
+    // Archive anyway: forced where they are. The chat isn't on screen now.
+    await clearActions(page);
+    await archiveFromMenu(page, 'agent', OPEN_CHAT);
+    await settle(page, 'dirty');
+    await dialog.getByRole('button', { name: 'Archive anyway' }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    await settle(page, 'archived');
+    await afterSettling(page);
+    expect(await actions(page)).toEqual([{ kind: 'archive', value: 'fresh' }, { kind: 'archive anyway', value: 'fresh' }]);
+
+    // Review changes: the one move, back to the chat to see the files.
+    await clearActions(page);
+    await archiveFromMenu(page, 'agent', OPEN_CHAT);
+    await settle(page, 'dirty');
+    await dialog.getByRole('button', { name: 'Review changes' }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    await afterSettling(page);
+    expect(await actions(page)).toEqual([{ kind: 'archive', value: 'fresh' }, { kind: 'openExecution', value: 'fresh' }]);
+  } catch (error) { await failWith(page, error); } finally { await page.close(); }
+}, 20_000);
+
+it('a failed archive is a toast naming the chat, and nobody moves again', async () => {
+  const page = await browser.newPage();
+  try {
+    await open(page);
+    await archiveFromMenu(page, 'agent', OPEN_CHAT);
+    await settle(page, 'failed');
+    const toast = page.locator('[data-sonner-toast]');
+    await toast.waitFor();
+    expect(await toast.innerText()).toContain(`Couldn't archive "${OPEN_CHAT_LABEL}"`);
+    expect(await toast.innerText()).toContain('The device is away');
+    expect(await actions(page)).toEqual([{ kind: 'openAgent', value: 'agent' }, { kind: 'archive', value: 'fresh' }]);
   } catch (error) { await failWith(page, error); } finally { await page.close(); }
 }, 20_000);

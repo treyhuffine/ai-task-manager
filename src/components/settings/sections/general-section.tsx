@@ -27,6 +27,7 @@ import { useEntityViewMode, type EntityViewMode } from '@/lib/client/entity-view
 import { useAgentViewMode, type AgentViewMode } from '@/lib/client/agent-view-mode';
 import { useAgentChatPlace, type AgentChatPlace } from '@/lib/client/agent-chat-place';
 import { useRailStyle, type RailStyle } from '@/lib/client/rail-style';
+import { ChatStatusLinesSetting } from '../chat-status-lines-setting';
 import { useInactivity, useSetInactiveAfterDays } from '@/hooks/use-inactivity';
 import { DEFAULT_INACTIVE_AFTER_DAYS, formatInactiveAfter, INACTIVE_AFTER_PRESETS } from '@/lib/sessions/inactive';
 
@@ -341,7 +342,7 @@ export function GeneralSection() {
           </div>
           <p className="text-[11px] text-muted-foreground/85">
             {agentChatPlace === 'beside'
-              ? "A chat you open from an agent's view (a link in its main chat, a row in Overview) opens on the right as one more tab, so you can read and answer it next to the main chat. Full view is one click away for its files, preview and terminal."
+              ? "A chat you open from an agent's view (a link in its main chat, a row in its Chats tab) opens on the right as one more tab, so you can read and answer it next to the main chat. Full view is one click away for its files, preview and terminal."
               : "A chat you open from an agent's view leaves the agent for that chat's full view, with its files, preview and terminal."}
           </p>
           <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
@@ -351,15 +352,19 @@ export function GeneralSection() {
               onChange={(e) => setRailStyle(e.target.value as RailStyle)}
               className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             >
+              <option value="agentsOnly">Agents only (trial)</option>
               <option value="agents">Agents first (trial)</option>
               <option value="classic">Classic</option>
             </select>
           </div>
           <p className="text-[11px] text-muted-foreground/85">
-            {railStyle === 'agents'
-              ? 'Each agent shows what it last said, bold with a dot when it wants you. Its chats hang under it on one line each, all of them, with the inactive ones behind a Show toggle.'
-              : 'One line per agent, with every active chat listed under it on two lines.'}
+            {railStyle === 'agentsOnly'
+              ? "Your agents with no chats under them. Each shows its own state, and counts at its end say how many of its chats need you (amber) or are working (green). Unread under the pins counts the chats waiting on you and shows them when you rest on it, the chats button on an agent opens its chats beside the rail, and Recent lists every chat from the last week. Mark an agent unread from its menu or its chat to come back to it."
+              : railStyle === 'agents'
+                ? 'Each agent shows what it last said, bold with a dot when it wants you. Its chats hang under it on one line each, all of them, with the inactive ones behind a Show toggle.'
+                : 'One line per agent, with every active chat listed under it on two lines.'}
           </p>
+          <ChatStatusLinesSetting />
         </div>
       </section>
 

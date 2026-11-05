@@ -321,6 +321,7 @@ describe('getting in', () => {
     expect(await status(localOwner.team.signIns.createRemote.mutate())).toBe(412);
     expect(q.listTeamInvitations()).toHaveLength(0);
     const member = await clientFor((await joinAs('Bo')).token, 'http://team.test:43333/api/trpc');
+    expect(await status(member.team.address.status.query())).toBe(403);
     expect(await status(member.team.address.configureBeamd.mutate({ name: 'team-huffine' }))).toBe(403);
     expect(beamd.check).not.toHaveBeenCalled();
     const client = await clientFor(owner.token, 'http://team.test:43333/api/trpc');
@@ -330,6 +331,7 @@ describe('getting in', () => {
     expect(await client.team.address.configureBeamd.mutate({ name: 'team-huffine' })).toEqual({ address: 'https://team-huffine-trey.beamd.run' });
     expect(beamd.open).toHaveBeenCalledWith(43333, 'team-huffine');
     expect(await client.team.address.get.query()).toMatchObject({ tunnelName: 'team-huffine', autoTunnel: true });
+    expect(await client.team.address.status.query()).toMatchObject({ status: 'online', address: 'https://team-huffine-trey.beamd.run', method: 'beamd' });
     // Existing clients can still use the original no-input Beamd command.
     expect(await client.team.address.openBeamd.mutate()).toEqual({ address: 'https://team-huffine-trey.beamd.run' });
     for (const made of [await client.team.invitations.createRemote.mutate(), await client.team.signIns.createRemote.mutate()]) {

@@ -4,6 +4,7 @@ import { ASSOCIATE_FRAGMENT_KEY, PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/
 import {
 	AUTH_TOKEN_STORAGE_KEY,
 	getAuthToken,
+	isSignInPage,
 	setAuthToken,
 	syncSessionCookie,
 } from '@/lib/api/client';
@@ -71,7 +72,7 @@ export function PairingBootstrap() {
     }
 
     const existing = getAuthToken();
-    if (!existing && pathname !== '/pair') {
+    if (!existing && !isSignInPage(pathname)) {
       router.replace('/pair');
       return;
     }
@@ -103,7 +104,7 @@ export function PairingBootstrap() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const onStorage = (e: StorageEvent) => {
-      if (e.key === AUTH_TOKEN_STORAGE_KEY && !e.newValue && pathname !== '/pair') {
+      if (e.key === AUTH_TOKEN_STORAGE_KEY && !e.newValue && !isSignInPage(pathname)) {
         router.replace('/pair');
       }
     };

@@ -14,6 +14,7 @@ import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 | --- | --- |
 | `chat-transcript.tsx` | Common event grouping, paging, scroll anchoring and subagent navigation. Personal and team adapters provide data and attribution slots. |
 | `chat-composer.tsx` | Common composer layout around `ChatInputEditor` and contextual actions. Transport, receipts and allowed tools stay in their adapters. |
+| `add-menu/` | The composer's +: files and photos, mentions and skills everywhere, and in an existing chat rows for tasks, notes, agents and connectors, then schedules, linked folders, apps and plugins. A row shows only where it can do something |
 | `chat-capabilities.tsx` | Explicit delivery and result interactions, without enabling personal endpoints in a team transcript. |
 | `chat-menu.tsx` | A chat's ⋯ menu: coordination preferences (personal chats) and Restart chat for whoever may stop it, personal or shared |
 | `chat-recovery.tsx` | The inline reason and Restart chat, shown only while a chat is blocked on a harness that hasn't confirmed it stopped |
@@ -21,7 +22,7 @@ import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 | `questions/` | Structured questions, answer choices and free-form answers |
 | `permissions/` | Tool permission requests and their input preview |
 | `approvals/` | Account action approvals and account access requests |
-| `references/` | Task, note, scratchpad and app-source reference chips |
+| `references/` | Task, note, scratchpad, team record and app-source reference chips (`docs/team-links.md`) |
 | `artifacts/` | Files, images, HTML previews, the preview provider (large or beside the chat) and file diffs |
 | `edits/` | Entity change chips, comparison dialogs, undo and history controls |
 | `handoffs/` | Saved handoff rendering, feedback, review and presentation helpers |
@@ -34,6 +35,14 @@ import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 permission card from the current pending requests. The cards own their separate
 UI state and use the existing pending-input hooks.
 
+The + has one row for files on every device. A phone's own sheet asks whether
+to take a photo, pick one or browse files, so Ri never asks that first. Tasks,
+Notes, Agents and Connectors open the `@` menu narrowed to that kind, by typing
+its prefix (`@task:`) for you, so there is no second picker. Connectors stay one
+row rather than one per account, since a Home can hold dozens of accounts.
+Skills opens the `/` menu. A skill has to open the message, so it works at the
+start of the first line and what is already written becomes the skill's input.
+
 Message copy buttons stay visible on touch devices and devices without hover.
 Coarse pointers get a 44 px tap target. With a mouse, user-message copy buttons
 appear on row hover or button focus, while agent-message copy buttons stay
@@ -41,7 +50,7 @@ visible. These controls are shared across chat surfaces.
 
 Active collaboration and incoming pause appear inside the composer card, above
 the editor. The status, linked chat and pause action share its border and width.
-Idle chats have no status row. Standing preferences remain in the chat menu.
+Idle chats have no status row. Pending outgoing approvals stay above the editor until decided, independently of transcript paging, and are also actionable in the chat menu. Approve, Always and Decline use the same human-only decision endpoint. Standing preferences remain in the chat menu.
 The coordination gallery uses this same composition, including long chat titles.
 
 Restart chat lives in the chat menu, never as a row on a working chat. When a

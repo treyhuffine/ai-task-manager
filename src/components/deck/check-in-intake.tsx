@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { ArrowRight, ArrowLeft, Zap, Calendar, Target, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { matchesSendKey } from '@/constants/commands';
+import { useTouchFirst } from '@/hooks/use-touch-first';
 import type { ContextChip } from '@/types/dashboard';
 
 const DEFAULT_CHIPS: ContextChip[] = [
@@ -28,6 +30,7 @@ interface CheckInIntakeProps {
 
 export function CheckInIntake({ onSubmit, onSkip, hasPreviousDeck, collapsed, onExpand }: CheckInIntakeProps) {
   const [text, setText] = useState('');
+  const touchFirst = useTouchFirst();
 
   const allChips: ContextChip[] = [
     ...DEFAULT_CHIPS,
@@ -59,11 +62,12 @@ export function CheckInIntake({ onSubmit, onSkip, hasPreviousDeck, collapsed, on
     onSubmit(text.trim(), selectedChips);
   };
 
+  // Enter continues on a computer and adds a line on a phone or tablet,
+  // where Continue does it, as in every chat composer.
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
+    if (!matchesSendKey(e.nativeEvent, touchFirst)) return;
+    e.preventDefault();
+    handleSubmit();
   };
 
   return (

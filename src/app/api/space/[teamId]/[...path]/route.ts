@@ -86,6 +86,8 @@ async function forward(request: NextRequest, { params }: Context): Promise<Respo
     }
     return new Response(res.body, { status: res.status, headers: passed });
   } catch (err) {
+    // The person left the page, which a team link makes common. That says nothing about the team.
+    if (request.signal.aborted) return new Response(null, { status: 499 });
     const problem = recordTeamFailure(teamId, err, team) ?? teamRequestProblem(err);
     if (problem?.problem === 'signed_out') return Response.json({ error: 'team_signed_out', message: problem.message }, { status: 403 });
     if (problem) return Response.json({ error: 'team_unreachable', message: problem.message }, { status: 502 });

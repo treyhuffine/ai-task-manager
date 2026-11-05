@@ -1,5 +1,5 @@
 import { apiErrorStatus } from '@/lib/api/error-status';
-import { teamContentInput, teamContentResult } from '@/lib/team/mcp/input';
+import { teamContentInput, teamContentResult, UNKNOWN_CONTENT_OPERATION } from '@/lib/team/mcp/input';
 import { z } from 'zod';
 import * as q from '@/lib/db/queries';
 import { ActionError, defineAction, type Action, type ActionContext } from '@/lib/orchestrator/types';
@@ -9,6 +9,7 @@ import { workResultAttachmentSchema } from '@/lib/work-results/validation';
 import { copyToTeam } from './commands';
 import { replaceAttachmentReferences } from '@/lib/attachments/derive';
 import { TEAM_TOOLS } from '@/lib/team/mcp/tools';
+import { privateLinkMessage, teamTextFields, withRecordRefs } from './team-links';
 
 function authorize(ctx: ActionContext) {
   if (isTeamAuthority()) throw new ActionError('unsupported', 'Connected team access belongs to a personal Ri.');
@@ -29,21 +30,26 @@ export async function callConnectedHome(ctx: ActionContext, homeId: string, name
   const { wire, areaStatus } = teamContentInput(name, input);
   const parsed = z.object(tool.shape).strict().safeParse(wire);
   if (!parsed.success) throw new ActionError('invalid_params', 'These fields are not valid for the selected team.', undefined, parsed.error.issues);
+  const outgoing = tool.kind === 'write' ? teamTextFields(parsed.data, homeId) : { fields: parsed.data, refused: [] };
+  if (outgoing.refused.length) throw new ActionError('invalid_params', privateLinkMessage(team.connection.name, outgoing.refused));
   try {
     const response = tool.kind === 'read'
-      ? await team.client.team.nativeRead.query({ action: name, input: parsed.data })
-      : await team.client.team.nativeWrite.mutate({ action: name, input: parsed.data });
+      ? await team.client.team.nativeRead.query({ action: name, input: outgoing.fields })
+      : await team.client.team.nativeWrite.mutate({ action: name, input: outgoing.fields });
     assertCurrentTeam(team);
     if (!response.ok) {
       const code = response.error.code;
       throw new ActionError(code === 'not_found' ? 'not_found' : code === 'conflict' || code === 'body_conflict' || code === 'idempotency_conflict' ? 'conflict' : code === 'not_allowed' ? 'unsupported' : code === 'failed' ? 'conflict' : 'invalid_params', response.error.message, undefined, { ...response.error, retryable: code === 'failed' });
     }
-    const result = teamContentResult(response.result, areaStatus);
+    const result = withRecordRefs(team.connection.id, teamContentResult(response.result, areaStatus));
     return { target_home: { id: team.connection.id, name: team.connection.name }, result, replayed: !!response.replayed };
   } catch (error) {
     if (error instanceof ActionError) throw error;
     const status = apiErrorStatus(error);
     if (status === 401) recordTeamFailure(homeId, error, team);
+    if (status === 400 && error instanceof Error && error.message === UNKNOWN_CONTENT_OPERATION) {
+      throw new ActionError('unsupported', `${team.connection.name} runs an older Ri without ${name}. Update Ri on the computer that hosts it. No personal write was attempted.`, undefined, { retryable: false });
+    }
     if (status && status >= 400 && status < 500) throw new ActionError(status === 401 || status === 403 ? 'unsupported' : status === 404 ? 'not_found' : 'invalid_params', error instanceof Error ? error.message : 'The team refused this request.', undefined, { retryable: false });
     recordTeamFailure(homeId, error, team);
     throw new ActionError('conflict', error instanceof Error ? error.message : 'The selected team could not be reached.', 'Retry against the same team and reuse the idempotency_key. No personal fallback was attempted.');
@@ -67,7 +73,7 @@ export function withConnectedHome(action: Action): Action {
     ...action,
     localContract: { params: action.params, description: action.description },
     params: { ...action.params, ...additions },
-    description: `${action.description} To work in a connected team, call list_homes then pass target_home_id. Connected writes require idempotency_key and use canonical team IDs.`,
+    description: `${action.description} To work in a connected team, call list_homes then pass target_home_id. Connected writes require idempotency_key and use canonical team IDs. Each record in a connected result has a ref. Copy it to link that record, since a bare [[task:ID]] means this Home's record: a task's or note's works in chat or any body, an Area's only in chat.`,
     handler: (ctx, input) => {
       const { target_home_id, ...rest } = input;
       if (target_home_id !== undefined && target_home_id !== q.getHome()?.id) return callConnectedHome(ctx, String(target_home_id), action.name, rest);
@@ -90,7 +96,9 @@ function homeRead<const Name extends string>(name: Name) {
   });
 }
 
-const qNativeNames = new Set(['list_tasks', 'get_task', 'create_task', 'update_task', 'complete_task', 'transition_task', 'list_notes', 'get_note', 'create_note', 'update_note', 'list_areas', 'get_area', 'search', 'get_session_messages', 'search_sessions']);
+const qNativeNames = new Set(['list_tasks', 'get_task', 'create_task', 'update_task', 'complete_task', 'transition_task', 'list_notes', 'get_note', 'create_note', 'update_note', 'list_areas', 'get_area', 'create_area', 'update_area', 'search', 'get_session_messages', 'search_sessions']);
+/** A team server without team.nativeOperations predates these. */
+const REQUIRES_NATIVE_OPERATIONS = new Set(['create_area', 'update_area']);
 
 export const connectedHomeActions = [
   defineAction({
@@ -108,6 +116,8 @@ export const connectedHomeActions = [
       const team = await teamFor(target_home_id);
       if (!team) throw new ActionError('not_found', 'The selected team is not connected.');
       try {
+        const outgoing = teamTextFields({ summary: input.summary, links: input.links }, target_home_id);
+        if (outgoing.refused.length) throw new ActionError('invalid_params', privateLinkMessage(team.connection.name, outgoing.refused));
         const copies = [];
         const names = new Map<string, string>();
         for (const file of input.attachments ?? []) {
@@ -117,7 +127,7 @@ export const connectedHomeActions = [
           names.set(file.fileName, copy.fileName);
         }
         assertCurrentTeam(team);
-        const response = await team.client.team.nativePublish.mutate({ taskId: task_id, requestId: idempotency_key, ...input, summary: input.summary ? replaceAttachmentReferences(input.summary, names) : input.summary, attachments: copies });
+        const response = await team.client.team.nativePublish.mutate({ taskId: task_id, requestId: idempotency_key, ...input, ...outgoing.fields, summary: outgoing.fields.summary ? replaceAttachmentReferences(outgoing.fields.summary, names) : outgoing.fields.summary, attachments: copies });
         assertCurrentTeam(team);
         return { target_home: { id: team.connection.id, name: team.connection.name }, ...response };
       } catch (error) {
@@ -141,7 +151,7 @@ export const connectedHomeActions = [
       const home = q.getHome();
       return {
         bound_home: home ? { id: home.id, name: home.name, kind: home.kind } : null,
-        connected_homes: await Promise.all(q.listTeamConnections().map(async (c) => ({ id: c.id, name: c.name, kind: 'team', state: c.status, role: c.role, last_error: q.getTeamConnection(c.id)?.lastError, operations: await supportsNativeHome(c.id) ? [...TEAM_TOOLS.filter((t) => ['list_members', 'list_history', 'list_links', 'list_published_results'].includes(t.name) || qNativeNames.has(t.name)).map((t) => t.name), 'publish_result'] : [] }))),
+        connected_homes: await Promise.all(q.listTeamConnections().map(async (c) => ({ id: c.id, name: c.name, kind: 'team', state: c.status, role: c.role, last_error: q.getTeamConnection(c.id)?.lastError, operations: await connectedOperations(c.id) }))),
       };
     },
   }),
@@ -152,12 +162,19 @@ export const connectedHomeActions = [
 ];
 
 /** Never advertise new native operations merely because credentials exist. */
-async function supportsNativeHome(id: string): Promise<boolean> {
+async function connectedOperations(id: string): Promise<string[]> {
   const team = await teamFor(id);
-  if (!team) return false;
+  if (!team) return [];
   try {
     const result = await team.client.team.nativeRead.query({ action: 'list_members', input: {} });
     assertCurrentTeam(team);
-    return result.ok;
-  } catch (error) { recordTeamFailure(id, error, team); return false; }
+    if (!result.ok) return [];
+    const served = await team.client.team.nativeOperations.query().catch((error: unknown) => {
+      if (apiErrorStatus(error) === 404) return null; // An older server, working as it should.
+      throw error;
+    });
+    assertCurrentTeam(team);
+    const operations = TEAM_TOOLS.map((t) => t.name).filter((name) => ['list_members', 'list_history', 'list_links', 'list_published_results'].includes(name) || qNativeNames.has(name));
+    return [...operations.filter((name) => served ? served.includes(name) : !REQUIRES_NATIVE_OPERATIONS.has(name)), 'publish_result'];
+  } catch (error) { recordTeamFailure(id, error, team); return []; }
 }

@@ -18,8 +18,20 @@ export const HOTKEYS = {
   search: { key: 'k', meta: true, label: '\u2318K' },
   voiceChat: { key: 'j', meta: true, label: '\u2318J' },
   quickCapture: { key: 'k', meta: true, shift: true, label: '\u2318\u21E7K' },
+  // The scratchpad beside every screen (docs/scratchpad.md): J for jot, next
+  // to voice's ⌘J. Opens it, or puts the caret in it, or closes it from inside.
+  scratchpad: { key: 'j', meta: true, shift: true, label: '\u2318\u21E7J' },
+  // Closes the scratchpad beside the page while focus is in it.
+  scratchpadClose: { key: 'Escape', label: 'Esc' },
   submitCapture: { key: 'Enter', label: 'Enter' },
   submitCaptureModified: { key: 'Enter', meta: true, label: '\u2318\u21A9' },
+  // Sending from a chat composer or any box that takes more than one line.
+  // On a computer Enter sends and Shift+Enter adds a line. On a touch-first
+  // device (`useTouchFirst`) Enter adds a line, as the on-screen keyboard's
+  // return key does, and the send button sends. \u2318\u21A9 sends on both, for a
+  // tablet with a keyboard. `matchesSendKey` reads them.
+  sendMessage: { key: 'Enter', label: 'Enter' },
+  sendMessageAnywhere: { key: 'Enter', meta: true, label: '\u2318\u21A9' },
   slideoutBack: { key: 'Escape', label: 'Esc' },
   slideoutCloseAll: { key: 'Escape', shift: true, label: '\u21E7Esc' },
   openFullPage: { key: 'Enter', meta: true, label: '\u2318\u21A9' },
@@ -54,10 +66,20 @@ export const HOTKEYS = {
   previewNext: { key: 'ArrowRight', label: '\u2192' },
   // Closes the file beside the chat while focus is in it.
   previewClose: { key: 'Escape', label: 'Esc' },
+  // Leaves the rail's select-to-archive while focus is in the rail's list.
+  cancelSelection: { key: 'Escape', label: 'Esc' },
+  // The `@` menu's kind chips (All, Tasks, Notes...), while nothing is
+  // searched yet. Once a search is typed they move the caret again, so a
+  // typo in it can still be fixed.
+  mentionKindPrevious: { key: 'ArrowLeft', label: '\u2190' },
+  mentionKindNext: { key: 'ArrowRight', label: '\u2192' },
 } as const satisfies Record<string, Hotkey>;
 
+/** What `matchesHotkey` reads, so a DOM or React event both fit. */
+export type HotkeyEvent = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>;
+
 /** Check if a KeyboardEvent matches a Hotkey (strict modifier match) */
-export function matchesHotkey(e: KeyboardEvent, hotkey: Hotkey): boolean {
+export function matchesHotkey(e: HotkeyEvent, hotkey: Hotkey): boolean {
   const shiftRequired = !!hotkey.shift;
   if (hotkey.ctrl) {
     if (!e.ctrlKey || e.metaKey) return false;
@@ -68,6 +90,17 @@ export function matchesHotkey(e: KeyboardEvent, hotkey: Hotkey): boolean {
   if (e.altKey !== !!hotkey.alt) return false;
   if (hotkey.alt) return e.code === `Key${hotkey.key.toUpperCase()}`;
   return e.key.toLowerCase() === hotkey.key.toLowerCase();
+}
+
+/**
+ * Whether a key press in a box that takes more than one line sends it:
+ * `sendMessageAnywhere` always, `sendMessage` only off a touch-first device.
+ * The Enter that confirms an input method's candidate never sends. Pass the
+ * native event (`e.nativeEvent` in React), which carries `isComposing`.
+ */
+export function matchesSendKey(e: HotkeyEvent & { isComposing?: boolean }, touchFirst: boolean): boolean {
+  if (e.isComposing) return false;
+  return matchesHotkey(e, HOTKEYS.sendMessageAnywhere) || (!touchFirst && matchesHotkey(e, HOTKEYS.sendMessage));
 }
 
 // ── Command palette actions ──────────────────────────────────
@@ -82,7 +115,8 @@ export interface PaletteCommand {
   shortcut?: string;  // Hint shown in the palette
   group: 'create' | 'navigate' | 'settings';
   href?: string;
-  capability?: 'handoffs';
+  /** Shown only where it applies: saved results, or private planning (a personal Home). */
+  capability?: 'handoffs' | 'privatePlanning';
 }
 
 export const SAVED_RESULTS_COMMAND: PaletteCommand & { href: string } = {
@@ -97,6 +131,9 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'create-skill', label: 'New skill', keywords: 'create build teach instructions plugin', icon: 'Plus', group: 'create' },
   { id: 'connect-mcp', label: 'Add MCP server', keywords: 'custom connect tools plugin', icon: 'Plus', group: 'create' },
   { id: 'connect-service', label: 'Connect a service', keywords: 'account connectors integrations plugin', icon: 'Plus', group: 'create' },
+
+  // Working memory beside every screen (docs/scratchpad.md)
+  { id: 'open-scratchpad', label: 'Scratchpad', keywords: 'scratchpad jot notepad scratch pad working memory write down', icon: 'NotebookPen', shortcut: '\u2318\u21E7J', group: 'navigate', capability: 'privatePlanning' },
 
   // Voice
   { id: 'voice-chat', label: 'Voice chat', keywords: 'voice mic record dictate speak', icon: 'Mic', shortcut: '\u2318J', group: 'navigate' },

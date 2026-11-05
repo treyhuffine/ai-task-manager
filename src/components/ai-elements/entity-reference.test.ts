@@ -13,6 +13,20 @@ describe('parseEntityReferences', () => {
     expect(entities[1].entityId).toBe('019e9911-1111-7222-8333-444455556666');
   });
 
+  it('names the Home of a record in a connected team', () => {
+    const segments = parseEntityReferences('See [[task:01a1a3b3-1463/01a1a3d3-4fd9]] and [[area:01a1a3b3-1463/01a1a3d3-aaaa]].');
+    expect(segments.filter((s) => s.type === 'entity')).toEqual([
+      expect.objectContaining({ entityType: 'task', entityId: '01a1a3d3-4fd9', homeId: '01a1a3b3-1463' }),
+      expect.objectContaining({ entityType: 'area', entityId: '01a1a3d3-aaaa', homeId: '01a1a3b3-1463' }),
+    ]);
+  });
+
+  it('gives kinds that live only in this Home no Home of their own', () => {
+    const [segment] = parseEntityReferences('[[execution:01a1a3b3-1463/01a1a3d3-4fd9]]');
+    expect(segment).toMatchObject({ entityId: '01a1a3b3-1463/01a1a3d3-4fd9' });
+    expect(segment.homeId).toBeUndefined();
+  });
+
   it('leaves unknown kinds as plain text', () => {
     const segments = parseEntityReferences('a [[widget:123]] b');
     expect(segments.every((s) => s.type === 'text')).toBe(true);

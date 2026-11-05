@@ -16,6 +16,7 @@ import {
   stream as streamTbl,
   streamLinks as streamLinksTbl,
   entityLinks as entityLinksTbl,
+  teamConnections as teamConnectionsTbl,
 } from '@/lib/db/schema';
 import { hydrateRow } from '@/lib/db/hydrate';
 import { normalizeNoteRow } from '@/lib/notes/kind';
@@ -307,6 +308,18 @@ function createLinkResolver(): LinkResolver {
         return mirrorLinkPath('stream', firstLine, row.id, row.status === 'dismissed');
       }
       return null;
+    },
+    teamRecordText(kind, homeId, id) {
+      if (kind === 'task') {
+        const row = db.select().from(tasksTbl).where(and(eq(tasksTbl.sourceTeamId, homeId), eq(tasksTbl.sourceTaskId, id))).get();
+        if (row) return `[[${mirrorLinkPath('task', row.title, row.id, row.status === 'archived')}]]`;
+      }
+      if (kind === 'note') {
+        const row = db.select().from(notesTbl).where(and(eq(notesTbl.sourceTeamId, homeId), eq(notesTbl.sourceNoteId, id))).get();
+        if (row) return `[[${mirrorLinkPath('note', row.title, row.id, row.status === 'archived')}]]`;
+      }
+      const team = db.select({ name: teamConnectionsTbl.name }).from(teamConnectionsTbl).where(eq(teamConnectionsTbl.id, homeId)).get();
+      return `${team?.name ?? 'Team'} ${kind === 'area' ? 'Area' : kind} ${id}`;
     },
   };
 }

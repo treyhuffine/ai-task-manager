@@ -46,7 +46,7 @@ async function assignedTasks(team: ConnectedTeam) {
   }
 }
 
-function isNotFound(err: unknown): boolean {
+export function isNotFound(err: unknown): boolean {
   const data = (err as { data?: { code?: string; httpStatus?: number } })?.data;
   return data?.code === 'NOT_FOUND' || data?.httpStatus === 404;
 }

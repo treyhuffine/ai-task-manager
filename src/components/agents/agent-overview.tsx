@@ -8,6 +8,7 @@ import { useDiffStats } from '@/hooks/use-workspaces';
 import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
 import { DiffStatsPair } from '@/components/workspaces/diff-stats';
 import { SessionRowMenu } from '@/components/workspaces/session-row-menu';
+import { ChatAskSize, ChatStatusLine } from '@/components/workspaces/chat-status-line';
 import { InactiveFold } from '@/components/workspaces/inactive-fold';
 import { harnessDefinition } from '@/lib/harness/registry';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
@@ -49,7 +50,7 @@ export function AgentOverview({
     return (
       <div className="flex-1 flex items-center justify-center text-center px-8">
         <div>
-          <p className="text-[13px] font-semibold text-foreground">No work yet</p>
+          <p className="text-[13px] font-semibold text-foreground">No chats yet</p>
           <p className="text-[11px] text-muted-foreground/80 mt-1 max-w-xs">
             {archived
               ? 'This agent is archived.'
@@ -61,7 +62,7 @@ export function AgentOverview({
               className="mt-3 inline-flex items-center gap-1.5 h-7 px-3 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:opacity-90"
             >
               <Plus size={12} strokeWidth={2.5} />
-              New execution
+              New chat
             </button>
           )}
         </div>
@@ -220,9 +221,12 @@ function ExecutionRow({ session, state, inactive = false }: { session: RailSessi
         >
           {label}
         </div>
+        {/* What its agent said it needs or did (docs/chat-status-lines.md). */}
+        <ChatStatusLine status={session.turnStatus} className="mt-0.5 text-[11px]" />
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
           <span>{harnessDefinition(session.harness).name}</span>
           <DiffStatsPair stats={diffStats} className="text-[9.5px]" />
+          <ChatAskSize status={session.turnStatus} />
         </div>
       </div>
       <div className="relative flex items-center flex-shrink-0 text-[10px] min-h-5">
@@ -240,6 +244,7 @@ function ExecutionRow({ session, state, inactive = false }: { session: RailSessi
         </span>
         <SessionRowMenu
           sessionId={session.id}
+          executionId={session.executionId ?? null}
           workspaceId={session.workspaceId ?? null}
           isUnread={state === 'unread'}
           isPinned={isPinned}

@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { getWorkDir } from '@/lib/config/paths';
 import { closeExecutionChat } from '@/lib/sessions/close-chat';
 /**
  * Team AI's procedures (docs/homes-spec.md §9.9, P8.4-P8.5): its settings,
@@ -82,6 +85,13 @@ function memberNames() {
 }
 
 export const teamAiRouter = router({
+  /** The Home entry resolves its assistant directly, without choosing another agent. */
+  orchestrator: memberProcedure.query(() => {
+    const cwd = path.join(getWorkDir(), 'team-assistant');
+    const assistant = q.ensureTeamOrchestrator(cwd);
+    if (assistant?.cwd === cwd) fs.mkdirSync(cwd, { recursive: true });
+    return { workspaceId: assistant?.id ?? null, enabled: Boolean(q.getTeamAiSettings()?.enabled) };
+  }),
   /** Navigation needs saved configuration, never live harness discovery. */
   configuration: memberProcedure.query(() => {
     const settings = q.getTeamAiSettings();

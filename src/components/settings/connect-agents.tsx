@@ -166,7 +166,7 @@ function ClientItem({ client, target, keys, createKey, revokeKey, onChanged, loc
     : connectedHere || anyUsed
       ? <StatusChip tone="on">Connected</StatusChip>
       : keys.length > 0
-        ? <StatusChip tone="waiting">Key not used yet</StatusChip>
+        ? <StatusChip tone="waiting">{client.signsIn ? 'Not used yet' : 'Key not used yet'}</StatusChip>
         : localState?.installed
           ? <StatusChip tone="off">Installed</StatusChip>
           : null;
@@ -204,6 +204,8 @@ function ClientItem({ client, target, keys, createKey, revokeKey, onChanged, loc
   };
 
   const showLocal = Boolean(local && client.local && localState?.installed);
+  // An agent that signs in reaches Ri from its own cloud, so a local address is no use to it.
+  const needsRemote = Boolean(client.signsIn && target?.space.kind === 'personal' && !target.reachable);
   // Until it's known which key Set up wrote here, it would show among the others.
   const checking = Boolean(local?.loading && client.local);
 
@@ -244,11 +246,18 @@ function ClientItem({ client, target, keys, createKey, revokeKey, onChanged, loc
               />
             )}
 
-            {(linkPreview || steps) && (
+            {needsRemote && (
+              <p role="status" className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                {client.label} reaches Ri from the internet, so it needs your Ri’s remote address. Set one in Settings → Devices, then come back here.
+              </p>
+            )}
+
+            {(linkPreview || steps) && !needsRemote && (
               <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                {/* An agent with nothing to do here (ChatGPT on a team) keeps only its note. */}
+                {(linkPreview || steps?.steps.length || !client.signsIn) && <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {showLocal ? 'Or on any computer' : 'On any computer'}
+                    {client.signsIn ? `In ${client.label}` : showLocal ? 'Or on any computer' : 'On any computer'}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {linkPreview && (
@@ -258,7 +267,7 @@ function ClientItem({ client, target, keys, createKey, revokeKey, onChanged, loc
                         </button>
                       </Tip>
                     )}
-                    {client.kind !== 'ri' && (
+                    {client.kind !== 'ri' && !client.signsIn && (
                       <Tip label="A prompt with a new key that an agent on another computer follows to set itself up">
                         <button type="button" className={buttonClass} disabled={!ready || makeKey.isPending} onClick={() => void copyPrompt()}>
                           <ClipboardCopy size={12} aria-hidden /> Copy setup prompt
@@ -266,7 +275,7 @@ function ClientItem({ client, target, keys, createKey, revokeKey, onChanged, loc
                       </Tip>
                     )}
                   </div>
-                </div>
+                </div>}
                 {prompt && <CopyBlock label="Copy this prompt into the agent on the other computer." text={prompt} />}
                 {steps && (
                   <ol className="space-y-2.5">
@@ -310,7 +319,7 @@ function ClientItem({ client, target, keys, createKey, revokeKey, onChanged, loc
 
             {otherKeys.length > 0 && !checking && (
               <div className="space-y-1.5">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Keys</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{client.signsIn ? 'Connections' : 'Keys'}</p>
                 <ul className="divide-y divide-border/60 rounded-md border border-border">
                   {otherKeys.map((key) => (
                     <li key={key.keyId} className="flex items-center gap-2 px-3 py-2 text-xs">

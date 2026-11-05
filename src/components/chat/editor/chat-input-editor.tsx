@@ -56,6 +56,7 @@ import { uuidv7 } from 'uuidv7';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { hot } from '@/lib/_debug/hot-path';
+import { useTouchFirst } from '@/hooks/use-touch-first';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { attachmentUrl } from '@/lib/attachments/view';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
@@ -145,11 +146,23 @@ export interface ChatInputEditorHandle {
   /**
    * Upload a file (or blob) and insert a chip at the cursor. Same path
    * used by paste/drop handlers — exposed so toolbars can drive it
-   * from a paperclip / camera button. Resolves once the chip is
+   * from the composer's + menu. Resolves once the chip is
    * inserted, or rejects with the upload error. Where Enter sends, it
    * also moves focus into the editor, so the next Enter sends the message.
    */
   uploadFile(file: File | Blob, name?: string): Promise<void>;
+  /**
+   * Open the `@` menu at the caret, as typing it would, narrowed to one kind
+   * by its `MENTION_KINDS` prefix (`task:`). Focus moves within the caller's
+   * tap, the only time a phone will raise its keyboard for it.
+   */
+  openMentionMenu(prefix?: string): void;
+  /**
+   * Open the `/` menu. A skill has to open the message
+   * (`parseSlashInvocation`), so this works at the start of the first line,
+   * and whatever is already written becomes the skill's input.
+   */
+  openSkillMenu(): void;
   /**
    * Execution-chat output: a single text string with `[[file:<fileName>]]`
    * markers where chips were, plus the attachments referenced. The server
@@ -193,15 +206,16 @@ export interface ChatInputEditorProps {
    * placeholder and again when it resolves (or is removed on failure).
    */
   onPendingUploadsChange?: (hasPendingUploads: boolean) => void;
-  /** Called when the user hits Enter (without Shift). */
+  /** Called when the user sends from the keyboard (see `submitOnEnter`). */
   onSubmit?: () => void;
   /**
-   * Whether a bare Enter submits. `true` (default) is the desktop
-   * behavior — Enter sends, Shift+Enter inserts a newline. `false` flips
-   * it for touch UX: Enter inserts a newline and the user submits with
-   * the send button, matching the native iOS/Android return key. Mod+Enter
-   * (Cmd/Ctrl) always submits regardless, as a hardware-keyboard escape
-   * hatch.
+   * Whether a bare Enter submits. Left unset, it follows the device
+   * (`useTouchFirst`): on a computer Enter sends and Shift+Enter inserts a
+   * newline, and on a phone or tablet Enter inserts a newline, as the
+   * on-screen keyboard's return key does, and the send button sends.
+   * Mod+Enter (Cmd/Ctrl) always submits, for a tablet with a keyboard.
+   * Pass it only for a box that is one way everywhere, such as a
+   * multi-line feedback box (`false`).
    */
   submitOnEnter?: boolean;
   /** Called for any unhandled Backspace-on-empty (parent may want to react). */
@@ -394,7 +408,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       onContentChange,
       onPendingUploadsChange,
       onSubmit,
-      submitOnEnter = true,
+      submitOnEnter,
       onBackspaceOnEmpty,
       onUploadError,
       onFocus,
@@ -426,10 +440,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     const editableRef = useRef(!disabled);
     editableRef.current = !disabled;
     // Mirror in a ref so the keymap (built once via useMemo) always reads
-    // the latest value without re-creating the editor when the consumer
-    // flips between mobile/desktop layouts.
-    const submitOnEnterRef = useRef(submitOnEnter);
-    submitOnEnterRef.current = submitOnEnter;
+    // the latest value without re-creating the editor when the device
+    // changes (a trackpad connected to a tablet).
+    const touchFirst = useTouchFirst();
+    const submitOnEnterRef = useRef(submitOnEnter ?? !touchFirst);
+    submitOnEnterRef.current = submitOnEnter ?? !touchFirst;
     const onBackspaceRef = useRef(onBackspaceOnEmpty);
     onBackspaceRef.current = onBackspaceOnEmpty;
     const onUploadErrorRef = useRef(onUploadError);
@@ -492,8 +507,10 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           addKeyboardShortcuts() {
             return {
               Enter: () => {
-                // Mobile composer (submitOnEnter=false): Enter is a
-                // newline, like the native return key. Send is button-only.
+                // Touch-first device (or submitOnEnter=false): Enter is a
+                // newline, like the native return key. Send is the button
+                // or Mod+Enter. Open `/ @ #` menus take Enter first (their
+                // plugins run at a higher priority), so it still picks there.
                 if (!submitOnEnterRef.current) {
                   return this.editor.commands.setHardBreak();
                 }
@@ -988,7 +1005,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     // steal from those.
     useEffect(() => {
       if (!editor) return;
-      const entry: ComposerEntry = { el: editor.view.dom, focus: () => editor.chain().focus('end').run() };
+      const entry: ComposerEntry = {
+        el: editor.view.dom,
+        focus: () => editor.chain().focus('end').run(),
+        insert: (text) => editor.chain().focus('end').insertContent(text).run(),
+      };
       const unregister = registerComposer(entry);
       const onEditorFocus = () => noteComposerFocus(entry);
       editor.on('focus', onEditorFocus);
@@ -1082,13 +1103,30 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           editor.chain().setContent(snap.doc as never, { emitUpdate: true }).focus('end').run();
         },
         uploadFile: (file, name) => {
-          // The file came from outside the editor (the paperclip, a drop on
-          // the transcript), and focus stayed out there: on the paperclip,
-          // the next Enter opened the file picker again instead of sending.
+          // The file came from outside the editor (the + menu, a drop on the
+          // transcript), and focus stayed out there: on the button that picked
+          // it, the next Enter opened the file picker again instead of sending.
           // Bring it back wherever Enter sends. A touch composer keeps its
           // focus, so attaching a photo doesn't raise the keyboard.
           if (editor && submitOnEnterRef.current) editor.commands.focus();
           return uploadAndInsert(file, name ?? (file as File).name ?? 'upload');
+        },
+        openMentionMenu: (prefix = '') => {
+          if (!editor) return;
+          // Tiptap's focus command waits a frame, too late for a phone's keyboard.
+          editor.view.focus();
+          const before = editor.state.selection.$from.nodeBefore;
+          // The `@` menu opens only after a space, or at the start of a line.
+          const space = before?.isText && !/\s$/.test(before.text ?? '') ? ' ' : '';
+          editor.chain().insertContent(`${space}@${prefix}`).run();
+        },
+        openSkillMenu: () => {
+          if (!editor) return;
+          editor.view.focus();
+          // A command already there is the search, so a pick replaces it.
+          const typed = /^\/\S*/.exec(editor.state.doc.firstChild?.textContent ?? '')?.[0];
+          if (typed) editor.commands.setTextSelection(1 + typed.length);
+          else editor.commands.insertContentAt(1, '/');
         },
         getMarkerOutput: () => buildMarkerOutput(editor),
         getUiMessageParts: () => buildUiMessageParts(editor),

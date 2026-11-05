@@ -33,7 +33,7 @@ export interface RailPlace {
 }
 
 /** One row in the wide rail: a glyph, a label, and what's at its right. Spreads its props so a flyout can drive it. */
-function RailRow({
+export function RailRow({
   place: { label, icon: Icon, mark, depth, onClick, onIntent, active, count, tone = 'live', flyout },
   pressed = false,
   className,

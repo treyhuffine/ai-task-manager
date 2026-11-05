@@ -396,6 +396,12 @@ describe('renderOrchestratorBrief', () => {
     expect(brief).not.toContain('agent <action> [params]');
   });
 
+  it('archives a chat only when the user asks, as an agent main chat does', () => {
+    const brief = renderOrchestratorBrief().replace(/\s+/g, ' ');
+    expect(brief).toContain('`archive_execution`: close out a chat, only when the user asks. Each returned result has an Archive button for the user, so don\'t offer to archive or remind them.');
+    expect(brief).not.toContain('close out finished work');
+  });
+
   it('teaches long-running-conversation discipline', () => {
     const brief = renderOrchestratorBrief();
     expect(brief).toContain('This conversation is long-running');

@@ -1,6 +1,5 @@
 'use client';
 
-import { useWorkNavigation } from '@/contexts/work-context';
 import type { WorkspaceRecord } from '@/db/types';
 import { useArchiveExecution } from '@/hooks/use-archive-execution';
 import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState, type BaseInfo, type OpenablePr } from '@/hooks/use-execution-actions';
@@ -41,7 +40,6 @@ export function ExecutionActionBar({ session, workspace, fit = false }: Executio
   );
   const { archive, isPending: archivePending } = useArchiveExecution();
   const helpWithError = useHelpWithError(session.id);
-  const { goHome } = useWorkNavigation();
 
   /**
    * Lifted error-modal state — set by any handler whose mutation failed
@@ -79,8 +77,9 @@ export function ExecutionActionBar({ session, workspace, fit = false }: Executio
   const handleArchive = () => {
     void archive({
       id: session.id,
+      executionId: session.executionId,
+      workspaceId: session.workspaceId,
       label: session.execution?.label ?? session.label,
-      onArchived: goHome,
     });
   };
 

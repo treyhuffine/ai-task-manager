@@ -58,7 +58,7 @@ Receipts expose `delivery_id`, optional `request_id`, delivery `status`, `reques
 | `start_execution` | `delegate_work` |
 | `submit_memory_finding` | `message_agent`, target orchestrator, `response: "none"` |
 
-Removed tools have no MCP or CLI aliases. The orchestration registry generates both surfaces. Qualified personal chats receive the focused native coordination server, with a signed CLI fallback. Team chats and internal reviewers retain their restricted surfaces. The orchestrator and agent main chats are encouraged to consult and delegate proactively within the user's intent and permission.
+Removed tools have no MCP or CLI aliases. The orchestration registry generates both surfaces. Qualified personal chats receive the focused native coordination server, with a signed CLI fallback. Team chats and internal reviewers retain their restricted surfaces. The orchestrator and agent main chats are encouraged to consult and delegate proactively within the user's intent and permission. An agent's main chat delegates research and wide reading as well as building, keeping its own context for coordination (`docs/orchestrator-harness.md`, Agent main chats).
 
 ## Permission and Hold
 
@@ -120,7 +120,7 @@ Schedule creation and enabling retain their existing authorizing operations. Age
 
 Send to chat appears beside message actions. The picker orders chats by recent activity, searches their metadata and filters by agent. It shows title, agent and activity time. Existing destinations keep their settings. A new chat uses normal defaults with optional model and supported effort controls, and retrying creates one destination.
 
-The receiving card says Shared by you, separates directions from quoted material and links to the exact source message. Agent traffic uses protocol labels such as Request from, Message from and Answer from. System failures retain truthful Ri authorship. Long cards have a bounded preview and explicit expansion.
+The receiving card says Shared by you, separates directions from quoted material and links to the exact source message. Agent traffic uses protocol labels such as Request from, Message from and Answer from. System failures retain truthful Ri authorship. An answer or failure that an execution chat returned carries Archive chat beside that chat's link, showing its live state (Archived with Reopen once archived from anywhere). Blocked updates and cancellations don't, and the requesting chat never archives on its own. Long cards have a bounded preview and explicit expansion.
 
 The sending chat receives a compact linked receipt. A human forward that fails before acceptance creates a durable failure card there with its destination and reason. Receipts, approval history and Hold audits are system events that start zero agent turns. Instructions discourage acknowledgment-only chatter without a runtime prose classifier. Hold remains the dependable way to get the human back in control.
 
@@ -143,3 +143,31 @@ Apply through the normal safe migration runner on the owner-controlled server st
 Home and connected workers must advertise `coordination.admission.v1`. The existing compatibility system requires an update for peers without that guard, preventing an older worker from bypassing Hold. Worker protocol 4 and journal format 1 remain unchanged. Update both peers as part of rollout.
 
 Verification includes disposable-home lifecycle tests, real local and remote runner flows with scripted harnesses, indexed query plans, a copied-data migration rehearsal, typechecking, CLI and gallery builds, and interactive gallery checks on desktop and phone in both themes. See the [acceptance evidence](agent-coordination-implementation.md) for results and reproduction commands.
+
+
+### Pending approvals and transcript timestamps
+
+Every app-owned chat-event insertion supplies an ISO `createdAt` at the shared
+`insertChatEvent` boundary. Coordination audits, delivered messages, forwards,
+explicit answers and sent receipts therefore sort with harness events and stay
+in the latest transcript page. Explicit caller timestamps retain their meaning.
+The other direct event writers (native launch intent, handoffs and import
+batches) already supply timestamps. No table rebuild or timestamp-default
+migration is needed.
+
+Pending outgoing sends also appear above the composer, independently of the
+loaded transcript page, and inside the chat's coordination settings. Both
+surfaces show the destination, intent and the same Approve, Always and Decline
+controls. Always grants automatic coordination for this chat. Decisions use the
+existing human-only tRPC procedure. The pending row disappears optimistically,
+returns if the decision fails, and is refreshed from the server. Incoming pause
+remains separate and unapproved sends do not count as active collaboration.
+
+Historical timestamp repair is a separate human-approved data operation. Run
+`pnpm exec tsx scripts/audit-coordination-timestamps.ts <report.json>` for a
+read-only report covering the production and default dev homes. It identifies
+coordination rows through delivery/outcome pointers, coordination audit markers,
+sent receipts and authenticated senders, using bounded per-chat metadata pages
+and event primary-key lookups. It opens read-only connections, applies no
+migrations, and never changes a timestamp. Existing rows are not repaired at
+boot or when an approval is displayed.

@@ -388,7 +388,7 @@ Chat reuses the **same generic attachment system** that tasks, notes, and areas 
 
 **Where attachments live:**
 
-- On `chat_events.attachments` — a JSON column of `Attachment[]`. Each user message can carry N attachments (pastes, drops, paperclip-picked files).
+- On `chat_events.attachments` — a JSON column of `Attachment[]`. Each user message can carry N attachments (pastes, drops, files picked from the composer's + menu).
 - On disk — `<brain>/attachments/<uuidv7>.<ext>`. Filename is content-stable; original_name is preserved in the JSON record.
 
 **The `Attachment` shape** (defined in `src/lib/db/schema.ts`):
@@ -405,7 +405,7 @@ interface Attachment {
 
 **The upload flow:**
 
-1. Editor's paste/drop/paperclip handler → `POST /api/attachments` (multipart) → server writes bytes, returns `Attachment` record.
+1. Editor's paste/drop handler or the + menu's picker → `POST /api/attachments` (multipart) → server writes bytes, returns `Attachment` record.
 2. Editor inserts a `FileChip` Tiptap node at the cursor with the returned attrs. Body text gets a `[[file:<file_name>]]` marker at that position (compact, position-preserving, doesn't bloat events polls).
 3. On send → `POST /api/sessions/:id/messages` with `{ content, attachments: Attachment[] }`. Server persists the event row with `content` carrying markers and `attachments` carrying the JSON array.
 4. Transcript renderer parses markers via `parseFileMarkers`, resolves each to its `Attachment`, and renders it via `MessageFileChip`: image and PDF cards, or bordered filename and size chips opening the shared viewer. Chip colors follow the sent message bubble in both themes. Shared/custom attachment URLs retain inline text expansion and download chips.
@@ -466,7 +466,7 @@ The tab shows the file's name, with × to put it away. Clicking the file's card 
 
 The switch moves the open file, and the place it moves to is where files open from then on, the way a Notion peek remembers side or center. Nothing to configure: someone who prefers the large view picks it once (`ri.client.previewPlace` in this browser, `preview-place.ts`). The large view is the earlier dialog with the same switch, offered when the chat the file came from has a panel on screen. Where there's none (the phone and tablet layouts, a narrow agent view, a task or note's chat, a team's space), files open large and no switch shows.
 
-Keys follow focus. Inside the file's view the arrow keys move through the chat's files and Escape closes it (an HTML artifact hands back the Escape it didn't use, as in the large view), and focus returns to the file's card. When a step takes focus away (Next disabling at the last file, the next file replacing one focus was in), focus goes back to the view, so the arrows keep working. In the chat they stay the chat's: an arrow edits the draft, and Escape keeps its execution meaning of closing the tools panel, file and all, for the Tools toggle to bring back.
+Keys follow focus, and picking a file puts focus in its view, the way the large view's dialog takes it: clicking its card or pressing Enter on it, another card while a file is open, the file's tab, its row in an agent's tools box, or moving it beside the chat from the large view. So the arrow keys move through the chat's files straight away and Escape closes it (an HTML artifact hands back the Escape it didn't use, as in the large view). Focus then returns to the file's card, or to the chat's composer when that card's transcript has gone, rather than the page, and the large view does the same. A file never takes focus from a text field: one that opens while you type leaves the caret where it was (`ArtifactPreviewStore.focusBeside`). When a step takes focus away (Next disabling at the last file, the next file replacing one focus was in), focus goes back to the view, so the arrows keep working. In the chat they stay the chat's: an arrow edits the draft, and Escape keeps its execution meaning of closing the tools panel, file and all, for the Tools toggle to bring back.
 
 A surface opts in with two hooks (`artifact-preview-provider.tsx`): `data-preview-host` around its chat names it (`home:a`, `execution:<id>`, `agent:<id>`), and `useBesideRegion` registers the panel that shows that chat's files while it is on screen, with a `show` callback that brings the file's tab forward and `showing` for whether it is in front. `BesideFileTab` and `BesideFileView` (`artifact-beside.tsx`) are the tab and its body. The store keeps one file per surface for the life of the page, so leaving an execution and coming back finds the file still there, and a file left open holds no card from a transcript that has gone (it finds the card again when the chat comes back). An execution's `file` view persists with the panel. After a reload, with the file gone, the panel opens on the tool it covered, and an execution switched to with no file of its own never shows an empty file view.
 

@@ -3,6 +3,8 @@
 import { EmojiPicker } from "@/components/shared/emoji-picker";
 import type { Attachment } from '@/db/types';
 import { useCreateArea } from "@/hooks/use-areas";
+import { useTouchFirst } from "@/hooks/use-touch-first";
+import { matchesSendKey } from "@/constants/commands";
 import { uploadAttachment } from "@/lib/attachments/client";
 import { cn } from "@/lib/utils";
 import { ImagePlus, Loader2, SmilePlus, Trash2, X } from "lucide-react";
@@ -20,6 +22,7 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
   const [emoji, setEmoji] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [uploading, setUploading] = useState(false);
+  const touchFirst = useTouchFirst();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createArea = useCreateArea();
 
@@ -94,14 +97,15 @@ export function AreaCreateModal({ open, onOpenChange }: AreaCreateModalProps) {
     []
   );
 
+  // The description takes more than one line: Enter creates on a computer
+  // and adds a line on a phone or tablet, where Create area does it.
   const handleDescriptionKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSubmit();
-      }
+      if (!matchesSendKey(e.nativeEvent, touchFirst)) return;
+      e.preventDefault();
+      handleSubmit();
     },
-    [handleSubmit]
+    [handleSubmit, touchFirst]
   );
 
   const handleOpenChange = useCallback(

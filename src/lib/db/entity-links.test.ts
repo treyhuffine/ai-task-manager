@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { uuidv7 } from 'uuidv7';
 import type { DB } from '@/lib/db';
-import { entityLinks, entityProjectionState } from '@/lib/db/schema';
+import { entityLinks, entityProjectionState, teamConnections } from '@/lib/db/schema';
 import { openAsServer } from '@/test/fixtures/home';
 
 const TEST_DB = path.join(os.tmpdir(), `ri-entity-links-test-${process.pid}.db`);
@@ -316,5 +316,60 @@ describe('resolveEntityTitles (read-only)', () => {
       .prepare('SELECT last_viewed_at AS v FROM tasks WHERE id = ?')
       .get(t.id) as { v: string | null };
     expect(after.v).toBe(before.v);
+  });
+});
+
+describe('links to a record in another Home', () => {
+  const TEAM = '01a1a3b3-1463-7fdc-a747-bc4860dc8e1d';
+  const source = (updatedAt: string) => ({ assigned: true, addedAt: null, bodyRevision: 1, statusChangedCount: 0, updatedAt, syncedAt: updatedAt, area: null, assignee: null });
+
+  async function withTeam() {
+    const { getDb, queries: q } = await setup();
+    const now = new Date().toISOString();
+    getDb().insert(teamConnections).values({ id: TEAM, name: 'Ball Coach', url: 'https://team.test', memberId: 'm1', memberName: 'Ada', role: 'member', status: 'active' }).run();
+    const copy = (sourceTaskId: string, title: string, body: string | null = null) => q.saveTaskProjection({
+      teamId: TEAM, sourceTaskId, fields: { title, description: null, body, outcome: null, hardDeadline: null, status: 'todo' }, source: source(now), state: 'active',
+    });
+    return { q, copy };
+  }
+
+  it('indexes a team link under an ID no row here has, and never calls it unresolved', async () => {
+    const { q } = await withTeam();
+    const note = q.createNote({ body: `See [[task:${TEAM}/team-task-1]] and [[area:${TEAM}/team-area-1]]` });
+    expect(q.listOutgoingLinks('note', note.id)).toEqual([
+      { targetType: 'task', targetId: `${TEAM}/team-task-1`, title: null, resolved: true },
+    ]);
+  });
+
+  it('shows a person\'s own links on a shared copy, and the team\'s links between copies', async () => {
+    const { q, copy } = await withTeam();
+    const target = copy('team-task-1', 'Fix login');
+    const other = copy('team-task-2', 'Depends on it', 'Subtask of [[task:team-task-1]]');
+    const note = q.createNote({ title: 'My private note', body: `See [[task:${TEAM}/team-task-1]]` });
+    const backlinks = q.listBacklinks('task', target.id).map((b) => b.sourceId).sort();
+    expect(backlinks).toEqual([other.id, note.id].sort());
+  });
+
+  it('names a shared copy from the team text that links it, instead of counting it unresolved', async () => {
+    const { q, copy } = await withTeam();
+    copy('team-task-1', 'Fix login');
+    const other = copy('team-task-2', 'Depends on it', 'Subtask of [[task:team-task-1]] and [[task:team-task-9]]');
+    expect(q.listOutgoingLinks('task', other.id).map((o) => [o.targetId, o.title, o.resolved])).toEqual([
+      ['team-task-1', 'Fix login', true],
+      ['team-task-9', null, true],
+    ]);
+  });
+
+  it('never shows this Home\'s titles as what a team\'s text links to', async () => {
+    const { q, copy } = await withTeam();
+    const secret = q.createTask({ title: 'Secret plan' });
+    const shared = copy('team-task-1', 'Shared', `See [[task:${secret.id}]]`);
+    expect(q.listOutgoingLinks('task', shared.id)).toEqual([{ targetType: 'task', targetId: secret.id, title: null, resolved: true }]);
+  });
+
+  it('still calls a missing ID in a person\'s own text unresolved', async () => {
+    const { q } = await withTeam();
+    const note = q.createNote({ body: 'See [[task:nothing-here]]' });
+    expect(q.listOutgoingLinks('note', note.id)).toEqual([{ targetType: 'task', targetId: 'nothing-here', title: null, resolved: false }]);
   });
 });

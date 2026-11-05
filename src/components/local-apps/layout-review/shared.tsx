@@ -1,9 +1,10 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { ArrowRight, BookOpen, BriefcaseBusiness, ChevronDown, Hammer, House, LayoutGrid, PencilRuler, Plus, Search, Server, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useElementWidth } from '@/hooks/use-element-width';
 import { INTEGRATION_LABELS } from '@/constants/integrations';
@@ -63,10 +64,9 @@ export function Filters({ availability = false }: { availability?: boolean }) {
   </div>;
 }
 export function Empty({ children = 'No matches. Try another name or a different filter.' }: { children?: React.ReactNode }) { return <div className={s.empty}>{children}</div>; }
-export function Cards({ items, initial = 12 }: { items: ReviewItem[]; initial?: number }) {
-  const [limit, setLimit] = useState(initial);
+export function Cards({ items }: { items: ReviewItem[] }) {
   if (!items.length) return <Empty />;
-  return <><div className={s.grid}>{items.slice(0, limit).map(item => <ItemCard key={item.key} item={item} />)}</div>{items.length > limit && <div className={s.showMore}><Button variant="ghost" size="xs" onClick={() => setLimit(limit + 24)}>Show more <span className="text-muted-foreground">({items.length - limit})</span><ArrowRight size={12} /></Button></div>}</>;
+  return <div className={s.grid}>{items.map(item => <ItemCard key={item.key} item={item} />)}</div>;
 }
 export function QuickAccess() {
   const review = useReview();
@@ -95,13 +95,13 @@ export function Featured() {
   if (!item || review.search || review.filter !== 'All' || review.collection) return null;
   return <section className={s.hero} aria-label="Featured app"><div><span className={s.eyebrow}>Made for everyday life</span><h2>{item.catalog?.packageId === 'ri-travel' ? 'A whole trip, all together.' : item.name}</h2><p>{item.description}</p><Button size="sm" variant="outline" onClick={() => review.details(item)}>Explore {item.name}<ArrowRight size={13} /></Button></div><CatalogDemo item={item} compact /></section>;
 }
-export function Discovery({ featured = false, heading = 'Discover', initial = 12 }: { featured?: boolean; heading?: string; initial?: number }) {
+export function Discovery({ featured = false, heading = 'Discover' }: { featured?: boolean; heading?: string }) {
   const review = useReview();
   // Give apps and skills room alongside the larger account catalog.
   const sorted = [...review.discovery].sort((a, b) => Number(a.kind === 'connectors') - Number(b.kind === 'connectors'));
   return <><SectionTitle count={review.discovery.length}>{review.collection?.name ?? heading}</SectionTitle><SearchBox /><Filters />{featured && <Featured />}
     {review.collection && <Button className="mb-4" variant="ghost" size="xs" onClick={() => review.patch({ collection: undefined })}>All additions<X size={12} /></Button>}
-    {!review.loading && !review.discovery.length && !review.search && review.filter === 'All' ? <Empty>You have everything in this catalog. Explore your library or add something of your own.</Empty> : <Cards key={`${review.search}:${review.filter}:${review.collection?.id ?? ''}`} items={sorted} initial={initial} />}
+    {!review.loading && !review.discovery.length && !review.search && review.filter === 'All' ? <Empty>You have everything in this catalog. Explore your library or add something of your own.</Empty> : <Cards key={`${review.search}:${review.filter}:${review.collection?.id ?? ''}`} items={sorted} />}
   </>;
 }
 export function CollectionTiles() {
@@ -110,14 +110,14 @@ export function CollectionTiles() {
   return <div className={s.collectionGrid}>{COLLECTIONS.map(collection => {
     const Icon = icons[collection.id];
     return <button type="button" className={s.collectionTile} key={collection.id} aria-pressed={review.query.collection === collection.id} onClick={() => review.patch({ collection: collection.id, item: undefined })}>
-      <Icon size={21} /><h3>{collection.name}</h3><p>{collection.description}</p><span className={s.collectionMarks}>{collectionItems(review.items, collection.id).slice(0, 4).map(item => <ItemMark key={item.key} item={item} small />)}</span>
+      <Icon size={21} /><h3>{collection.name}</h3><p>{collection.description}</p><div className={s.collectionMarks}>{review.loading ? [0, 1, 2].map(index => <Skeleton key={index} className="size-6 rounded-md" aria-hidden="true" />) : collectionItems(review.items, collection.id).slice(0, 4).map(item => <ItemMark key={item.key} item={item} small />)}</div>
     </button>;
   })}</div>;
 }
 export function LibraryPage() {
   const review = useReview();
   return <><Header title="Your library" subtitle="Everything you added, including custom MCPs and skills." /><div className={s.body}><div className={s.page}><SearchBox placeholder="Search your library" /><Filters />
-    {!review.library.length && !review.search && review.filter === 'All' ? <Empty>Your library starts with what you add. Apps, connected accounts, custom MCPs, and skills will all be here.<div className="mt-3"><Button size="xs" variant="outline" onClick={review.showDiscover}>Browse additions</Button></div></Empty> : <Cards key={`${review.search}:${review.filter}`} items={review.matching(review.library)} initial={24} />}
+    {!review.library.length && !review.search && review.filter === 'All' ? <Empty>Your library starts with what you add. Apps, connected accounts, custom MCPs, and skills will all be here.<div className="mt-3"><Button size="xs" variant="outline" onClick={review.showDiscover}>Browse additions</Button></div></Empty> : <Cards key={`${review.search}:${review.filter}`} items={review.matching(review.library)} />}
     {!!review.matching(review.drafts).length && <section className={s.section}><SectionTitle count={review.drafts.length}>In progress</SectionTitle><p className={`${s.muted} mb-4`}>Drafts stay here until you decide to install them.</p><Cards items={review.matching(review.drafts)} /></section>}
   </div></div></>;
 }

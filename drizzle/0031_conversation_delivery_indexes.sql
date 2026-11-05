@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX `uniq_conversation_input_event` ON `conversation_inputs` (`event_id`);--> statement-breakpoint
+CREATE INDEX `idx_conversation_thread_connection` ON `conversation_threads` (`connection_id`);

@@ -14,7 +14,7 @@ import { EmailComposer } from '@/components/chat-ui/email/email-composer';
 import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 import { IntegrationApprovalCard } from '@/components/chat-ui/approvals/integration-approval-card';
 import { ConnectionRequestCard } from '@/components/chat-ui/approvals/connection-request-card';
-import { MessageEntityChip } from '@/components/chat-ui/references/message-entity-chip';
+import { MessageEntityChip, TeamRecordChip } from '@/components/chat-ui/references/message-entity-chip';
 import { SourceChip, SourceMetadataProvider } from '@/components/chat-ui/references/source-chip';
 import { parseSourceMarkers } from '@/lib/chat-sources/reference';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
@@ -28,6 +28,10 @@ import { ExecutionEvent } from '@/components/chat-ui/activity/execution-event';
 import { ChatTranscript } from '@/components/chat-ui/chat-transcript';
 import { ChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import { ChatComposer } from '@/components/chat-ui/chat-composer';
+import { ChatAddMenu } from '@/components/chat-ui/add-menu/chat-add-menu';
+import { ComposerAddMenu } from '@/components/chat-ui/add-menu/composer-add-menu';
+import { ConfirmProvider } from '@/components/ui/confirm-dialog';
+import { WorkContext, type WorkActivity, type WorkNavigation } from '@/contexts/work-context';
 import { ModelMenuContent, ModelMenuLabel } from '@/components/chat-ui/model-menu/model-menu';
 import { ModelMenuProvider } from '@/components/chat-ui/model-menu/model-menu-provider';
 import { ChatInputEditor, type ChatInputEditorHandle } from '@/components/chat/editor/chat-input-editor';
@@ -41,7 +45,7 @@ import { ModelMenuPreview } from './model-menu-preview';
 import { galleryExample, type ChatUiExampleId } from './catalog';
 
 declare const __GALLERY_EXAMPLE__: ChatUiExampleId;
-import { CHAT_ID, DRAFT_ID, event, IMAGE_URL, mentionExample, NOW, PDF_PAGES, RECORD_ID, chatMessageExample } from './fixtures';
+import { CHAT_ID, DRAFT_ID, event, IMAGE_URL, mentionExample, NOW, PDF_PAGES, RECORD_ID, chatMessageExample, isReturnedAnswerState } from './fixtures';
 import { fixtureConfig as config, fixtureQueryClient as client, fixtureRuntime as runtime } from './fixture-client';
 
 document.documentElement.classList.toggle('dark', config.theme === 'dark');
@@ -72,6 +76,17 @@ document.addEventListener('click', event => {
 
 runtime.subscribe(() => { void client.invalidateQueries({ refetchType: 'active' }); });
 
+const TEAM_RECORD_STATES = [
+  { state: 'found', teamName: 'Acme', title: 'Fix the login loop', status: 'todo' },
+  { state: 'found', teamName: 'Acme', title: 'Ship the invite page', status: 'done' },
+  { state: 'found', teamName: 'Acme', title: 'Old pricing work', status: 'archived' },
+  { state: 'unreachable', teamName: 'Acme', title: null, status: null },
+  { state: 'outdated', teamName: 'Acme', title: null, status: null },
+  { state: 'no_access', teamName: 'Acme', title: null, status: null },
+  { state: 'gone', teamName: 'Acme', title: null, status: null },
+  { state: 'unknown_home', teamName: null, title: null, status: null },
+] as const;
+
 function References() {
   const [opened, setOpened] = useState<string | null>(null);
   const lookup = { tasksById: new Map(config.state === 'missing' ? [] : [[RECORD_ID, { id: RECORD_ID, title: 'Prepare the Friday review', status: 'todo' }]]), notesById: new Map([[RECORD_ID, { id: RECORD_ID, title: 'Project review notes' }]]), agentsById: new Map(config.state === 'missing' ? [] : [[RECORD_ID, { id: RECORD_ID, name: 'Research', emoji: '🔎', attachments: [], areaId: null, purpose: 'Finds and summarizes sources for the review.', status: 'active' as const }]]), scratchpad: 'Alex prefers a short video call.\n\nKeep the agenda focused on decisions.' };
@@ -80,6 +95,9 @@ function References() {
     <p>I kept the context in <MessageEntityChip marker={{ kind: 'note', id: RECORD_ID }} lookup={lookup} onOpen={() => setOpened('Project review notes')} />.</p>
     <p>I asked <MessageEntityChip marker={{ kind: 'agent', id: RECORD_ID }} lookup={lookup} /> for the sources.</p>
     <p><MessageEntityChip marker={{ kind: 'scratchpad' }} lookup={lookup} onOpen={() => setOpened('Scratchpad')} /></p>
+    <section aria-label="Records in a connected team" className="border-t border-border pt-4"><p className="text-xs text-muted-foreground">In a connected team</p>
+      <p>{TEAM_RECORD_STATES.map(view => <TeamRecordChip key={view.state + (view.status ?? '')} kind="task" id={RECORD_ID} view={{ homeId: 'example-team', localId: null, ...view }} />)}</p>
+    </section>
     <Dialog open={!!opened} onOpenChange={open => { if (!open) setOpened(null); }}><DialogContent><DialogHeader><DialogTitle>{opened}</DialogTitle></DialogHeader><p className="whitespace-pre-wrap text-sm text-muted-foreground">{opened === 'Scratchpad' ? lookup.scratchpad : 'This is a fictional record. In your chat, this reference opens the corresponding task or note.'}</p></DialogContent></Dialog>
   </div>;
 }
@@ -192,20 +210,24 @@ function FilesBeside({ children }: { children?: ReactNode } = {}) {
   </div>;
 }
 
+/** Where a chat link or Archive chat would go in the app. The example stays on the receiving chat. */
+const GALLERY_NAVIGATION: WorkNavigation = { openAgent() {}, openExecution() {}, openTask() {}, openNote() {}, goHome() {} };
+
 function ChatMessages() {
   const { received, sent } = chatMessageExample(config.state);
-  return <div className="space-y-7">
+  const activity: WorkActivity = { activeSessionId: received.sessionId, activeExecutionId: null, streamingSessionIds: new Set(), backgroundSessionIds: new Set(), pendingInputSessionIds: new Set(), setActiveExecutionId() {}, setSessionStreaming() {} };
+  return <WorkContext navigation={GALLERY_NAVIGATION} activity={activity}><div className="space-y-7">
     <section aria-label="Receiving chat" className="space-y-3">
       <p className="text-xs text-muted-foreground">In the receiving chat</p>
       <ExecutionEvent event={received} handoffActions={false} />
-      <p className="text-[12.5px] leading-relaxed">{config.state === 'reply' ? 'I’ll include these findings in the handoff.' : 'I’ll check the boundary cases and report back with the results.'}</p>
+      <p className="text-[12.5px] leading-relaxed">{isReturnedAnswerState(config.state) ? 'I’ll include these findings in the handoff.' : 'I’ll check the boundary cases and report back with the results.'}</p>
     </section>
     <section aria-label="Sending chat" className="space-y-3">
       <p className="text-xs text-muted-foreground">In the sending chat</p>
-      <p className="text-[12.5px] leading-relaxed">{config.state === 'reply' ? 'The review is complete. I’m sending the findings back.' : 'I’m asking the date handling chat to review this before the handoff.'}</p>
+      <p className="text-[12.5px] leading-relaxed">{isReturnedAnswerState(config.state) ? 'The review is complete. I’m sending the findings back.' : 'I’m asking the date handling chat to review this before the handoff.'}</p>
       <ExecutionEvent event={sent} handoffActions={false} />
     </section>
-  </div>;
+  </div></WorkContext>;
 }
 
 function TextFiles() {
@@ -242,6 +264,28 @@ function CoordinationComposer() {
   </ChatComposer>;
 }
 
+/** The real + beside the real editor, so Mention and Skills open their real menus. */
+function AddMenuExample() {
+  const editor = useRef<ChatInputEditorHandle | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const inChat = config.state === 'chat';
+  const onPick = (file: File) => setPicked(names => [...names, file.name]);
+  // Room above the composer, where the menu opens, as a chat has its transcript.
+  return <div className="pt-96"><ChatComposer status={picked.length > 0 ? `Picked ${picked.join(', ')}. Nothing was uploaded.` : 'This example saves nothing.'}>
+    <ChatInputEditor
+      ref={editor} ariaLabel="Example message" placeholder="Ask for anything. @ to mention, / for skills" attachmentsEnabled={false} sourceChatId={inChat ? CHAT_ID : undefined}
+      searchMentionEntities={inChat ? async () => ({ tasks: [{ kind: 'task', id: 'gallery-task', title: 'Plan the launch', status: 'todo' }], notes: [{ kind: 'note', id: 'gallery-note', title: 'Launch checklist' }], totals: { tasks: 1, notes: 1 } }) : undefined}
+      mentionFiles={[{ kind: 'file', path: 'README.md', name: 'README.md' }]}
+      slashCommands={inChat ? [{ id: 'review', name: 'review', description: 'Review the diff', source: 'installed-user', userInvocable: true, available: true, execution: { kind: 'provider-slash', provider: 'claude', commandText: '/review' } }] : undefined}
+    />
+    <div className="flex items-center gap-1 px-1.5 pb-1.5">
+      {inChat
+        ? <ChatAddMenu sessionId={CHAT_ID} editor={editor} onPick={onPick} skills />
+        : <ComposerAddMenu editor={editor} onPick={onPick} />}
+    </div>
+  </ChatComposer></div>;
+}
+
 function Example() {
   const revision = useSyncExternalStore(runtime.subscribe, runtime.snapshot, runtime.snapshot);
   const example = galleryExample(__GALLERY_EXAMPLE__);
@@ -265,6 +309,7 @@ function Example() {
     {__GALLERY_EXAMPLE__ === 'coordination' && <div className="space-y-5"><div className="flex justify-end"><ChatMenu sessionId={CHAT_ID} /></div>{config.state === 'forward-failed' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('system', {role:'system',content:'coordination_send_failed',raw:{agentCoordination:{deliveryId:'gallery-coordination-send'}}})} /> : config.state === 'shared' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('user', {id:'gallery-shared',role:'user',content:'Full original review content.',raw:{agentCoordination:{senderKind:'human',kind:'message',sourceSessionId:CHAT_ID,sourceEventId:'gallery-original',content:'Full original review content.',directions:'Compare this with your implementation.'}}})} /> : config.state === 'unavailable' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('error', {role:'system',content:'[Ri routing text remains saved]',raw:{agentCoordination:{senderKind:'system',kind:'failed',content:'The destination agent is unavailable. The assigned work did not start.',originalRequest:'Review the date boundary handling before we ship.'}}})} /> : ['idle', 'manager', 'active', 'finished', 'held'].includes(config.state) ? <p className="text-sm text-muted-foreground">{config.state === 'manager' ? 'This main chat manages work across other chats.' : config.state === 'idle' ? 'An ordinary chat, ready for your next message.' : config.state === 'finished' ? 'The review is complete. Its linked messages remain in the transcript.' : config.state === 'held' ? 'Incoming messages are queued until you resume.' : 'The other chat is reviewing the date handling.'}</p> : <CoordinationApproval deliveryId="gallery-coordination-send" sessionId={CHAT_ID} />}<CoordinationComposer /></div>}
     {__GALLERY_EXAMPLE__ === 'app-context' && <AppContext />}
     {__GALLERY_EXAMPLE__ === 'model-menu' && <ModelMenuPreview state={config.state} />}
+    {__GALLERY_EXAMPLE__ === 'add-menu' && <AddMenuExample />}
     {__GALLERY_EXAMPLE__ === 'edits' && <div className="space-y-4 text-sm"><p>I clarified the agenda and made the next steps easier to scan.</p><EntityEditChip entityType="note" entityId={RECORD_ID} /></div>}
     {__GALLERY_EXAMPLE__ === 'files' && (config.state === 'beside' ? <FilesBeside /> : <FileChips />)}
     {__GALLERY_EXAMPLE__ === 'html' && <HtmlPreviewLink sessionId={CHAT_ID} path="review-plan.html">An interactive plan for the Friday review</HtmlPreviewLink>}
@@ -277,4 +322,4 @@ function Example() {
 }
 
 const root = document.getElementById('root')!;
-createRoot(root).render(<QueryClientProvider client={client}><ThemeProvider attribute="class" forcedTheme={config.theme} enableSystem={false}><TipProvider><ArtifactPreviewProvider><ChatCapabilities.Provider value={{ deliveryReceipts: false, prepareResults: false }}><Example /></ChatCapabilities.Provider></ArtifactPreviewProvider></TipProvider></ThemeProvider></QueryClientProvider>);
+createRoot(root).render(<QueryClientProvider client={client}><ThemeProvider attribute="class" forcedTheme={config.theme} enableSystem={false}><TipProvider><ConfirmProvider><ArtifactPreviewProvider><ChatCapabilities.Provider value={{ deliveryReceipts: false, prepareResults: false }}><Example /></ChatCapabilities.Provider></ArtifactPreviewProvider></ConfirmProvider></TipProvider></ThemeProvider></QueryClientProvider>);

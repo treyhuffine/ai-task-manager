@@ -1,4 +1,5 @@
 import { timestampEpoch } from './timestamps';
+import { turnStatusNeedsYou, type ChatTurnStatus } from '@/lib/sessions/turn-status';
 
 /**
  * Shared session "hotness" key used to sort rail lists. A session's
@@ -82,6 +83,8 @@ interface UnreadableSession {
   lastOutcomeEventAt: string | null;
   unreadMarkerAt: string | null;
   lastViewedAt: string | null;
+  /** The agent's status line. One that waits on the person keeps it unread. */
+  turnStatus?: ChatTurnStatus | null;
 }
 
 /**
@@ -100,11 +103,15 @@ export function latestActivityAt(
 
 /**
  * True when the session has activity (agent outcome OR explicit unread
- * marker) newer than the user's last view. Mirrors the rail's "unread"
- * bucket classification, minus the pending/streaming overlays that
- * bucket priority handles separately.
+ * marker) newer than the user's last view, or its agent's status line says
+ * it waits on the person: looking at a question doesn't answer it, so it
+ * stays unread until it's answered or marked read
+ * (docs/chat-status-lines.md). Mirrors the rail's "unread" bucket
+ * classification, minus the pending/streaming overlays that bucket priority
+ * handles separately.
  */
 export function isSessionUnread(s: UnreadableSession): boolean {
+  if (turnStatusNeedsYou(s)) return true;
   const activity = latestActivityAt(s);
   if (!activity) return false;
   const lastViewed = s.lastViewedAt ?? '1970-01-01';

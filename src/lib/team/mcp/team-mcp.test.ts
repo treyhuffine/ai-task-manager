@@ -92,9 +92,9 @@ describe('what an AI client can see', () => {
     const me = await assistant(token);
     const { tools } = await me.client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
-      'complete_task', 'create_note', 'create_task', 'get_area', 'get_note', 'get_session_messages', 'get_task', 'list_areas', 'list_history',
+      'complete_task', 'create_area', 'create_note', 'create_task', 'get_area', 'get_note', 'get_session_messages', 'get_task', 'list_areas', 'list_history',
       'list_links', 'list_members', 'list_notes', 'list_published_results', 'list_tasks', 'search', 'search_sessions', 'transition_task',
-      'update_note', 'update_task',
+      'update_area', 'update_note', 'update_task',
     ]);
     // Changes take a key to retry with, and describe their arguments strictly.
     const create = tools.find((t) => t.name === 'create_note')!;
@@ -102,7 +102,7 @@ describe('what an AI client can see', () => {
     expect(create.inputSchema.additionalProperties).toBe(false);
 
     // The personal registry, administration and hidden doors are not there.
-    for (const name of ['delete_task', 'delete_note', 'describe_paths', 'describe_schema', 'remove_member', 'create_area', 'delegate_work', 'report_result', 'query', 'update', 'run_sql']) {
+    for (const name of ['delete_task', 'delete_note', 'delete_area', 'archive_area', 'describe_paths', 'describe_schema', 'remove_member', 'delegate_work', 'report_result', 'query', 'update', 'run_sql']) {
       const res = await me.call(name, {});
       expect(res.isError, name).toBe(true);
       expect(res.text, name).toMatch(/not found/i);
@@ -194,6 +194,49 @@ describe('what an AI client changes, and as whom', () => {
     await me.close();
   });
 
+  it('adds and changes the team\'s Areas as a member can, and leaves archiving to people', async () => {
+    const maya = await joinAs('Maya');
+    const { token, client } = await connectAi(maya.token, 'Codex');
+    const me = await assistant(token);
+    const owners = await trpcFor(owner.token);
+
+    const made = await me.call('create_area', { idempotency_key: key(), name: '  Dev  ', description: 'Engineering work', emoji: '🛠' });
+    const id = made.body!.result.id;
+    expect(made.body).toMatchObject({ ok: true, result: { name: 'Dev', description: 'Engineering work', emoji: '🛠', status: 'active', link: `${BASE}/?area=${id}` } });
+    expect(await owners.areas.get.query({ id })).toMatchObject({ name: 'Dev', description: 'Engineering work', status: 'active', userContext: null });
+    const filed = await me.call('create_task', { idempotency_key: key(), title: 'Fix the build', area_id: id });
+    expect(filed.body!.result.area).toEqual({ id, name: 'Dev' });
+
+    const changed = await me.call('update_area', { idempotency_key: key(), id, name: 'Engineering', description: null });
+    expect(changed.body!.result).toMatchObject({ id, name: 'Engineering', description: null, emoji: '🛠', status: 'active' });
+    expect((await me.call('get_area', { id })).body!.result).toEqual(changed.body!.result);
+    expect((await me.call('get_task', { id: filed.body!.result.id })).body!.result.area).toEqual({ id, name: 'Engineering' });
+
+    // Archiving and anything else a person's own Ri keeps are refused, not ignored.
+    for (const refused of [{ status: 'archived' }, { status: 'inactive' }, { status: 'active' }, { user_context: 'private' }, { userContext: 'private' }, { sort_order: 1 }, { notes: 'x' }, { attachments: [] }, { name: '   ' }, { name: 'x'.repeat(81) }, { actor_member_id: owner.id }]) {
+      expect((await me.call('update_area', { idempotency_key: key(), id, ...refused })).isError, JSON.stringify(refused)).toBe(true);
+    }
+    expect((await me.call('create_area', { idempotency_key: key(), name: 'Later', status: 'archived' })).isError).toBe(true);
+    expect((await me.call('create_area', { name: 'No key' })).isError).toBe(true);
+    expect((await me.call('update_area', { idempotency_key: key(), id })).body!.error.code).toBe('invalid');
+    expect((await me.call('update_area', { idempotency_key: key(), id: 'nowhere', name: 'x' })).body!.error.code).toBe('not_found');
+    expect(await owners.areas.get.query({ id })).toMatchObject({ name: 'Engineering', status: 'active' });
+
+    // People still archive it in the app, and the agent can read that.
+    await owners.areas.update.mutate({ id, patch: { status: 'archived' } });
+    expect((await me.call('list_areas', { include_archived: true })).body!.result.areas).toContainEqual(expect.objectContaining({ id, status: 'archived' }));
+
+    // Areas keep no version history, in the app either. The receipt says whose agent it was.
+    const { getRawDb } = await import('@/lib/db');
+    expect(getRawDb().prepare('SELECT member_id AS memberId, api_key_id AS apiKeyId, action, entity_type AS entityType FROM shared_operation_receipts WHERE entity_id = ? ORDER BY action').all(id)).toEqual([
+      { memberId: maya.id, apiKeyId: client.keyId, action: 'create_area', entityType: 'area' },
+      { memberId: maya.id, apiKeyId: client.keyId, action: 'update_area', entityType: 'area' },
+    ]);
+    expect(ai.embed).not.toHaveBeenCalled();
+    expect(ai.harness).not.toHaveBeenCalled();
+    await me.close();
+  });
+
   it('refuses a stale body with the current text, and asks for the revision it edited', async () => {
     const owners = await trpcFor(owner.token);
     const note = await owners.notes.create.mutate({ title: 'Plan', body: 'v1' });
@@ -267,6 +310,51 @@ describe('a retry after a lost response', () => {
     expect(q.listNotes().filter((n) => n.title === 'Pick the queue library')).toHaveLength(2);
     await me.close();
     await theirs.close();
+  });
+
+  it('keeps a repeated Area create or update to one change, even after a restart, and refuses the key for another request', async () => {
+    const { token } = await connectAi(owner.token);
+    const me = await assistant(token);
+    const owners = await trpcFor(owner.token);
+    const q = await import('@/lib/db/queries');
+    const create = { idempotency_key: key(), name: 'Dev', description: 'Engineering work' };
+    const first = await me.call('create_area', create);
+    expect(first.body).toMatchObject({ ok: true });
+    const id = first.body!.result.id;
+
+    // The server restarts before the client hears back.
+    const { resetDb } = await import('@/lib/db');
+    resetDb();
+    expect((await me.call('create_area', { ...create })).body).toMatchObject({ ok: true, replayed: true, result: first.body!.result });
+    expect(q.listAreas().filter((area) => area.name === 'Dev')).toHaveLength(1);
+    expect((await me.call('create_area', { ...create, name: 'SEO' })).body!.error.code).toBe('idempotency_conflict');
+    expect(q.listAreas().some((area) => area.name === 'SEO')).toBe(false);
+
+    const update = { idempotency_key: key(), id, name: 'Engineering' };
+    const renamed = await me.call('update_area', update);
+    expect(renamed.body!.result).toMatchObject({ name: 'Engineering' });
+    // Someone renames it in the app, and the late retry doesn't undo that.
+    await owners.areas.update.mutate({ id, patch: { name: 'Platform' } });
+    expect((await me.call('update_area', { ...update })).body).toMatchObject({ ok: true, replayed: true, result: renamed.body!.result });
+    expect(q.getArea(id)?.name).toBe('Platform');
+    expect((await me.call('update_area', { ...update, name: 'Something else' })).body!.error.code).toBe('idempotency_conflict');
+    await me.close();
+  });
+
+  it('rolls back a new Area if writing its receipt fails, so a retry makes only one', async () => {
+    const { token } = await connectAi(owner.token);
+    const me = await assistant(token);
+    const { getRawDb } = await import('@/lib/db');
+    const q = await import('@/lib/db/queries');
+    const raw = getRawDb();
+    raw.exec("CREATE TRIGGER refuse_area_receipt BEFORE INSERT ON shared_operation_receipts BEGIN SELECT RAISE(ABORT, 'area receipt failure'); END");
+    const request = { idempotency_key: key(), name: 'Atomic Area' };
+    expect((await me.call('create_area', request)).isError).toBe(true);
+    expect(q.listAreas().some((area) => area.name === 'Atomic Area')).toBe(false);
+    raw.exec('DROP TRIGGER refuse_area_receipt');
+    expect((await me.call('create_area', request)).body!.ok).toBe(true);
+    expect(q.listAreas().filter((area) => area.name === 'Atomic Area')).toHaveLength(1);
+    await me.close();
   });
 
   it('rolls back the shared change and its history if writing the receipt fails', async () => {
@@ -407,6 +495,13 @@ describe('when an AI client stops working', () => {
     expect((await me.call('list_tasks')).body!.ok).toBe(true);
     await (await trpcFor(owner.token)).team.removeMember.mutate({ id: maya.id });
     await expect(me.call('list_tasks')).rejects.toThrow();
+    const q = await import('@/lib/db/queries');
+    expect(q.listMemberAiClients(maya.id)).toEqual([]);
+  });
+
+  it('makes no team key for an agent that signs in to a personal Ri', async () => {
+    const maya = await joinAs('Maya');
+    await expect((await trpcFor(maya.token)).team.aiClients.create.mutate({ client: 'chatgpt' })).rejects.toThrow(/personal Ri/);
     const q = await import('@/lib/db/queries');
     expect(q.listMemberAiClients(maya.id)).toEqual([]);
   });

@@ -1,5 +1,7 @@
 'use client';
 
+import { Fragment } from 'react';
+import { flushSync } from 'react-dom';
 import { MessageSquare } from 'lucide-react';
 import type { WorkspaceRecord } from '@/db/types';
 import type { AgentTab } from '@/types/dashboard';
@@ -7,12 +9,16 @@ import { useAgentExecutions, useAgentPreviews } from '@/hooks/use-agent';
 import { cn } from '@/lib/utils';
 import {
   FloatingToolsBox,
+  TerminalToolsMini,
+  TerminalToolsRow,
   ToolsDivider,
   ToolsMini,
   ToolsRow,
   ToolsStripDivider,
 } from '@/components/executions/workbench/tools-box';
-import { useBesidePreview } from '@/components/chat-ui/artifacts/artifact-preview-provider';
+import { HOTKEYS } from '@/constants/commands';
+import { Kbd } from '@/components/ui/kbd';
+import { useArtifactPreviewStore, useBesidePreview } from '@/components/chat-ui/artifacts/artifact-preview-provider';
 import { PreviewIcon, previewName } from '@/components/chat-ui/artifacts/artifact-preview-parts';
 import { AGENT_TOOL_TABS } from './agent-tools';
 import { useBesideChatSummary } from './agent-beside-chat';
@@ -22,19 +28,23 @@ import { useBesideChatSummary } from './agent-beside-chat';
  * floating box (`FloatingToolsBox`), with this view's own tools. Without it
  * the only sign the tools exist is the panel toggle in the header.
  *
- * One row per tab, in the strip's order, then the file and the chat open
- * beside the main chat when there are any. A row opens the panel on it.
- * Status is text, as in the execution's box: who needs you in Overview,
- * how many previews are running.
+ * One row per tab, in the strip's order, with the terminal after Files as
+ * in the execution's box, then the file and the chat open beside the main
+ * chat when there are any. A row opens the panel on it, and the terminal's
+ * shows or hides the drawer below. Status is text, as in the execution's
+ * box: who needs you in Overview, how many previews are running.
  */
 export function AgentToolsBox({
   workspace,
   onShow,
+  terminal,
   file,
   chat,
 }: {
   workspace: WorkspaceRecord;
   onShow: (tab: AgentTab) => void;
+  /** The terminal drawer. Left out where there's no terminal (a phone or tablet). */
+  terminal?: { open: boolean; onToggle: () => void };
   /** The file beside the main chat, and how to bring it forward. */
   file?: { host: string; onShow: () => void } | null;
   /** The chat beside the main chat, and how to bring it forward. */
@@ -61,13 +71,15 @@ export function AgentToolsBox({
           {AGENT_TOOL_TABS.map(({ id, label, Icon }) => {
             const s = status[id];
             return (
-              <ToolsRow
-                key={id}
-                icon={<Icon size={15} />}
-                label={label}
-                right={s && <span className={s.tone}>{s.text}</span>}
-                onClick={() => onShow(id)}
-              />
+              <Fragment key={id}>
+                <ToolsRow
+                  icon={<Icon size={15} />}
+                  label={label}
+                  right={s ? <span className={s.tone}>{s.text}</span> : id === 'files' ? <Kbd aria-hidden>{HOTKEYS.goToFile.label}</Kbd> : null}
+                  onClick={() => onShow(id)}
+                />
+                {id === 'files' && terminal && <TerminalToolsRow {...terminal} />}
+              </Fragment>
             );
           })}
           {(file || chat) && <ToolsDivider />}
@@ -80,13 +92,15 @@ export function AgentToolsBox({
           {AGENT_TOOL_TABS.map(({ id, label, Icon }) => {
             const s = status[id];
             return (
-              <ToolsMini
-                key={id}
-                icon={<Icon size={16} />}
-                label={s ? `${label} · ${s.text}` : label}
-                badge={s?.dot}
-                onClick={() => onShow(id)}
-              />
+              <Fragment key={id}>
+                <ToolsMini
+                  icon={<Icon size={16} />}
+                  label={s ? `${label} · ${s.text}` : label}
+                  badge={s?.dot}
+                  onClick={() => onShow(id)}
+                />
+                {id === 'files' && terminal && <TerminalToolsMini {...terminal} />}
+              </Fragment>
             );
           })}
           {(file || chat) && <ToolsStripDivider />}
@@ -98,16 +112,27 @@ export function AgentToolsBox({
   );
 }
 
+/** Brings the file forward with focus in it, as its card and its tab do, so its keys work at once (the box goes as the panel opens). */
+function useShowFile(host: string, onShow: () => void) {
+  const store = useArtifactPreviewStore();
+  return () => {
+    flushSync(onShow);
+    store.focusBeside(host);
+  };
+}
+
 function BesideFileRow({ host, onShow }: { host: string; onShow: () => void }) {
   const open = useBesidePreview(host);
+  const show = useShowFile(host, onShow);
   if (!open) return null;
-  return <ToolsRow icon={<PreviewIcon preview={open.preview} size={15} />} label={previewName(open.preview)} onClick={onShow} />;
+  return <ToolsRow icon={<PreviewIcon preview={open.preview} size={15} />} label={previewName(open.preview)} onClick={show} />;
 }
 
 function BesideFileMini({ host, onShow }: { host: string; onShow: () => void }) {
   const open = useBesidePreview(host);
+  const show = useShowFile(host, onShow);
   if (!open) return null;
-  return <ToolsMini icon={<PreviewIcon preview={open.preview} size={16} />} label={previewName(open.preview)} onClick={onShow} />;
+  return <ToolsMini icon={<PreviewIcon preview={open.preview} size={16} />} label={previewName(open.preview)} onClick={show} />;
 }
 
 function BesideChatRow({ chatId, onShow }: { chatId: string; onShow: () => void }) {

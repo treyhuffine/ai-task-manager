@@ -57,7 +57,7 @@ export async function readExecution(location: ExecutionLocation, read: Execution
     case 'tree': {
       const handle = await openWorktreeHandle(pointer, sourceOf(location));
       if (!handle) return ok({ entries: [] });
-      return ok({ entries: await listTree(handle, location.filesToCopy) });
+      return ok(await listTree(handle, location.filesToCopy));
     }
     case 'file': {
       const handle = await openWorktreeHandle(pointer, sourceOf(location));

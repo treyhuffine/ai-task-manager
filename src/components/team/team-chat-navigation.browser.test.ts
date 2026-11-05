@@ -22,6 +22,7 @@ beforeAll(async () => {
     createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><HomeErrorBoundary><Frame/></HomeErrorBoundary></QueryClientProvider>);
   `, [{ name: 'team-navigation-data', setup(build) {
     const modules: Record<string, string> = {
+      '@/contexts/dashboard-context': `export const useOptionalDashboard=()=>null;`,
       'next/navigation': `import {useSyncExternalStore} from 'react';const sub=f=>{addEventListener('popstate',f);return()=>removeEventListener('popstate',f)};export const usePathname=()=>location.pathname;export const useSearchParams=()=>new URLSearchParams(useSyncExternalStore(sub,()=>location.search));export const useRouter=()=>({replace:url=>{history.replaceState(null,'',url);dispatchEvent(new Event('popstate'));},push:url=>{history.pushState(null,'',url);dispatchEvent(new Event('popstate'));}});`,
       '@/hooks/use-workspaces': `const workspace={id:'agent',name:'Shared agent',status:'active'};export const useWorkspaces=()=>({data:[workspace]});export const useWorkspace=()=>({data:workspace});`,
       '@/hooks/use-execution': `import {useQuery} from '@tanstack/react-query';export const useSession=id=>useQuery({queryKey:['fixture-session',id],enabled:!!id,queryFn:async()=>{if(id==='missing'&&!window.fixed)throw new Error('Chat not found');return{id,workspaceId:'agent',executionId:null,label:id,status:'active'};}});`,
@@ -29,12 +30,17 @@ beforeAll(async () => {
       '@/components/home/home-context': `export const useHomeStorageScope=()=>'team:member';`,
       '@/lib/trpc/client': `export const trpc={};export const trpcClient={workspaces:{chatGet:{query:async()=>({session:{id:window.current}})},chatNewPost:{mutate:async input=>{window.requests.push(input);window.current='created-'+window.requests.length;return{session:{id:window.current,workspaceId:'agent',executionId:null}};}}}};`,
       '@/components/chat/main-chat-history-menu': `export const MainChatHistoryMenu=()=>null;`,
+      '@/components/chat-ui/chat-menu': `export const ChatMenu=()=>null;`,
+      '@/components/chat-ui/read-state-button': `export const ReadStateButton=()=>null;`,
+      '@/components/triggers/schedule-chat-button': `export const ScheduleChatButton=()=>null;`,
+      './agent-tools-box': `export const AgentToolsBox=()=>null;`,
+      './agent-beside-chat': `export const AgentBesideChat=()=>null;export const BesideChatTabLabel=()=>null;`,
       '@/components/chat/harness-chat': `import React from 'react';export const HarnessChat=()=> <div>Start a conversation</div>;export const HarnessChatSession=({sessionId,onSwitchProvider})=><section><div>Conversation {sessionId}</div><button onClick={()=>onSwitchProvider({harness:'codex',model:'fixture-codex'})}>Switch model</button></section>;`,
       '@/components/executions/execution-view': `import React from 'react';export const ExecutionView=({sessionId})=><div>Execution {sessionId}</div>;`,
       './agent-header': `import React from 'react';export const AgentHeader=({workspace,pane})=><header><h2>{workspace.name}</h2>{pane&&<><button onClick={()=>pane.onChange('chat')}>Chat pane</button><button onClick={()=>pane.onChange('tools')}>Tools pane</button></>}</header>;`,
       './agent-overview': `import React from 'react';export const AgentOverview=()=> <div>Agent overview</div>;`,
       './agent-files': `import React from 'react';export const AgentFiles=()=> <div>Files body</div>;`,
-      './agent-terminal': `import React from 'react';export const AgentTerminal=()=> <div>Terminal body</div>;`,
+      '../execution-terminal-panel': `import React from 'react';export const ExecutionTerminalPanel=()=> <div>Terminal body</div>;`,
       './agent-preview': `import React from 'react';export const AgentPreview=()=> <div>Preview body</div>;`,
       './agent-setup': `import React from 'react';export const AgentSetup=()=> <div>Setup body</div>;`,
       '@/components/chat-ui/artifacts/artifact-preview-provider': `export const useBesidePreview=()=>null;export const useBesideRegion=()=>{};`,
@@ -47,13 +53,13 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(async () => { await fixture?.close(); });
 
-it.skipIf(!enabled).each([390, 1280])('retains the linked conversation through Files, Terminal, Preview and reload at %ipx', async width => {
+it.skipIf(!enabled).each([390, 1280])('retains the linked conversation through Files, Preview, Setup and reload at %ipx', async width => {
   const page = await fixture.browser.newPage({ viewport: { width, height: 850 } });
   try {
     await page.goto(fixture.url + '?view=chat&chat=linked-X');
     await page.getByText('Conversation linked-X', { exact: true }).waitFor();
     if (width === 390) await page.getByRole('button', { name: 'Tools pane' }).click();
-    for (const name of ['Files', 'Terminal', 'Preview']) {
+    for (const name of ['Files', 'Preview', 'Setup']) {
       await page.getByRole('tab', { name, exact: true }).click();
       expect(new URL(page.url()).searchParams.get('chat')).toBe('linked-X');
       await expect.poll(() => page.getByRole('tab', { name, exact: true }).getAttribute('aria-selected')).toBe('true');

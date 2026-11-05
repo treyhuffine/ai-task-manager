@@ -37,7 +37,7 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-export function describeHeartbeat(config: HeartbeatConfig, now: Date = new Date()): HeartbeatStatus {
+export function describeHeartbeat(config: HeartbeatConfig, now: Date = new Date(), assistant = 'your main agent'): HeartbeatStatus {
   const last = config.lastCheckIn;
 
   if (config.running) {
@@ -48,7 +48,7 @@ export function describeHeartbeat(config: HeartbeatConfig, now: Date = new Date(
     const detail =
       config.disabledReason === 'budget_exceeded'
         ? 'Off. It was paused because the monthly budget ran out.'
-        : 'Off. Turn it on to check in on a schedule, or check in once now.';
+        : "Off. When it's on, an agent goes through your work on this schedule and follows your instructions.";
     return { chip: 'off', tone: 'off', detail };
   }
 
@@ -68,22 +68,28 @@ export function describeHeartbeat(config: HeartbeatConfig, now: Date = new Date(
     const why = last.errorMessage ? `: ${last.errorMessage}` : '';
     return { chip: 'failed', tone: 'error', detail: `The last check-in (${when}) failed${why}.${next}` };
   }
+  if (last.handOffFailed) {
+    return { chip: 'failed', tone: 'error', detail: `The last check-in (${when}) found something but couldn't reach ${assistant}.${next}` };
+  }
   if (last.status === 'cancelled') {
     return { chip: when, tone: 'idle', detail: `The last check-in (${when}) was stopped.${next}` };
   }
-  if (last.quiet) {
-    return { chip: when, tone: 'idle', detail: `Last check-in ${when}. Nothing needed.${next}` };
-  }
 
   const changed = last.changedCount > 0 ? ` Changed ${plural(last.changedCount, 'item', 'items')}.` : '';
-  if (last.unread) {
-    return { chip: '1 for you', tone: 'attention', detail: `Last check-in ${when} left a report.${changed}${next}` };
+  if (last.outcome === 'told') {
+    return { chip: when, tone: 'idle', detail: `The last check-in (${when}) told ${assistant} something.${changed}${next}` };
+  }
+  if (last.outcome === 'held') {
+    return { chip: when, tone: 'idle', detail: `The last check-in (${when}) saved something for later.${changed}${next}` };
+  }
+  if (last.outcome === 'quiet') {
+    return { chip: when, tone: 'idle', detail: `Last check-in ${when}. Nothing needed.${changed}${next}` };
   }
   return { chip: when, tone: 'idle', detail: `Last check-in ${when}.${changed}${next}` };
 }
 
 /** Why the deck should mention the heartbeat at all. */
-export type HeartbeatDeckSignalKind = 'setup' | 'paused' | 'failed' | 'report';
+export type HeartbeatDeckSignalKind = 'setup' | 'paused' | 'failed';
 
 export interface HeartbeatDeckSignal {
   kind: HeartbeatDeckSignalKind;
@@ -98,11 +104,10 @@ export interface HeartbeatDeckSignal {
  *
  *   - never set up (off, no check-in ever)  → "Set up heartbeat"
  *   - paused by the app (budget ran out)     → "Heartbeat paused"
- *   - the last check-in failed               → "Heartbeat failed"
- *   - the last check-in left an unread report → "Heartbeat · 1 for you"
+ *   - the last check-in failed, or its note couldn't reach the main agent → "Heartbeat failed"
  *
- * Running, idle, quiet, and turned off by the user after using it all return
- * null. The ordering mirrors `describeHeartbeat` so the chip and its tooltip
+ * Running, idle, and turned off by the user after using it all return null.
+ * What a check-in finds reaches the user as a message from the main agent. The ordering mirrors `describeHeartbeat` so the chip and its tooltip
  * never disagree.
  */
 export function heartbeatDeckSignal(config: HeartbeatConfig): HeartbeatDeckSignal | null {
@@ -116,7 +121,6 @@ export function heartbeatDeckSignal(config: HeartbeatConfig): HeartbeatDeckSigna
 
   const last = config.lastCheckIn;
   if (!last) return null;
-  if (last.status === 'failed') return { kind: 'failed', label: 'Heartbeat failed' };
-  if (!last.quiet && last.unread) return { kind: 'report', label: 'Heartbeat · 1 for you' };
+  if (last.status === 'failed' || last.handOffFailed) return { kind: 'failed', label: 'Heartbeat failed' };
   return null;
 }
