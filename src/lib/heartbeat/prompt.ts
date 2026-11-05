@@ -18,7 +18,7 @@ const NOTE_LATER_HEADING = 'Later';
 
 export const HEARTBEAT_GROUND_RULES = `This is a scheduled background check-in, not a conversation. The user is not watching and won't read this chat. Work through the instructions below using the ${APP_NAME} tools. Do only what the instructions ask, and don't invent new chores. Skip anything you have no tools for.
 
-The instructions may say when to do things, such as once each morning. Use the time and the earlier check-ins listed below to decide what's due now.
+The instructions may say when to do things, such as once each morning. Use the time and the earlier check-ins listed below to decide what's due now, and do every item that's due, checking with the tools before you conclude there's nothing to do.
 
 Never delete anything. Never send, post, or share anything outside ${APP_NAME}. Never complete a task. Start or message agent executions only when the instructions ask for it. Don't use message_agent to reach the user or their main agent. Your final reply is how anything reaches them. This chat closes when you finish, so don't wait on agent work you start. A later check-in can look at it.
 

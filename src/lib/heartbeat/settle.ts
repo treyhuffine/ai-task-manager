@@ -19,12 +19,13 @@ import {
 import { handOffToMainAgent } from './handoff';
 import { isQuietReply, parseCheckInNote } from './prompt';
 
-/** A note's first item as one short line, for run lists. */
+/** A note's first item as one short line, for run lists. A line ending in a colon only introduces the items. */
 function firstItem(note: string): string {
-  const line = note
+  const lines = note
     .split('\n')
     .map((text) => text.replace(/\[\[[^\]]*\]\]/g, '').replace(/[*_`]/g, '').replace(/^\s*[-•]\s*/, '').trim())
-    .find(Boolean) ?? '';
+    .filter(Boolean);
+  const line = lines.find((text) => !text.endsWith(':')) ?? lines[0] ?? '';
   return line.length > 160 ? `${line.slice(0, 159)}…` : line;
 }
 
@@ -52,7 +53,7 @@ export function settleHeartbeatRun(runId: string, chatSessionId: string): { hand
 
   if (note?.now) {
     const told = listRuns({ triggerId: RESERVED_TRIGGER_IDS.heartbeat, status: 'completed', limit: 500 }).some((other) => other.id !== runId && other.statusReason === HEARTBEAT_TOLD_REASON);
-    handOffToMainAgent(getRun(runId)!, source, note.now, { first: !told });
+    handOffToMainAgent(getRun(runId)!, source, note.now, { first: !told, did: note.did });
   }
   archiveChatSession(chatSessionId);
   return { handedOff: !!note?.now };

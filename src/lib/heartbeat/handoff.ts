@@ -29,12 +29,20 @@ const OUTCOME_LOOKBACK = 200;
 
 const DECLINE = `If they already know this, or it no longer matters, reply with exactly ${NO_MESSAGE_REPLY} and nothing else, and they won't see anything.`;
 
-const VOICE = "Write as yourself, the way you'd text someone you work with. Don't mention the check-in, the heartbeat, or this note.";
+const VOICE = "Write as yourself, the way you'd text someone you work with. Write only the message itself, with no narration before or after your checks. Don't mention the check-in, the heartbeat, or this note.";
+
+interface NoteOptions {
+  /** The first message the user has had from a check-in, so it says what it is. */
+  first?: boolean;
+  /** What the check-in changed, from its Did section. */
+  did?: string | null;
+}
 
 /** What the main agent reads. The user only sees a link to the check-in, then the reply. */
-export function composeMainAgentNote(note: string, options: { first?: boolean } = {}): string {
+export function composeMainAgentNote(note: string, options: NoteOptions = {}): string {
   const first = options.first ? " This is the first message they've had from a check-in, so add one line saying you check in on a schedule and they can change or stop it in Settings > Heartbeat." : '';
-  return `A background check-in has something for the user while they're away. It can't reach them, so you decide whether and how to tell them. Your reply is sent to them as a message right away.\n\n${note}\n\nLead with what matters and what they should do, as briefly as the content allows. Check with your tools if you need to. ${VOICE}${first} ${DECLINE}`;
+  const did = options.did ? `\n\nIt also did this, which you can mention in a line if it helps:\n\n${options.did}` : '';
+  return `A background check-in has something for the user while they're away. It can't reach them, so you decide whether and how to tell them. Your reply is sent to them as a message right away.\n\n${note}${did}\n\nLead with what matters and what they should do, as briefly as the content allows. Check with your tools if you need to. ${VOICE}${first} ${DECLINE}`;
 }
 
 function deliveryId(sourceSessionId: string, runId: string): string {
@@ -47,7 +55,7 @@ function deliveryId(sourceSessionId: string, runId: string): string {
  * is idle. App-owned, so it needs no agent coordination approval: turning the
  * heartbeat on is what authorized it.
  */
-export function handOffToMainAgent(run: RunRecord, source: ChatSessionRecord, note: string, options: { first?: boolean } = {}): AgentDeliveryRecord {
+export function handOffToMainAgent(run: RunRecord, source: ChatSessionRecord, note: string, options: NoteOptions = {}): AgentDeliveryRecord {
   const id = deliveryId(source.id, run.id);
   return createInitiatingAgentDelivery({
     id,

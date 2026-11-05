@@ -350,13 +350,14 @@ const describe_schema = defineAction({
 
 const list_tasks_action = defineAction({
   name: 'list_tasks',
-  description: 'List tasks with optional filters (status, area, parent, energy, text search).',
+  description: 'List tasks with optional filters (status, area, parent, energy, text search, last updated before a date).',
   params: {
     status: z.union([taskStatusFilter, z.array(taskStatusFilter)]).optional(),
     areaId: z.string().nullable().optional(),
     parentId: z.string().nullable().optional(),
     energy: taskEnergy.optional(),
     q: z.string().optional(),
+    updatedBefore: z.string().optional().describe('ISO date. Only tasks last updated before it, to find stale ones without listing everything.'),
     limit: z.number().int().positive().max(1000).optional(),
     offset: z.number().int().nonnegative().optional(),
     orderBy: z

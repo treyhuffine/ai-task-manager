@@ -329,11 +329,13 @@ Added 2026-11-04, after reading what the first 12 check-ins did. Email and stuck
 
 So there's one switch, one timer, and one instruction box, and the instructions say what's due when (§8 is superseded by `DEFAULT_HEARTBEAT_INSTRUCTIONS`). This replaces the app-decided daily message from §15, which is deleted. The morning summary is a Now note the instructions ask for.
 
+The default tidy follows one line: fill gaps and clear clutter on its own, never overrule something the person chose, and never ask about it, because the person shouldn't have to maintain a system. So it archives only what's clearly dead, moves tasks untouched for 6 months to Consider unless they have a deadline or repeat, files a task only when the area is obvious, and leaves anything already set alone, at most 10 changes a night. Archiving only dead tasks wouldn't be enough: on the first real home, 3 of 427 open tasks were blank, while 166 hadn't been touched in 6 months. Stale-task lists for the person to approve were tried in draft and dropped, since that makes them the one maintaining it. The morning summary brings decisions with recommendations, so one word can unblock work, and stalled chats get told to continue when the next step is clear and safe.
+
 What has to stay in code:
 
 - **The hard limits.**
-- **What a check-in can't work out for itself** (`checkInContext`): the time, when earlier check-ins ran today, what they did and raised, how many chats are running or waiting to be read, and chats that finished since the last check-in with their status lines. That's what makes "once each morning" work, and handing over the chats is meant to spare it crawling them.
-- **Filing isn't touching** (`isCheckInFiling`): an area-only `update_task` from a check-in keeps `updatedAt`, so "nobody has touched this in 14 days" still finds the task. It's still recorded in the task's history.
+- **What a check-in can't work out for itself** (`checkInContext`): the time, when the last check-in finished, when earlier ones ran today, what they did and raised, how many chats are running or waiting to be read, and chats that finished since the last check-in with their status lines. That's what makes "once each morning" work, and handing over the chats is meant to spare it crawling them.
+- **Filing isn't touching** (`isCheckInFiling`): an area-only `update_task` from a check-in keeps `updatedAt`, so "nobody has touched this in 6 months" still finds the task. It's still recorded in the task's history.
 
 What this gives up:
 

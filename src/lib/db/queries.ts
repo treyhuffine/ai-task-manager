@@ -152,6 +152,7 @@ export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
   if (filter.source) conditions.push(taskSourceCondition(filter.source));
   if (filter.energy) conditions.push(eq(tasks.energy, filter.energy));
   if (filter.q) conditions.push(sql`${tasks.title} LIKE ${'%' + filter.q + '%'}`);
+  if (filter.updatedBefore) conditions.push(lt(tasks.updatedAt, filter.updatedBefore));
 
   const limit = filter.limit ?? 10000;
   const offset = filter.offset ?? 0;
