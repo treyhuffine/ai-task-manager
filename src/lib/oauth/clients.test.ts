@@ -43,6 +43,16 @@ describe('registration', () => {
     expect(clientLabel(registered.client_id)).toBe('Claude');
   });
 
+  it('never hands out a secret for an ID someone else already holds: the same details register anew', () => {
+    const details = { client_name: 'Claude', redirect_uris: ['https://claude.ai/api/mcp/auth_callback'], token_endpoint_auth_method: 'client_secret_post' };
+    const first = registerClient(details, SECRET);
+    const again = registerClient(details, SECRET);
+    expect(again.client_id).not.toBe(first.client_id);
+    expect(again.client_secret).not.toBe(first.client_secret);
+    expect(secretMatches(first.client_id, again.client_secret!, SECRET)).toBe(false);
+    expect(secretMatches(first.client_id, first.client_secret!, SECRET)).toBe(true);
+  });
+
   it('defaults to client_secret_basic, as RFC 7591 says, and gives a public client no secret', () => {
     expect(registerClient({ redirect_uris: ['https://a.example/cb'] }, SECRET)).toMatchObject({ token_endpoint_auth_method: 'client_secret_basic', client_secret: expect.any(String) });
     expect(registerClient({ redirect_uris: ['https://a.example/cb'], token_endpoint_auth_method: 'none' }, SECRET).client_secret).toBeUndefined();

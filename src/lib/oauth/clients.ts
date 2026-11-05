@@ -9,7 +9,9 @@
  *     name and gets an ID back. The ID is that registration itself, encoded,
  *     so registering stores nothing and anyone on the internet calling the
  *     open endpoint can't fill the Home's disk. A confidential client's secret
- *     is an HMAC of its ID under the Home's local token.
+ *     is an HMAC of its ID under the Home's local token. Each registration
+ *     holds a random value, so registering the same details again makes a new
+ *     ID and secret, and reading an ID never leads to its secret.
  */
 import crypto from 'node:crypto';
 import dns from 'node:dns';
@@ -114,7 +116,7 @@ export function kindFor(client: Pick<OAuthClient, 'host'>, redirectUri: string):
 
 // ─── Dynamic registration ─────────────────────────────────────
 
-interface Registration { v: 1; r: string[]; n: string | null; a: ClientAuthMethod }
+interface Registration { v: 1; r: string[]; n: string | null; a: ClientAuthMethod; s: string }
 
 function homeSecret(): string {
   const token = readAuthConfig()?.localToken;
@@ -171,7 +173,7 @@ export function registerClient(body: unknown, secret?: string): RegisteredClient
     throw new RegistrationError('invalid_client_metadata', 'Ri answers the code response type.');
   }
   const name = cleanName(input.client_name);
-  const registration: Registration = { v: 1, r: uris as string[], n: name, a: method as ClientAuthMethod };
+  const registration: Registration = { v: 1, r: uris as string[], n: name, a: method as ClientAuthMethod, s: crypto.randomBytes(16).toString('base64url') };
   const clientId = `${REGISTERED_PREFIX}${Buffer.from(JSON.stringify(registration)).toString('base64url')}`;
   return {
     client_id: clientId,

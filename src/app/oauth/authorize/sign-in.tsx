@@ -16,12 +16,12 @@ async function signInWith(token: string): Promise<boolean> {
 /**
  * Signs this browser in to Ri where the app's sign-in opened it, so the app's
  * request survives. A browser that already has Ri's token only needs its
- * cookie. Otherwise the owner pastes a code from Add device, as on /pair.
+ * cookie. Otherwise the owner pastes a token from Add device, as on /pair.
  */
 export function SignInToContinue({ client }: { client: string | null }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [code, setCode] = useState('');
+  const [pasted, setPasted] = useState('');
   const [state, setState] = useState<'checking' | 'idle' | 'busy' | 'refused'>('checking');
 
   useEffect(() => {
@@ -47,7 +47,7 @@ export function SignInToContinue({ client }: { client: string | null }) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const token = code.trim();
+    const token = pasted.trim();
     if (!token) return;
     setState('busy');
     const ok = await signInWith(token).catch(() => false);
@@ -61,17 +61,17 @@ export function SignInToContinue({ client }: { client: string | null }) {
       <div className="space-y-1.5">
         <h1 className="text-lg font-semibold text-foreground">Sign in to Ri</h1>
         <p className="text-sm text-muted-foreground">
-          {client ? `${client} wants to connect to your Ri.` : 'An app wants to connect to your Ri.'} Sign this browser in first.
+          {client ? `${client} wants to connect to your Ri.` : 'An app wants to connect to your Ri.'} This browser isn’t one of your Ri devices yet.
         </p>
       </div>
       <label className="block space-y-1.5">
         <span className="text-xs text-muted-foreground">
-          On a device where you use Ri, open Settings → Devices and choose Add device. Paste its code here.
+          On a device where you use Ri, open Settings → Devices, choose Add device and create its pairing link. Copy the token it shows and paste it here. This browser then stays signed in to Ri.
         </span>
         <input
           ref={inputRef}
-          value={code}
-          onChange={event => { setCode(event.target.value); if (state === 'refused') setState('idle'); }}
+          value={pasted}
+          onChange={event => { setPasted(event.target.value); if (state === 'refused') setState('idle'); }}
           autoComplete="off"
           spellCheck={false}
           placeholder="ri_live_…"
@@ -79,10 +79,10 @@ export function SignInToContinue({ client }: { client: string | null }) {
           className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-ring"
         />
       </label>
-      {state === 'refused' && <p role="alert" className="text-xs text-destructive">That code didn’t work. Make a new one with Add device.</p>}
+      {state === 'refused' && <p role="alert" className="text-xs text-destructive">That token didn’t work. Make a new one with Add device.</p>}
       <button
         type="submit"
-        disabled={!code.trim() || state === 'busy'}
+        disabled={!pasted.trim() || state === 'busy'}
         className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
       >
         {state === 'busy' && <Loader2 size={14} className="animate-spin" aria-hidden />} Continue
