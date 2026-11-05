@@ -6,6 +6,9 @@ export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_MULTIPART_BYTES = MAX_FILE_BYTES + 1024 * 1024;
 
 export async function readLimitedFormData(request: Request): Promise<FormData> {
+  // The proxy hands on only the first MAX_MULTIPART_BYTES of a larger body (`proxyClientMaxBodySize`
+  // in next.config.ts), which no longer parses as a form. Its stated size says why it won't.
+  if (Number(request.headers.get('content-length')) > MAX_MULTIPART_BYTES) throw new RequestBodyTooLargeError(MAX_FILE_BYTES);
   const body = await readLimitedRequestBody(request, MAX_MULTIPART_BYTES);
   const form = await new Response(body, { headers: {
     'content-type': request.headers.get('content-type') ?? '',

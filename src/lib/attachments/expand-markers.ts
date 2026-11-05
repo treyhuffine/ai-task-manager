@@ -1,22 +1,17 @@
 /**
  * Expand `[[file:<fileName>]]` markers in a user-prompt string into
- * the agent-readable form. Three outcomes per marker:
+ * the agent-readable form. Two outcomes per marker:
  *
- *   - For mimes the agent reads itself (text, code, images, PDF, JSON,
- *     XML): the marker stays. `executor.dispatch` turns it into the file's
- *     path on the device the chat runs on, which only it knows: the
- *     home's attachments directory, or a connected device's copy
- *     (`markers.ts`, docs/homes-build.md P2.5).
- *   - For non-natively-readable mimes (docx, xlsx, audio): extract
- *     to text and inline it wrapped in `<attachment>` tags so the
- *     agent sees the content directly. Extraction runs at home, wherever
- *     the chat runs.
- *   - For a 3D model (STL, 3MF, STEP): the marker stays, and becomes its
- *     path, for the agent's own tools.
- *   - For a zip archive: the marker stays, like a file the agent reads
- *     itself. There is no text to extract, so the agent gets the path and
- *     unpacks it with its own tools. An Office document that arrived
- *     labeled as its zip container is still extracted, by its name.
+ *   - For a file with text Ri can extract (docx, xlsx, pptx, audio): extract
+ *     it and inline it wrapped in `<attachment>` tags so the agent sees the
+ *     content directly. Extraction runs at home, wherever the chat runs. An
+ *     Office document that arrived labeled as its zip container is still
+ *     extracted, by its name.
+ *   - For any other file, of any type: the marker stays. `executor.dispatch`
+ *     turns it into the file's path on the device the chat runs on, which
+ *     only it knows: the home's attachments directory, or a connected
+ *     device's copy (`markers.ts`, docs/homes-build.md P2.5). The agent opens
+ *     it with its own tools.
  *
  * Used by `POST /api/sessions/[id]/messages` and the health check's orphan
  * re-fire, each before handing the text and its attachments to
@@ -27,7 +22,7 @@
  */
 
 import { extractTextFromAttachment, formatExtractedAttachment } from './extract-text';
-import { FILE_MARKER_RE, isArchive, isModel, readsNatively } from './markers';
+import { FILE_MARKER_RE, readsNatively } from './markers';
 import type { Attachment } from '@/db/types';
 
 export async function expandMarkers(content: string, attachments: Attachment[]): Promise<string> {
@@ -44,7 +39,7 @@ export async function expandMarkers(content: string, attachments: Attachment[]):
     const end = start + m[0].length;
     const fileName = m[1]!;
     const a = map.get(fileName);
-    if (!a || readsNatively(a.mimeType) || isModel(a.mimeType) || a.mimeType.startsWith('video/')) {
+    if (!a || readsNatively(a.mimeType)) {
       matches.push({ start, end, replacement: m[0] });
       continue;
     }
@@ -54,12 +49,9 @@ export async function expandMarkers(content: string, attachments: Attachment[]):
       (async () => {
         try {
           const result = await extractTextFromAttachment(a);
-          // Nothing extracted from a zip means it is a real archive, not an
-          // Office document. Its marker stays, and becomes its path.
-          if (!result && isArchive(a.mimeType)) return;
-          matches[slot]!.replacement = result
-            ? formatExtractedAttachment(a, result)
-            : `<attachment filename="${a.originalName || a.fileName}" status="unreadable" />`;
+          // Nothing to extract. The marker stays, and becomes the file's path.
+          if (!result) return;
+          matches[slot]!.replacement = formatExtractedAttachment(a, result);
         } catch (err) {
           console.warn(`[expandMarkers] extract failed for ${a.fileName}:`, err);
           matches[slot]!.replacement = `<attachment filename="${a.originalName || a.fileName}" status="extract-error" />`;

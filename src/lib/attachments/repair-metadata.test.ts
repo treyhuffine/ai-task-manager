@@ -86,6 +86,18 @@ describe('copied-note attachment metadata repair plan', () => {
     expect(() => planNoteAttachmentMetadataRepair(args)).toThrow(/exactly one/);
   });
 
+  it('repairs from a real upload of a type Ri has no name for', () => {
+    fs.writeFileSync(path.join(getAttachmentsDir(), 'scene.glb'), 'test');
+    const real = { ...authoritative, fileName: 'scene.glb', originalName: 'Scene.glb', mimeType: 'application/octet-stream' };
+    const glbBody = '[[file:scene.glb]]';
+    const result = planNoteAttachmentMetadataRepair({
+      source: { id: 'source', body: glbBody, attachments: [real] },
+      target: { id: 'target', body: glbBody, attachments: [{ ...stub, fileName: 'scene.glb', originalName: 'scene.glb' }] },
+      fileNames: ['scene.glb'],
+    });
+    expect(result.attachments).toEqual([real]);
+  });
+
   it.each([
     { originalName: '' }, { mimeType: 'application/octet-stream' }, { size: 0 },
     { size: -1 }, { size: 1.5 }, { uploadedAt: 'not a date' }, { uploadedAt: '2026-04-21' },

@@ -15,13 +15,12 @@ import { FormPreview } from './form-preview';
 /** This chat's attachments, from the transcript already loaded beside the form. Nothing is fetched for it. */
 /**
  * Upload a file the person chose for a server's form. It goes to this Home's
- * attachments, where the form names it by path to a server on this computer,
- * and as a form file it may be of any type (`POST /api/attachments`).
+ * attachments, even in a team's space, where the form names it by path to a
+ * server on this computer.
  */
 function uploadFormFile(file: File): Promise<Attachment> {
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('purpose', 'form-file');
   return api.upload<Attachment>('/attachments', formData);
 }
 
