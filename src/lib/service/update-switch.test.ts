@@ -131,6 +131,16 @@ it('keeps the launcher\'s fallback whichever side of the commit a crash lands on
   expect(readActivation(directory)).toEqual({ candidate: null, previous: null, restore: false });
 });
 
+it('changes nothing when a finished update is recovered on an ordinary start', async () => {
+  const updater = coordinator(); await updater.offer(candidate); await updater.apply();
+  const active = path.join(directory, 'active-release');
+  const before = fs.statSync(active).mtimeMs;
+  await new Promise(resolve => setTimeout(resolve, 20));
+  await coordinator().recover();
+  expect(fs.statSync(active).mtimeMs).toBe(before);
+  expect(installedRuntime()?.id).toBe(candidate);
+});
+
 it('finishes a rollback whose restore failed, instead of selecting the release it was leaving', async () => {
   const before = coordinator(); await before.offer(candidate); await before.apply();
   write('written after the update');

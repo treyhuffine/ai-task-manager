@@ -129,6 +129,11 @@ export class UpdateCoordinator {
    * cleanup never sees a release both of them have just stopped naming. */
   private async select(id: string, previous?: string) {
     await this.target(id);
+    // A finished update stays recorded, so every controller start lands here
+    // with nothing to change. Homes booting together shouldn't queue for this
+    // lock, and recovery failing on it would leave a Home down.
+    const pointer = (name: string) => { try { return fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ this.directory, name), 'utf8').trim(); } catch { return null; } };
+    if (pointer('active-release') === id && (!previous || pointer('previous-release') === previous)) return;
     withStoreLock(() => {
       if (previous) atomicWriteFile(path.join(/* turbopackIgnore: true */ this.directory, 'previous-release'), `${previous}\n`);
       atomicWriteFile(path.join(/* turbopackIgnore: true */ this.directory, 'active-release'), `${id}\n`);

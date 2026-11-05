@@ -533,7 +533,8 @@ async function start() {
   await new Promise<void>((resolve, reject) => { control.once('error', reject); control.listen(paths.socket, resolve); });
   fs.chmodSync(paths.socket, 0o600);
   // Keep the private recovery/status surface alive without a crash loop.
-  const selectedBefore = installedRuntime()?.id;
+  let selectedBefore: string | undefined;
+  try { selectedBefore = installedRuntime()?.id; } catch { /* an unreadable selection is recovery's to repair */ }
   try { await updater.recover(); }
   catch (error) {
     starting = false;
