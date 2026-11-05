@@ -755,6 +755,7 @@ A real turn from a stand-in harness now runs in the qualification, on a real ser
 | Opening a lease closed a descriptor to its file, and that drops every POSIX lock the process holds there. On a busy Home, nothing held the activity lease across processes, so drains never waited for work the check doesn't list | The file is only created when it's missing. Tested across two real processes. Handoff now waits for requests in flight too |
 | A crash while offline left the gate on disk, and a server can't open the database under it, so the Home stayed down until someone removed the file | Recovery clears it |
 | A job in a terminal nobody was watching was cut off by an update or planned restart | A terminal counts while a command runs in it |
+| With leases holding, a message queued for a device that's away would hold up plain updates for as long as the device stayed away | A turn that isn't running on this computer lets go of its lease. A restart doesn't touch it |
 
 
 One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.

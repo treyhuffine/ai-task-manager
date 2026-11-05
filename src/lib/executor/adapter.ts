@@ -19,7 +19,7 @@ import { localAppsEnabled } from '@/lib/config/features';
  */
 
 import { assertServiceTier } from '@/lib/harness/service-tiers';
-import { withActivity, readMaintenance } from '@/lib/service/maintenance';
+import { beginActivity, readMaintenance } from '@/lib/service/maintenance';
 import { existsSync } from 'node:fs';
 import { uuidv7 } from 'uuidv7';
 import type { StreamEvent, UserInputResponse } from '@agentex/agent';
@@ -225,6 +225,8 @@ export {
  * finishes it. Manual sends create their own run.
  */
 export interface DispatchOptions {
+  /** Set by `dispatch`: lets go of its activity lease early. */
+  releaseActivity?: () => void;
   /** Internal serialized team receipt, never a client-supplied authority. */
   teamTurnId?: string;
   overBudget?: boolean;
@@ -326,16 +328,17 @@ export async function dispatch(
   if (!options.teamTurnId) assertPersonalCapability('Execution without a serialized member turn');
   // Admitted only while the service isn't preparing an update (desktop
   // maintenance): an update waits for the sends already in, and refuses new ones.
-  return withActivity(async () => {
+  const release = beginActivity();
+  try {
     for (let attempt = 0; ; attempt++) {
       try {
-        return await dispatchOnce(chatSessionId, userMessage, options);
+        return await dispatchOnce(chatSessionId, userMessage, { ...options, releaseActivity: release });
       } catch (err) {
         if (err instanceof StartOver && attempt < 2) continue;
         throw err;
       }
     }
-  });
+  } finally { release(); }
 }
 
 async function dispatchOnce(
@@ -660,6 +663,9 @@ async function dispatchTo(
   if (delivered.outcome === 'held') options.onHeld?.();
   if (delivered.commandId) options.onQueuedCommand?.(delivered.commandId);
   if (delivered.outcome === 'queued' || (delivered.outcome === 'sent' && delivered.acceptsMore)) options.onAccepted?.();
+  // A turn on another device, or a message waiting for one that's away, isn't
+  // running here. A restart doesn't touch it, and it can take days.
+  if (remote) options.releaseActivity?.();
   try {
     await delivered.turn;
   } finally {

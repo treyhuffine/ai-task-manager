@@ -330,7 +330,7 @@ async function activity() {
   const state = await backendRequest<{ executions: number; apps: number; background: number; permissions: number; terminals: number }>('/__ri_activity');
   const count = (total: number, one: string) => total ? `${total} ${one}${total === 1 ? '' : 's'}` : '';
   return [count(state.executions, 'chat'), count(state.apps, 'app task'), count(state.background, 'background task'),
-    count(state.permissions, 'pending permission'), count(state.terminals, 'open terminal')].filter(Boolean);
+    count(state.permissions, 'pending permission'), count(state.terminals, 'busy terminal')].filter(Boolean);
 }
 
 const control = http.createServer(async (request, response) => {

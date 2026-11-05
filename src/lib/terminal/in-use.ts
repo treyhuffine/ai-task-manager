@@ -11,8 +11,9 @@ import path from 'node:path';
 interface Terminal { exited: boolean; shell: string; listeners: Set<unknown>; proc: { process: string } }
 
 function runningCommand(terminal: Terminal) {
-  // The foreground process's name, which is the shell itself when it's idle.
-  try { return terminal.proc.process !== path.basename(/* turbopackIgnore: true */ terminal.shell); }
+  // The foreground process, which is the shell itself when it's idle. Linux
+  // reports the full path it was started with, macOS only the name.
+  try { return path.basename(/* turbopackIgnore: true */ terminal.proc.process) !== path.basename(/* turbopackIgnore: true */ terminal.shell); }
   catch { return false; }
 }
 

@@ -11,6 +11,7 @@ it('counts a terminal a window shows, or one running a command nobody is watchin
     ['shown', terminal('zsh', 1)],
     ['a long job, walked away from', terminal('npm')],
     ['an idle shell, forgotten', terminal('zsh')],
+    ['an idle shell on Linux, which reports its full path', terminal('/bin/zsh')],
     ['finished', terminal('zsh', 1, true)],
   ]) };
   expect(terminalsInUse()).toBe(2);
