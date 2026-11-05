@@ -691,6 +691,21 @@ Running those repairs on real releases, with crash states written to disk under 
 | The check that nothing holds the database open ran `lsof` on a path that doesn't exist during a restore, so a crash there could never recover by itself | With no file there, nothing holds it. A failed recovery also says why in the service log |
 | A new import from the store reached the snapshot code, whose runtime paths then matched `src/lib/service` in every server trace, and the build's guard stopped it | The clone check has its own module |
 
+A throwaway job on a temporary Home then ran under real launchd, created through `ri start`:
+
+| What happened | Result |
+| --- | --- |
+| `kill -9` on the server | Back in 3.5 s, on the same controller |
+| `kill -9` on the controller | Back in 3 s on a settled Home. Within 30 s of its last start it waits out launchd's throttle: 32 s, and once 90 s under load, which didn't repeat |
+| `kill -9` on the launcher | Back in 3.2 s, with no old controller left |
+| A release switch | About 8 s offline under load, on the same launcher: the OS never restarted the job |
+| `ri stop` | Stayed down past the throttle and when the OS started the job again, and `ri status` said why |
+| `ri start` after that | Back on the same address. Right after a stop it can wait out the same throttle: 25 s here |
+| Loading the job as a login does | Back in 2.5 s, with nobody running `ri` |
+| `ri service uninstall` | The job and its file are gone, and the data is kept |
+
+A real reboot is still the owner's check in section 10.2.
+
 One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.
 
 ## 14. Prior art

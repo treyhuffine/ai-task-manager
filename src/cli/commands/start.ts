@@ -199,7 +199,7 @@ async function superviseHome(opts: StartOptions, service: NonNullable<Awaited<Re
   }
   const s = spinner();
   if (!service && !team) {
-    await firstRunSetup();
+    await firstRunSetup(created);
     // Docker keeps the voice container up from here on (restart: unless-stopped).
     if (opts.voice ?? getVoiceEnabled()) await bringUpVoice(s);
   }
@@ -710,7 +710,7 @@ async function startForegroundCommand(opts: StartOptions) {
  * `ri onboard` is available later. Then the diagnostics preflight surfaces
  * misconfiguration before voice and the server. Its warnings are informational.
  */
-async function firstRunSetup() {
+async function firstRunSetup(serverCreatesIt = false) {
   if (!getIsOnboarded()) {
     if (process.stdin.isTTY) {
       await runWizard();
@@ -721,7 +721,8 @@ async function firstRunSetup() {
     }
   }
   const diagnostics = await runDoctorChecks();
-  printDoctorChecks(diagnostics, { compact: true });
+  // A new supervised Home's token comes from its own server, a moment from now.
+  printDoctorChecks(serverCreatesIt ? diagnostics.filter(check => check.name !== 'Pairing token') : diagnostics, { compact: true });
 }
 
 async function bringUpVoice(s: ReturnType<typeof spinner>): Promise<boolean> {
