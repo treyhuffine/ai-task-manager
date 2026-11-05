@@ -19,6 +19,7 @@ import Database from 'better-sqlite3';
 import { atomicWriteFile } from '@/lib/config/atomic-file';
 import { serviceIdentity } from './paths';
 import { restoreCheckpointDatabase } from './checkpoint';
+import { clonesOnMac } from './clone';
 import { untraced } from '@/lib/utils/untraced';
 
 /** Room an update needs beyond the snapshot itself. A clone starts out free but
@@ -37,9 +38,6 @@ const VOLATILE = /\.(?:lock|owner|activity|access)\.sqlite(?:-journal|-wal|-shm)
 /** How the service runs this Home, not state a release changes. A restore
  * leaves these alone even when the snapshot predates them. */
 const CONFIG_LIVE = new Set(['service-supervision.json', 'local-service.json']);
-/** statfs f_type for APFS. */
-const APFS = 26;
-
 type Identity = ReturnType<typeof serviceIdentity>;
 
 export interface SnapshotManifest {
@@ -85,12 +83,6 @@ function fsyncPath(file: string) {
  * APFS volume, since `cp -c` quietly copies when it can't clone. Linux: the
  * FICLONE ioctl, on btrfs or xfs. False when this disk can't clone.
  */
-/** Whether `cp -c` clones from `source` into `directory`: the same APFS volume. */
-export function clonesOnMac(source: string, directory: string) {
-  return process.platform === 'darwin' && fs.statSync(/* turbopackIgnore: true */ source).dev === fs.statSync(/* turbopackIgnore: true */ directory).dev
-    && fs.statfsSync(/* turbopackIgnore: true */ directory).type === APFS;
-}
-
 function cloneFile(source: string, target: string) {
   const directory = path.dirname(target);
   if (process.platform === 'darwin') {

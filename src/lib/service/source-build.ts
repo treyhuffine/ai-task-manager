@@ -106,29 +106,38 @@ export async function buildRelease(options: BuildOptions): Promise<BuildResult> 
   const output = path.join(/* turbopackIgnore: true */ builds, `${short}.release`);
   const logPath = path.join(/* turbopackIgnore: true */ builds, `${short}.log`);
   const log = fs.openSync(/* turbopackIgnore: true */ logPath, 'w', 0o600);
+  let current = `Preparing ${short}`;
+  const step = (description: string) => { current = description; options.step?.(description); };
   try {
     // A worktree or release a crashed build left behind.
     await removeWorktree(options.checkout, worktree, run, log);
     fs.rmSync(/* turbopackIgnore: true */ output, { recursive: true, force: true });
-    options.step?.(`Preparing ${short}`);
+    step(`Preparing ${short}`);
     await run('git', ['-C', options.checkout, 'worktree', 'add', '--detach', worktree, options.commit], { cwd: options.checkout, log });
     try {
       // The portable Node download is the same for every build.
       const cache = path.join(/* turbopackIgnore: true */ builds, 'downloads');
       fs.mkdirSync(/* turbopackIgnore: true */ cache, { recursive: true, mode: 0o700 });
       fs.symlinkSync(cache, path.join(/* turbopackIgnore: true */ worktree, '.electron-demo'));
-      options.step?.('Installing dependencies');
+      step('Installing dependencies');
       await run(...background('pnpm', ['install', '--frozen-lockfile']), { cwd: worktree, log });
-      options.step?.('Building (a few minutes)');
+      step('Building (a few minutes)');
       await run(...background(process.execPath, ['desktop/package.mjs', '--headless', '--release-dir', output]), { cwd: worktree, log, env: { RI_RELEASE_COMMIT: options.commit } });
-      options.step?.('Adding it to this computer');
+      step('Adding it to this computer');
       const version = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ worktree, 'package.json'), 'utf8')).version as string;
       const manifest = stageRelease(output, base, { move: true });
       return { id: manifest.id, version, commit: options.commit, log: logPath };
     } finally {
       await removeWorktree(options.checkout, worktree, run, log);
       fs.rmSync(/* turbopackIgnore: true */ output, { recursive: true, force: true });
+      // The packager's staging folder, which a failed build leaves behind.
+      for (const name of fs.readdirSync(/* turbopackIgnore: true */ builds)) {
+        if (name.startsWith('.package-stage-')) fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ builds, name), { recursive: true, force: true });
+      }
     }
+  } catch (error) {
+    // The Homes keep running. Say which step failed and where its log is (section 8).
+    throw new Error(`The build failed at "${current}": ${error instanceof Error ? error.message : String(error)}. The log: ${logPath}`, { cause: error });
   } finally { fs.closeSync(log); }
 }
 

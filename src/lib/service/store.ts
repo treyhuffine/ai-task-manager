@@ -14,7 +14,7 @@ import { atomicWriteFile, withFileLock } from '@/lib/config/atomic-file';
 import { getRuntimeBaseDir, getRuntimeInstallDir, serviceIdentity } from './paths';
 import { untraced } from '@/lib/utils/untraced';
 import { verifyRuntime, type RuntimeManifest } from './runtime-manifest';
-import { clonesOnMac } from './snapshot';
+import { clonesOnMac } from './clone';
 
 export const RELEASE_ID = /^[a-f0-9]{64}$/;
 const HOME_ID = /^[a-f0-9]{24}$/;

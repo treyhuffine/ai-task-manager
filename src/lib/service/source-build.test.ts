@@ -87,12 +87,16 @@ it('ignores uncommitted changes and leaves the checkout exactly as it was', asyn
 
 it('cleans up a failed build and keeps nothing half-staged', async () => {
   const run: Run = async (command, args) => {
-    if (args.includes('desktop/package.mjs')) throw new Error('next build failed');
+    if (args.includes('desktop/package.mjs')) {
+      fs.mkdirSync(path.join(root, 'installed/builds/.package-stage-left'), { recursive: true });
+      throw new Error('next build failed');
+    }
     if (command === 'git') execFileSync('git', args, { stdio: 'ignore' });
   };
-  await expect(buildRelease({ checkout, commit: selectCommit(checkout).commit, run, free: () => 64 * 1024 ** 3 })).rejects.toThrow('next build failed');
+  await expect(buildRelease({ checkout, commit: selectCommit(checkout).commit, run, free: () => 64 * 1024 ** 3 })).rejects.toThrow(/^The build failed at "Building \(a few minutes\)": next build failed\. The log: .+\.log$/);
   expect(git(checkout, 'worktree', 'list').split('\n')).toHaveLength(1);
   expect(latestRelease()).toBeNull();
+  expect(fs.existsSync(path.join(root, 'installed/builds/.package-stage-left'))).toBe(false);
 });
 
 it("refuses to start a build without 8 GiB free, before touching the checkout", async () => {
