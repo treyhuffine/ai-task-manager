@@ -30,7 +30,11 @@ export class WindowsHarnessSetup {
     const env: NodeJS.ProcessEnv = { ...process.env, PATH: [path.dirname(this.node), prefix, path.join(os.homedir(), '.local/bin'), process.env.PATH ?? process.env.Path ?? ''].join(path.delimiter) };
     delete env.Path;
     await new Promise<void>((resolve, reject) => {
-      this.child = execFile(command, args, { env, windowsHide: true, timeout: 5 * 60_000, maxBuffer: 4 * 1024 * 1024 }, error => {
+      // execFile's timeout terminates only cmd.exe on Windows. Use the same
+      // tree cleanup as app close so a pending browser login cannot linger.
+      const timeout = setTimeout(() => this.stop(), 5 * 60_000);
+      this.child = execFile(command, args, { env, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, error => {
+        clearTimeout(timeout);
         this.child = undefined;
         if (error) reject(new Error(request.action === 'install' ? 'Installation did not finish. Check your internet connection and try again.' : 'Sign-in did not finish. Try again and complete the steps in your browser.'));
         else resolve();

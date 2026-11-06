@@ -176,8 +176,10 @@ $root = [System.Windows.Automation.AutomationElement]::RootElement
   fixture.origin = new URL(page.url()).origin;
   pass('First-run Home choice, real migrations, HTTPS sign-in and native bridge');
   const acl = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `
-$acl = Get-Acl -LiteralPath '${fixture.root.replaceAll("'", "''")}'
-@{protected=$acl.AreAccessRulesProtected; allowed=@($acl.Access | Where-Object {$_.AccessControlType -eq 'Allow'} | ForEach-Object {$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value}); user=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value} | ConvertTo-Json -Compress
+$ErrorActionPreference = 'Stop'
+$acl = [System.IO.Directory]::GetAccessControl('${fixture.root.replaceAll("'", "''")}')
+$rules = $acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])
+@{protected=$acl.AreAccessRulesProtected; allowed=@($rules | Where-Object {$_.AccessControlType -eq 'Allow'} | ForEach-Object {$_.IdentityReference.Value}); user=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value} | ConvertTo-Json -Compress
 `], { encoding: 'utf8', windowsHide: true, timeout: 15_000 }));
   assert.equal(acl.protected, true);
   assert.deepEqual(new Set(acl.allowed), new Set([acl.user, 'S-1-5-18']));
