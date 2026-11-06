@@ -3,7 +3,7 @@
 import { CursorCredentialPanel } from '@/components/settings/cursor-credential-panel';
 import { HarnessPermissionNotice } from '@/components/settings/harness-permission-notice';
 import { HarnessPicker } from '@/components/settings/harness-picker';
-import { WindowsHarnessSetup } from './windows-harness-setup';
+import { WindowsHarnessSetup } from '@/components/desktop/windows-harness-setup';
 import { OpenCodeProviderPanel } from '@/components/settings/opencode-provider-panel';
 import { Button } from '@/components/ui/button';
 import { useHarnessModels } from '@/hooks/use-harness-models';

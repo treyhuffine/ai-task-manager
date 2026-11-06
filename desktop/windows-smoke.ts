@@ -156,7 +156,15 @@ $root = [System.Windows.Automation.AutomationElement]::RootElement
   const auth = await api<HarnessAuthResponse>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
   assert.equal(auth.binary.installed, true); assert.equal(auth.hasSubscription, true);
   pass('Windows npm cmd shim discovery and harness authentication inspection');
-  await page.evaluate(() => window.riDesktop!.setupHarness!({ harness: 'codex', action: 'install' }));
+  if (unpacked) await page.evaluate(() => window.riDesktop!.setupHarness!({ harness: 'codex', action: 'install' }));
+  else {
+    await nativeNavigate(page, `${fixture.origin}/?settings=models`);
+    const row = page.locator('[data-harness-row="codex"]');
+    await row.locator('[data-slot="accordion-trigger"]').click();
+    await row.getByRole('button', { name: 'Install Codex', exact: true }).click();
+    await row.getByRole('button', { name: 'Sign in to Codex', exact: true }).waitFor({ timeout: 180_000 });
+    pass('Settings installs Codex without terminal commands and offers browser sign-in');
+  }
   const codex = await api<HarnessAuthResponse>(page, '/api/harness/auth', 'POST', { harness: 'codex', fresh: true });
   assert.equal(codex.binary.installed, true); assert.equal(codex.hasSubscription, false);
   assert(codex.binary.version, 'The installed Codex CLI must successfully report its version');
@@ -229,6 +237,13 @@ $root = [System.Windows.Automation.AutomationElement]::RootElement
   assert.equal(installedClaude.binary.installed, true); assert.equal(installedClaude.hasSubscription, false);
   assert(installedClaude.binary.version, 'The installed Claude Code CLI must successfully report its version');
   pass('The real Claude Code CLI starts after reopening and reports a signed-out Windows state');
+  if (!unpacked) {
+    await nativeNavigate(fixture.page!, `${fixture.origin}/?settings=models`);
+    const row = fixture.page!.locator('[data-harness-row="claude"]');
+    await row.locator('[data-slot="accordion-trigger"]').click();
+    await row.getByRole('button', { name: 'Sign in to Claude Code', exact: true }).waitFor();
+    pass('Settings offers Claude Code browser sign-in again after onboarding');
+  }
   assert.equal((await api<{ body: string }>(fixture.page!, `/api/notes/${note.id}`)).body, 'Synthetic Windows fixture body.');
   assert.equal((await api<{ status: string }>(fixture.page!, `/api/tasks/${task.id}`)).status, 'done');
   pass('Reopen retains the same Home, note and completed task');

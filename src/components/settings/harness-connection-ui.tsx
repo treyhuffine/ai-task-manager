@@ -1,6 +1,7 @@
 'use client';
 
 import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
+import { WindowsHarnessSetup } from '@/components/desktop/windows-harness-setup';
 
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 import { isDarkBrandMark } from '@/components/integrations/integration-logo';
@@ -199,6 +200,8 @@ export function ConnectionPanel({
         {recheck.isPending ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
         Check again
       </button>
+      <WindowsHarnessSetup harness={harness} installed={!notInstalled}
+        onComplete={() => recheck.mutate(harness)} />
     </div>
   );
 }
