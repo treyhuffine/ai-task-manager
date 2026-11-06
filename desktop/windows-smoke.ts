@@ -112,10 +112,7 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   pass('Browser WebSocket terminal runs native PowerShell and the pinned ri.cmd against this Home');
   fs.rmSync(path.join(npm, 'claude.cmd'));
   await page.evaluate(() => window.riDesktop!.setupHarness!({ harness: 'claude', action: 'install' }));
-  const installedClaude = await api<HarnessAuthResponse>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
-  assert.equal(installedClaude.binary.installed, true); assert.equal(installedClaude.hasSubscription, false);
-  assert(installedClaude.binary.version, 'The installed Claude Code CLI must successfully report its version');
-  pass('Install the real Claude Code CLI using bundled Node/npm, then inspect its signed-out Windows state');
+  pass('Install the real Claude Code CLI using bundled Node/npm');
   fs.mkdirSync(path.join(repository, 'release/qualification'), { recursive: true });
   await page.screenshot({ path: path.join(repository, 'release/qualification/windows-home.png') });
   const controller = (await serviceStatus())!;
@@ -132,6 +129,11 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   await eventually(async () => !(await windowsProcesses()).some(child => ownedBirthIds.has(child.birthId)), 'owned server, harness and terminal processes exit', 30_000);
   pass('Quit stops the app-owned controller, server, harnesses and terminal processes');
   await fixture.launch();
+  // Restart clears the resolver's stand-in path from this test's earlier chat.
+  const installedClaude = await api<HarnessAuthResponse>(fixture.page!, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
+  assert.equal(installedClaude.binary.installed, true); assert.equal(installedClaude.hasSubscription, false);
+  assert(installedClaude.binary.version, 'The installed Claude Code CLI must successfully report its version');
+  pass('The real Claude Code CLI starts after reopening and reports a signed-out Windows state');
   assert.equal((await api<{ body: string }>(fixture.page!, `/api/notes/${note.id}`)).body, 'Synthetic Windows fixture body.');
   assert.equal((await api<{ status: string }>(fixture.page!, `/api/tasks/${task.id}`)).status, 'done');
   pass('Reopen retains the same Home, note and completed task');
