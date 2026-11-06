@@ -6,7 +6,7 @@ user. Ri runs while its desktop app is open.
 
 The pinned Electron 44.4.5 and Node 26.5.0 list Windows 10 as their minimum.
 Use Windows 10 version 1809 or newer, which also covers the terminal and
-Claude Code requirements. A 64-bit Windows 11 installation qualifies too.
+Claude Code requirements. A 64-bit Intel/AMD Windows 11 installation qualifies too.
 Windows 7/8, 32-bit Windows and Windows ARM are outside this preview.
 Sources: [Electron](https://github.com/electron/electron/blob/v44.4.5/README.md#platform-support),
 [Node](https://github.com/nodejs/node/blob/v26.5.0/BUILDING.md#platform-list).
@@ -83,8 +83,9 @@ never creates a release or an update feed. Native SQLite, sqlite-vec and PTY
 probes run under the bundled Node before packaging.
 
 `desktop/windows-smoke.ts` installs the NSIS output on a disposable hosted
-Windows account, chooses a fresh Home, tests a real Codex installation and a
-stand-in Claude protocol, writes tasks and notes, edits a note in the app,
+Windows account, chooses a fresh Home without a Unix HOME variable, tests real
+Codex and Claude Code installations and a stand-in Claude protocol, writes tasks
+and notes, edits a note in the app,
 quits, reopens, reinstalls, upgrades and uninstalls. The higher-version upgrade
 candidate uses the same server commit, so it isolates installer replacement
 and data preservation. The first-run path applies the real database migrations.
@@ -115,8 +116,8 @@ calls its cleanup API at exit, and the packaging probe has a short timeout.
 
 ## PC checklist
 
-1. In Windows Settings, open System, then About. Confirm 64-bit Windows 10
-   version 1809 or newer, or Windows 11.
+1. In Windows Settings, open System, then About. Confirm an x64-based processor
+   and 64-bit Windows 10 version 1809 or newer, or Windows 11.
 2. Open the supplied Actions run while signed into GitHub. Under Artifacts,
    download `ri-windows-x64-preview`. Extract the ZIP and open `Ri-Setup-…-x64.exe`.
 3. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
