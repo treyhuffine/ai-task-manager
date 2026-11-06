@@ -105,6 +105,10 @@ for (const name of ['better-sqlite3', 'node-pty']) {
 const portableNode = path.join(node, process.platform === 'win32' ? 'node.exe' : 'bin/node');
 run(portableNode, ['-e', "const db = new (require('better-sqlite3'))(':memory:'); require('sqlite-vec').load(db); console.log('SQLite/vector:', db.prepare('select vec_version() version').get()); db.close(); require('node-pty').spawn(process.platform === 'win32' ? 'cmd.exe' : '/bin/echo', process.platform === 'win32' ? ['/c', 'echo PTY ready'] : ['PTY ready']).onExit(({exitCode}) => {if (exitCode) process.exitCode=exitCode;});"], server);
 run(portableNode, ['dist/cli/index.mjs', '--help'], server);
+run(portableNode, ['-e', "const canvas = require('@napi-rs/canvas').createCanvas(2,2); if (!canvas.toBuffer('image/png').length) throw Error('Canvas failed'); require('sharp')({create:{width:2,height:2,channels:4,background:'#ffffff'}}).png().toBuffer().then(b=>{if(!b.length)throw Error('Sharp failed'); console.log('Canvas/sharp ready')});"], server);
+for (const name of ['.env', '.env.local', '.env.production', '.config', '.work', 'data.db']) {
+  if (fs.existsSync(path.join(server, name))) throw new Error(`Private data must not ship: server/${name}`);
+}
 
 fs.mkdirSync(shell);
 assertWindowPreloadsShipped(path.join(repo, 'desktop'));
