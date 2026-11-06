@@ -107,7 +107,13 @@ export async function ensureServiceStatus(options: ServiceStartOptions): Promise
   }
   const deadline = Date.now() + (options.timeoutMs ?? 180_000);
   while (Date.now() < deadline) {
-    status = await serviceStatus();
+    try { status = await serviceStatus(); }
+    catch (error) {
+      // Initial database work can occupy the controller beyond one short
+      // probe. Its startup deadline owns the wait, without starting a rival.
+      if ((error as NodeJS.ErrnoException).code === 'ETIMEDOUT') continue;
+      throw error;
+    }
     if (status?.phase === 'running') return status;
     if (status?.phase === 'failed') throw new Error(status.error ?? 'Service failed to start');
     if (status?.phase === 'stopping') throw new Error('The service is stopping. Wait for it to stop before reopening.');
