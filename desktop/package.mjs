@@ -25,14 +25,14 @@ const releaseBuild = process.argv.includes('--release');
 const releaseDirArg = process.argv.indexOf('--release-dir');
 const releaseDir = releaseDirArg === -1 ? null : path.resolve(process.argv[releaseDirArg + 1] ?? '');
 if (releaseDir && (!process.argv[releaseDirArg + 1] || !headless || releaseBuild)) throw new Error('--release-dir needs a folder, and is only for a headless, unsigned local build');
-const run = (cmd, args, cwd = repo, env = process.env) => {
+const run = (cmd, args, cwd = repo, env = process.env, timeout) => {
   if (process.platform === 'win32' && cmd === 'pnpm') {
     const entry = process.env.npm_execpath;
     if (!entry) throw new Error('Run packaging through pnpm');
     if (entry.endsWith('.exe')) cmd = entry;
     else { args = [entry, ...args]; cmd = process.execPath; }
   }
-  const result = spawnSync(cmd, args, { cwd, env, stdio: 'inherit' });
+  const result = spawnSync(cmd, args, { cwd, env, stdio: 'inherit', timeout });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${cmd} exited with ${result.status}`);
 };
@@ -103,9 +103,8 @@ for (const name of ['better-sqlite3', 'node-pty']) {
   }
 }
 const portableNode = path.join(node, process.platform === 'win32' ? 'node.exe' : 'bin/node');
-run(portableNode, ['-e', "const db = new (require('better-sqlite3'))(':memory:'); require('sqlite-vec').load(db); console.log('SQLite/vector:', db.prepare('select vec_version() version').get()); db.close(); require('node-pty').spawn(process.platform === 'win32' ? 'cmd.exe' : '/bin/echo', process.platform === 'win32' ? ['/c', 'echo PTY ready'] : ['PTY ready']).onExit(({exitCode}) => {if (exitCode) process.exitCode=exitCode;});"], server);
+run(portableNode, [path.join(repo, 'desktop/native-probe.cjs')], server, process.env, 35_000);
 run(portableNode, ['dist/cli/index.mjs', '--help'], server);
-run(portableNode, ['-e', "const canvas = require('@napi-rs/canvas').createCanvas(2,2); if (!canvas.toBuffer('image/png').length) throw Error('Canvas failed'); require('sharp')({create:{width:2,height:2,channels:4,background:'#ffffff'}}).png().toBuffer().then(b=>{if(!b.length)throw Error('Sharp failed'); console.log('Canvas/sharp ready')});"], server);
 for (const name of ['.env', '.env.local', '.env.production', '.config', '.work', 'data.db']) {
   if (fs.existsSync(path.join(server, name))) throw new Error(`Private data must not ship: server/${name}`);
 }

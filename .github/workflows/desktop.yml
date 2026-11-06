@@ -327,6 +327,8 @@ jobs:
       - name: Verify Windows x64
         run: node -e "const a=require('node:assert/strict'); a.equal(process.platform,'win32'); a.equal(process.arch,'x64')"
       - run: pnpm install --frozen-lockfile
+      - name: Verify native dependencies and terminal cleanup before building
+        run: node desktop/native-probe.cjs
       - name: Build unsigned installer without speech or an update feed
         if: ${{ !inputs.installer_run }}
         run: pnpm desktop:package --upgrade-test

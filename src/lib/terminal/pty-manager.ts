@@ -278,6 +278,9 @@ export function createTerminal(input: CreateTerminalInput): TerminalDescriptor {
   });
 
   proc.onExit(({ exitCode, signal }) => {
+    // This node-pty version keeps its Windows pipe worker after natural exit.
+    // kill() releases that worker even when the shell has already finished.
+    if (process.platform === 'win32') proc.kill();
     t.exited = true;
     t.exitCode = exitCode ?? null;
     t.exitSignal = signal ?? null;
