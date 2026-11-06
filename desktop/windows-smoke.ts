@@ -36,6 +36,8 @@ try {
   process.env.RI_DESKTOP_PACKAGE = installation;
   fixture = new AcceptanceFixture('windows-home', { chooseHome: false });
   fixture.env.RI_LOCAL_APPS = '0';
+  // Ordinary Windows GUI launches have USERPROFILE and AppData, without HOME.
+  delete fixture.env.HOME;
   const npm = path.join(fixture.env.APPDATA, 'npm');
   fs.mkdirSync(npm, { recursive: true });
   // Exercise real Windows .cmd discovery and the real agentex stream parser.
