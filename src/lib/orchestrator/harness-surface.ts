@@ -42,6 +42,7 @@ import path from 'node:path';
 // in registry.ts / skills.ts.
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
 import { AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME, APP_NAME } from '@/constants/app';
+import { BROWSER_CONNECTION_INSTRUCTIONS } from '@/lib/browser/instructions';
 import { RI_MANAGED_TAG } from '@/lib/config/agents-md-template';
 import { shouldWriteClaudeMdPointer } from '@/lib/orchestrator/claude-agents-md';
 import {
@@ -274,6 +275,8 @@ execution at 9 tomorrow"), create it with \`target_kind=session\` and
 relay chat in between. Omit the id to schedule a check-in on this chat.`;
 
 const BROWSER_SECTION = `## Browser
+
+${BROWSER_CONNECTION_INSTRUCTIONS}
 
 You have a real browser (\`browser_read\`, \`browser_act\`, and friends) that
 reads and acts on web pages using the sites the user has signed the agent

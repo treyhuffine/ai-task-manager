@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { detectBrowsers } from './chromium';
 import { listBrowserProfiles } from './config';
@@ -19,7 +20,9 @@ import { readPage, detectBlocked, isInterstitial } from './read';
 import { performAct, performBatch, type EvaluateRecord } from './act';
 import { readAuditTail } from './audit';
 import { browser_act_action } from '@/lib/orchestrator/browser-actions';
-import { isBrowserOpen, closeBrowser } from './session';
+import { isBrowserOpen, closeBrowser, openOrConnect } from './session';
+import { ensureBrowserProfileDir } from '@/lib/config/paths';
+import { findProfileBrowserPids } from './profile-processes';
 import { importCookies } from './cookie-import';
 import { saveAttachment, attachmentPath } from '@/lib/attachments/save';
 import { writeAuthConfig } from '@/lib/auth/config-file';
@@ -71,6 +74,64 @@ describe.skipIf(!RUN)('browser integration (e2e)', () => {
     },
     T,
   );
+
+  it('reuses an open browser and its tabs across independent connections', async () => {
+    const profile = 'reuse-open';
+    const executablePath = detectBrowsers()[0].executablePath;
+    const profileDir = ensureBrowserProfileDir(profile);
+    try {
+      const first = await openOrConnect({ profile, headless: true });
+      await first.page.goto('about:blank');
+      await first.page.setContent('<title>Existing agent tab</title>');
+      const before = await findProfileBrowserPids(executablePath, profileDir);
+      const second = await openOrConnect({ profile, headless: true });
+      expect(await second.page.title()).toBe('Existing agent tab');
+      const added = await second.context.newPage();
+      await added.setContent('<title>Another agent tab</title>');
+      expect(await first.page.title()).toBe('Existing agent tab');
+      expect(await findProfileBrowserPids(executablePath, profileDir)).toEqual(before);
+      await second.browser.close(); // disconnect this client only
+      expect(await isBrowserOpen(profile)).toBe(true);
+      await first.browser.close();
+    } finally {
+      await closeBrowser(profile);
+    }
+  }, T);
+
+  it.skipIf(process.platform === 'win32')('recovers a browser opened without debugging or a Ri pidfile', async () => {
+    const profile = 'opened-outside-ri';
+    const executablePath = detectBrowsers()[0].executablePath;
+    const profileDir = ensureBrowserProfileDir(profile);
+    const otherProfile = ensureBrowserProfileDir();
+    const otherPids = await findProfileBrowserPids(executablePath, otherProfile);
+    const child = spawn(executablePath, [
+      `--user-data-dir=${profileDir}`, '--headless=new', '--no-first-run', '--no-default-browser-check', 'about:blank',
+    ], { stdio: 'ignore' });
+    const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
+    try {
+      const deadline = Date.now() + 10_000;
+      for (;;) {
+        try { if (fs.lstatSync(path.join(profileDir, 'SingletonLock')).isSymbolicLink()) break; } catch { /* starting */ }
+        if (Date.now() > deadline) throw new Error('Directly opened browser did not acquire its profile lock');
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      expect(await isBrowserOpen(profile)).toBe(false);
+      const recovered = await openOrConnect({ profile, headless: true });
+      await exited;
+      expect(await isBrowserOpen(profile)).toBe(true);
+      const pids = await findProfileBrowserPids(executablePath, profileDir);
+      expect(pids).toHaveLength(1);
+      expect(pids).not.toContain(child.pid);
+      expect(await findProfileBrowserPids(executablePath, otherProfile)).toEqual(otherPids);
+      await recovered.page.goto('about:blank');
+      await recovered.page.setContent('<title>Recovered without human help</title>');
+      expect(await recovered.page.title()).toBe('Recovered without human help');
+      await recovered.browser.close();
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+      await closeBrowser(profile);
+    }
+  }, T);
 
   it(
     'snapshot gives aria-refs and act types/clicks through them',

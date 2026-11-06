@@ -29,6 +29,7 @@ import {
 import { APP_NAME } from '@/constants/app';
 import type { ExecutionEnvironment, ExpectedAgentFolders } from '@/lib/runner/environment';
 import {
+  BROWSER_MCP_SERVER_NAME,
   browserMcpServer,
   integrationsMcpServer,
   installOrchestratorSurface,
@@ -37,6 +38,7 @@ import {
 } from '@/lib/orchestrator/harness-surface';
 import { resolveOrchestratorName } from '@/lib/orchestrator/name';
 import { isBrowserEnabled } from '@/lib/browser/config';
+import { BROWSER_CONNECTION_INSTRUCTIONS } from '@/lib/browser/instructions';
 import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import { buildReferenceFolderSessionConfig, referenceFolderProviderWiring } from '@/lib/reference-folders/session-config';
 import { isReadOnly } from '@/lib/reference-folders/read-only';
@@ -459,6 +461,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     // then the reference-folder block below.
     const instructionBlocks = [
       { name: 'agent instructions', text: '' },
+      ...(spec.mcpServers.some(server => server.name === BROWSER_MCP_SERVER_NAME) ? [{ name: 'agent browser', text: BROWSER_CONNECTION_INSTRUCTIONS }] : []),
       ...(args.surfaceKind !== 'result_review' ? [{ name: 'agent coordination', text: COORDINATION_INSTRUCTIONS }] : []),
       ...(args.surfaceKind !== 'result_review' ? [{ name: 'email composer', text: EMAIL_COMPOSER_INSTRUCTIONS }] : []),
     ];

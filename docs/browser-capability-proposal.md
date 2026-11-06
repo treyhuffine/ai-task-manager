@@ -70,6 +70,25 @@ Detecting an open browser is unambiguous because Ri owns the profile. Ri always 
 
 The agent rarely opens or checks explicitly. `browser_read` and `browser_act` run connect-or-launch transparently, so the browser just appears when the agent reads or acts. It calls `browser_open` only when it needs a human to see the window and log in, and `browser_status` if it wants to confirm state first.
 
+An already-open profile is usable through these same tools. `browser_tabs` lists
+the existing tabs, selects one by index, or opens a new tab with the same login.
+Callers on one profile share its active tab. Agents should use Ri's tools rather
+than launching another browser or a Playwright persistent context on that
+profile. A profile lock is not a reason to ask the person to close the browser.
+This guidance is delivered in the chat instructions, the browser MCP server
+instructions, the read/open/tabs/status/close tool descriptions, and the opening
+of the shipped browser skill. Connection failures describe the automatic
+recovery already attempted and direct the agent to diagnostics.
+
+Recovery also accounts for a browser opened directly on a Ri profile, without
+debugging enabled or a Ri pidfile. On macOS and Linux, before removing singleton
+locks, Ri finds the main browser process using that exact executable and profile
+path and stops it. Then it launches the profile with debugging enabled. This
+one-time recovery restarts an unreachable browser automatically. A healthy open
+browser is connected to in place, preserving its tabs. Recovery never clears the
+lock while a matching process is still alive. The kill switch uses the same
+profile lookup, so it can also stop an instance opened outside Ri.
+
 Because Ri does not spawn or own the browser in the attended case, a dev hot-reload cannot orphan it and there is no zombie-process problem to manage. The only lifecycle logic is connect-or-launch, plus the single rule that a profile's data directory cannot be open twice at once (so a scheduled run reuses an already-open browser rather than fighting it for the lock).
 
 Ri already ships this exact pattern for the Parakeet voice service (spawn on demand, reuse if warm, tear down on stop), so it is a known shape in the codebase, not a new concept.

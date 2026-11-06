@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { HarnessId } from '@/lib/harness/registry';
 
-const mock = vi.hoisted(() => ({ createSession: vi.fn(), cleanup: vi.fn() }));
+const mock = vi.hoisted(() => ({ createSession: vi.fn(), cleanup: vi.fn(), browserMcpServer: vi.fn() }));
 vi.mock('@agentex/agent', () => ({
   getProvider: () => ({ createSession: mock.createSession }),
   commandInventoryFromEvent: () => null,
@@ -26,7 +26,7 @@ vi.mock('@/lib/harness/runtime', () => ({
 vi.mock('@/lib/orchestrator/harness-surface', async (original) => ({
   ...await original<typeof import('@/lib/orchestrator/harness-surface')>(),
   installOrchestratorSurface: async () => {}, orchestratorSessionConfig: () => ({}),
-  integrationsMcpServer: () => null, browserMcpServer: () => null,
+  integrationsMcpServer: () => null, browserMcpServer: mock.browserMcpServer,
 }));
 
 describe('scoped handoff guidance and general agent instructions at the dispatch boundary', () => {
@@ -53,6 +53,7 @@ describe('scoped handoff guidance and general agent instructions at the dispatch
     executor._resetExecutorState();
     (await import('@/lib/work-results/capabilities')).setWorkResultCapabilities({ handoffsEnabled: false, aiReviewEnabled: false });
     mock.cleanup.mockResolvedValue({ entries: [] });
+    mock.browserMcpServer.mockReturnValue(null);
     mock.createSession.mockImplementation(async () => ({
       sessionId: `provider-session-${mock.createSession.mock.calls.length}`, close: vi.fn(async () => {}),
       send: vi.fn(async () => ({ result: Promise.resolve({ status: 'completed', summary: 'ok' }) })),
@@ -134,6 +135,24 @@ describe('scoped handoff guidance and general agent instructions at the dispatch
     expect(call.config.mcpServers).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'email', url: expect.stringContaining('/api/orchestrator/email/mcp') })]));
     expect(fs.readFileSync(call.config.instructionsFile, 'utf8')).toContain('create_email_draft');
     await executor.close(session.id);
+  });
+
+  it('delivers browser connection guidance with an attached browser, without needing to load a skill', async () => {
+    const { BROWSER_CONNECTION_INSTRUCTIONS } = await import('@/lib/browser/instructions');
+    mock.browserMcpServer.mockReturnValue({ name: 'browser', type: 'http', url: 'http://localhost:5151/api/orchestrator/browser/mcp?profile=test' });
+    const { session } = seed('claude', 'execution', false);
+    await executor.dispatch(session.id, 'Use the open browser.', { internalCall: true });
+    let call = mock.createSession.mock.calls.at(-1)![0];
+    expect(call.config.mcpServers).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'browser' })]));
+    expect(fs.readFileSync(call.config.instructionsFile, 'utf8')).toContain(BROWSER_CONNECTION_INSTRUCTIONS);
+    await executor.close(session.id);
+
+    mock.browserMcpServer.mockReturnValue(null);
+    const withoutBrowser = seed('claude', 'execution', false).session;
+    await executor.dispatch(withoutBrowser.id, 'Continue working.', { internalCall: true });
+    call = mock.createSession.mock.calls.at(-1)![0];
+    expect(fs.readFileSync(call.config.instructionsFile, 'utf8')).not.toContain(BROWSER_CONNECTION_INSTRUCTIONS);
+    await executor.close(withoutBrowser.id);
   });
 
   it.each(['claude', 'codex', 'cursor', 'opencode', 'antigravity'] as const)(

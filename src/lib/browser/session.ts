@@ -20,6 +20,9 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { ensureBrowserProfileDir, getBrowserProfileDir, ensureBrowserWorkDir } from '@/lib/config/paths';
 import { ActionError } from '@/lib/orchestrator/types';
 import { resolveChromium } from './chromium';
+import { getConfiguredChromiumPath } from './config';
+import { findProfileBrowserPids, isProfileBrowserPid } from './profile-processes';
+import { untraced } from '@/lib/utils/untraced';
 
 /** Chromium writes the active DevTools port here inside the user-data-dir. */
 const DEVTOOLS_PORT_FILE = 'DevToolsActivePort';
@@ -54,10 +57,10 @@ interface PortFile {
 }
 
 function readPortFile(profileDir: string): PortFile | null {
-  const file = path.join(profileDir, DEVTOOLS_PORT_FILE);
+  const file = path.join(/* turbopackIgnore: true */ profileDir, DEVTOOLS_PORT_FILE);
   let raw: string;
   try {
-    raw = fs.readFileSync(file, 'utf8').trim();
+    raw = fs.readFileSync(/* turbopackIgnore: true */ file, 'utf8').trim();
   } catch {
     return null;
   }
@@ -70,7 +73,7 @@ function readPortFile(profileDir: string): PortFile | null {
 
 function clearPortFile(profileDir: string): void {
   try {
-    fs.rmSync(path.join(profileDir, DEVTOOLS_PORT_FILE));
+    fs.rmSync(path.join(/* turbopackIgnore: true */ profileDir, DEVTOOLS_PORT_FILE));
   } catch {
     // already gone
   }
@@ -80,7 +83,7 @@ function clearPortFile(profileDir: string): void {
 // profile can be recovered before relaunch. ─────────────────────────────────
 
 function pidfilePath(profile?: string): string {
-  return path.join(ensureBrowserWorkDir(), `${profile ?? 'agent'}.pid`);
+  return path.join(/* turbopackIgnore: true */ ensureBrowserWorkDir(), `${profile ?? 'agent'}.pid`);
 }
 
 function writePidfile(profile: string | undefined, pid: number): void {
@@ -93,7 +96,7 @@ function writePidfile(profile: string | undefined, pid: number): void {
 
 function readPid(profile?: string): number | null {
   try {
-    const n = Number(fs.readFileSync(pidfilePath(profile), 'utf8').trim());
+    const n = Number(fs.readFileSync(/* turbopackIgnore: true */ pidfilePath(profile), 'utf8').trim());
     return Number.isInteger(n) && n > 0 ? n : null;
   } catch {
     return null;
@@ -118,7 +121,8 @@ function pidAlive(pid: number): boolean {
 }
 
 /** SIGTERM, wait, then SIGKILL. Returns once the process is gone or unkillable. */
-async function killPid(pid: number): Promise<void> {
+async function killPid(pid: number, executablePath: string, profileDir: string): Promise<void> {
+  if (!(await isProfileBrowserPid(pid, executablePath, profileDir))) return;
   try {
     process.kill(pid, 'SIGTERM');
   } catch {
@@ -128,12 +132,19 @@ async function killPid(pid: number): Promise<void> {
   while (pidAlive(pid) && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 100));
   }
-  if (pidAlive(pid)) {
+  if (pidAlive(pid) && await isProfileBrowserPid(pid, executablePath, profileDir)) {
     try {
       process.kill(pid, 'SIGKILL');
     } catch {
       // gone between checks
     }
+    const killDeadline = Date.now() + 1_000;
+    while (pidAlive(pid) && Date.now() < killDeadline) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+  if (pidAlive(pid) && await isProfileBrowserPid(pid, executablePath, profileDir)) {
+    throw new ActionError('conflict', 'The agent browser is still stopping. Try the browser action again.');
   }
 }
 
@@ -220,9 +231,16 @@ async function waitForPortFile(profileDir: string, aliveCheck?: () => boolean): 
  * tracked pid and clear stale locks + the port file so the next launch starts
  * clean. Also the teardown a stalled-connect relaunch depends on.
  */
-async function recoverProfile(opts: OpenOptions, profileDir: string): Promise<void> {
+async function recoverProfile(opts: OpenOptions, profileDir: string, executablePath: string): Promise<void> {
   const orphanPid = readPid(opts.profile);
-  if (orphanPid && pidAlive(orphanPid)) await killPid(orphanPid);
+  // A browser opened directly (rather than through Ri) has no pidfile and may
+  // have no debugging port. Stop that exact profile's browser before clearing
+  // its lock. Clearing a live lock lets two browsers write the same profile.
+  const pids = new Set(await findProfileBrowserPids(executablePath, profileDir));
+  if (orphanPid) pids.add(orphanPid);
+  for (const pid of pids) {
+    if (pidAlive(pid)) await killPid(pid, executablePath, profileDir);
+  }
   clearPidfile(opts.profile);
   clearPortFile(profileDir);
   clearSingletonLocks(profileDir);
@@ -243,7 +261,7 @@ async function launch(opts: OpenOptions): Promise<string> {
     );
   }
   const profileDir = ensureBrowserProfileDir(opts.profile);
-  await recoverProfile(opts, profileDir);
+  await recoverProfile(opts, profileDir, resolved.executablePath);
 
   const args = [
     `--user-data-dir=${profileDir}`,
@@ -258,7 +276,7 @@ async function launch(opts: OpenOptions): Promise<string> {
   ];
   if (opts.headless) args.push('--headless=new');
 
-  const child = spawn(resolved.executablePath, args, {
+  const child = spawn(untraced(resolved.executablePath), args, {
     detached: true,
     stdio: 'ignore',
   });
@@ -311,7 +329,7 @@ export async function openOrConnect(opts: OpenOptions = {}): Promise<AgentBrowse
       throw new ActionError(
         'unsupported',
         'Could not connect to the agent browser: the CDP handshake stalled twice, once against a relaunched browser.',
-        'Run `ri browser doctor`, or `ri browser close` and try again.',
+        'Automatic reconnection and relaunch have already been attempted. Run `ri browser doctor` to diagnose the connection. An already-open profile is supported, so do not ask the user to close it merely because it is open.',
       );
     }
   }
@@ -344,14 +362,21 @@ export async function closeBrowser(profile?: string): Promise<{ closed: boolean 
 
   // Backstop: make sure the process is actually gone, even if CDP close failed
   // or the browser was orphaned with no reachable endpoint.
-  const pid = readPid(profile);
-  if (pid && pidAlive(pid)) {
-    await killPid(pid);
-    closed = true;
+  const profileDir = getBrowserProfileDir(profile);
+  const resolved = resolveChromium(getConfiguredChromiumPath());
+  if (resolved) {
+    const pids = new Set(await findProfileBrowserPids(resolved.executablePath, profileDir));
+    const trackedPid = readPid(profile);
+    if (trackedPid) pids.add(trackedPid);
+    for (const pid of pids) {
+      if (pidAlive(pid) && await isProfileBrowserPid(pid, resolved.executablePath, profileDir)) {
+        await killPid(pid, resolved.executablePath, profileDir);
+        closed = true;
+      }
+    }
   }
 
   clearPidfile(profile);
-  const profileDir = getBrowserProfileDir(profile);
   clearPortFile(profileDir);
   clearSingletonLocks(profileDir);
   return { closed };

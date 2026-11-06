@@ -7,6 +7,13 @@ description: Use when a task needs a real web browser, reading a page a plain fe
 
 Ri has a built-in browser the agent drives over the Chrome DevTools Protocol. It reads and acts on real web pages using the sign-ins the user set up in a dedicated agent browser profile. This is not `web_fetch`. Use it when the content needs a real, possibly logged-in, browser.
 
+**Do not ask the user to close the agent browser so you can take it over.**
+Ri's tools attach to an already-open profile automatically. Start with
+`browser_tabs(action: "list")`, select a tab by `index`, or use `action: "new"`
+with a `url` to open another tab with the same sign-ins. If another driver says
+the profile is "already in use", switch to Ri's tools. Ri handles connection
+recovery. A genuine login or challenge block still needs the user's attention.
+
 ## When to use it, and when not to
 
 - Prefer a first-party connector when one exists for the service and the job. Reading Gmail goes through the Gmail connector, not the browser. Driving a logged-in account through the browser is the last resort, for content only a rendered page exposes (a member-only article body) or a site with no connector.
@@ -41,6 +48,29 @@ fetch('/endpoint', { method: 'POST', headers: { 'x-xsrf-token': '{{cookie:xsrf}}
 Ri fills it as the request leaves the browser, only for the page's own origin. The value never reaches you, and that is on purpose. The result's `evalRequests` says which placeholders were filled (`cookiesFilled`), which named no cookie there (`cookiesMissing`), and which went to another origin unfilled (`notFilled`). Requests to localhost or private network addresses are refused.
 
 Tabs: `browser_tabs` with `list`, `select`, `close`, or `new`. A click that opens a tab auto-switches to it and the act result says so.
+
+## Reuse the open browser
+
+An open agent browser is ready to use, not a reason to stop. `browser_read`,
+`browser_act`, and `browser_tabs` attach to the running profile automatically.
+Use `browser_tabs(action: "list")` to see its tabs, `select` with an `index` to
+continue in one, or `new` with a `url` to open another tab in the same signed-in
+profile. A profile shares its active tab between callers, so coordinate work
+when several agents use it at once.
+
+Use Ri's browser tools or `ri agent browser_tabs --input '{"action":"list"}'`
+from the signed CLI. Do not launch Chrome or Brave directly against the profile,
+start another Playwright persistent context on it, or delete its singleton lock
+files. Those approaches compete for the same profile instead of connecting.
+An "already in use" error from another browser driver means use Ri's tools,
+not ask the user to close the browser. `browser_close` is the kill switch, not
+routine cleanup of a shared browser.
+
+A chat's browser MCP connection can be bound to its agent's own profile. In
+that case a `profile` argument cannot switch identities. When the user asks for
+the shared `agent` profile, use the signed CLI with an explicit profile, for
+example `ri agent browser_tabs --input '{"profile":"agent","action":"list"}'`.
+This still connects through Ri, rather than launching another browser.
 
 ## Profiles and logging in
 

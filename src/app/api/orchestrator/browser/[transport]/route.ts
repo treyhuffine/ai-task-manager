@@ -21,6 +21,7 @@ import { registerActionTool } from '@/lib/orchestrator/mcp-registration';
 
 import { APP_NAME } from '@/constants/app';
 import { browserActions } from '@/lib/orchestrator/browser-actions';
+import { BROWSER_CONNECTION_INSTRUCTIONS } from '@/lib/browser/instructions';
 import { runAction } from '@/lib/orchestrator/dispatch';
 import { mcpCallContext } from '@/lib/orchestrator/mcp-caller';
 import type { Action } from '@/lib/orchestrator/types';
@@ -50,7 +51,7 @@ function buildHandler(forcedProfile: string | null) {
     {
       name: `${APP_NAME.toLowerCase()}-browser`,
       version: '0.1.0',
-      instructions: SERVER_INSTRUCTIONS,
+      instructions: `${SERVER_INSTRUCTIONS} ${BROWSER_CONNECTION_INSTRUCTIONS}${forcedProfile ? ` This connection is bound to profile ${JSON.stringify(forcedProfile)}. A profile argument cannot switch identities on this connection.` : ''}`,
     },
   );
 }

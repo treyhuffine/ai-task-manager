@@ -61,7 +61,9 @@ const actKind = z.enum([
 ]);
 const waitFor = z.enum(['load', 'domcontentloaded', 'networkidle']);
 const typing = z.enum(['keys', 'fill']);
-const profileParam = z.string().optional();
+const profileParam = z.string().optional().describe(
+  'Signed-in browser identity. An already-open profile is reused automatically. Use browser_tabs to select an existing tab or open a new one.',
+);
 
 /** The fields shared by a single act and a batch step (minus the kind). */
 const actStepFields = {
@@ -142,7 +144,7 @@ async function goto(url: string, profile: string, headless: boolean) {
 export const browser_read_action = defineAction({
   name: 'browser_read',
   description:
-    'Read a web page through the agent browser. Navigates when a url is given, then returns the page. mode "snapshot" (default) is the accessibility tree of the whole page with [ref=..] ids to act on (selector narrows it to one element\'s subtree, the way to look at part of a big page), "text" is the readable article body, "screenshot" is a set-of-marks image for canvas or shadow-DOM pages, "pdf" files the page as a Ri attachment. Reads are ungated within the login scope you curate. If a login or challenge wall is detected, the result carries a "blocked" field: hand back to the user, do not try to log in. profile selects which logged-in identity to use (default "agent").',
+    'Read a web page through the agent browser. Reuses an already-open profile automatically, launching only when needed. Do not ask the user to close the browser to take it over. Navigates when a url is given, then returns the page. mode "snapshot" (default) is the accessibility tree of the whole page with [ref=..] ids to act on (selector narrows it to one element\'s subtree, the way to look at part of a big page), "text" is the readable article body, "screenshot" is a set-of-marks image for canvas or shadow-DOM pages, "pdf" files the page as a Ri attachment. Reads are ungated within the login scope you curate. If a login or challenge wall is detected, the result carries a "blocked" field: hand back to the user, do not try to log in. profile selects which logged-in identity to use (default "agent").',
   params: {
     url: z.string().url().optional(),
     profile: profileParam,
@@ -257,7 +259,7 @@ export const browser_batch_action = defineAction({
 export const browser_tabs_action = defineAction({
   name: 'browser_tabs',
   description:
-    'List, switch, open, or close browser tabs. action=list (default) returns every tab with its index, url, title, and which is active. action=select needs index (makes that tab active). action=close needs index. action=new opens a tab (optionally at url) and makes it active. Reads and acts operate on the active tab.',
+    'Use the already-open browser without closing or restarting it. action=list (default) returns every tab with its index, url, title, and which is active. action=select needs index (makes that tab active). action=close needs index. action=new opens a tab (optionally at url) in the same signed-in profile and makes it active. Reads and acts operate on the active tab. If another driver reports the profile is already in use, use this tool instead of asking the user to close the browser.',
   mutating: true,
   params: {
     profile: profileParam,
@@ -296,7 +298,7 @@ export const browser_tabs_action = defineAction({
 export const browser_open_action = defineAction({
   name: 'browser_open',
   description:
-    'Open the agent browser in a headed window so a human can sign in. This is how a profile gets created and logged in: it opens the dedicated profile, the human signs in by hand, and the session persists. Use it when a read is blocked by a login the profile does not have. Not for automated login. profile selects which identity to open (default "agent").',
+    'Connect to the agent browser if it is already open, or launch a headed window so a human can sign in. An open browser is supported and does not need to be closed first. The human signs in by hand and the session persists. For ordinary browsing use browser_read or browser_tabs directly, which also connect automatically. Not for automated login. profile selects which identity to open (default "agent").',
   mutating: true,
   params: {
     url: z.string().url().optional(),
@@ -362,7 +364,7 @@ export const browser_import_cookies_action = defineAction({
 export const browser_status_action = defineAction({
   name: 'browser_status',
   description:
-    'Report the agent browser status: whether one is open, the configured browser, the profiles that exist, and the recent audit trail (which pages were read and what was done).',
+    'Report the agent browser status: whether one is open, the configured browser, the profiles that exist, and the recent audit trail (which pages were read and what was done). open=true means the profile is available to connect to with browser_read or browser_tabs. Do not ask the user to close an open browser before using it.',
   params: {
     profile: profileParam,
     audit_limit: z.number().int().positive().max(200).optional(),
@@ -382,7 +384,7 @@ export const browser_status_action = defineAction({
 export const browser_close_action = defineAction({
   name: 'browser_close',
   description:
-    'Close the agent browser and everything in it. The kill switch. Idempotent: closing when nothing is open is a no-op. profile selects which one to close (default "agent").',
+    'Stop the agent browser and every tab in the profile. The kill switch, not routine cleanup after browsing. Connecting to an open browser or opening another tab does not require this tool. Idempotent: closing when nothing is open is a no-op. profile selects which one to close (default "agent").',
   mutating: true,
   params: {
     profile: profileParam,
