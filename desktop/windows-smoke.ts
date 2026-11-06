@@ -11,6 +11,9 @@ import { AcceptanceFixture, api, eventually, nativeNavigate } from './acceptance
 import { localPage } from './acceptance-surfaces';
 import { serviceStatus } from '../src/lib/service/client';
 import { windowsProcesses } from '../src/lib/utils/windows-processes';
+import { servicePaths } from '../src/lib/service/paths';
+import { redactServiceLine } from '../src/lib/service/logging';
+import { PAIRING_TOKEN_FRAGMENT_KEY } from '../src/constants/app';
 import type { HarnessAuthResponse } from '../src/lib/server/operations/harness/auth';
 
 assert.equal(process.platform, 'win32');
@@ -22,8 +25,8 @@ assert(fs.existsSync(installer));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-windows-install-'));
 const installation = path.join(temporary, 'Program Files', 'Ri preview é');
 const unpacked = process.env.RI_WINDOWS_UNPACKED === '1';
-const report: { checks: string[]; startupWindows: string[]; error?: string; cleanupError?: string; passed?: boolean; startedAt: string; finishedAt?: string; installer: string; limitations: string[] } = {
-  checks: [], startupWindows: [], startedAt: new Date().toISOString(), installer: path.basename(installer),
+const report: { checks: string[]; startupWindows: string[]; output: string[]; diagnostics?: unknown; error?: string; cleanupError?: string; passed?: boolean; startedAt: string; finishedAt?: string; installer: string; limitations: string[] } = {
+  checks: [], startupWindows: [], output: [], startedAt: new Date().toISOString(), installer: path.basename(installer),
   limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Higher installer version uses the same server build to isolate installer upgrade behavior'],
 };
 if (unpacked) report.limitations.push('Current desktop shell over an unpacked retained runtime, exact installer and NSIS installation/upgrade/uninstall not qualified');
@@ -72,6 +75,8 @@ $root = [System.Windows.Automation.AutomationElement]::RootElement
 };
 void (async () => {
 let fixture: AcceptanceFixture | undefined;
+let startupDiagnostics: ReturnType<typeof setInterval> | undefined;
+const redact = (value: string) => redactServiceLine(value, []).replace(new RegExp(`#${PAIRING_TOKEN_FRAGMENT_KEY}=[^\\s]+`, 'g'), '#[pairing token redacted]');
 try {
   await install();
   assert(fs.existsSync(path.join(installation, 'Ri.exe')));
@@ -101,19 +106,10 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
  if(m.type==='user')reply();});
 `);
   fixture.select();
-  // Limit protocol diagnostics to the pre-account launch handshake.
-  const debug = unpacked ? createRequire(path.join(repository, 'package.json'))(path.join(path.dirname(require.resolve('playwright-core/package.json')), 'lib/utilsBundle.js')).debug : undefined;
-  debug?.enable('pw:protocol');
-  const startupDiagnostics = setInterval(() => {
+  startupDiagnostics = setInterval(() => {
     const screenshot = path.join(repository, 'release/qualification/windows-startup.png');
     fs.mkdirSync(path.dirname(screenshot), { recursive: true });
     const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `
-Add-Type -AssemblyName UIAutomationClient
-$ids = @(Get-Process -Name Ri -ErrorAction SilentlyContinue | ForEach-Object {$_.Id})
-$root = [System.Windows.Automation.AutomationElement]::RootElement
-@($root.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition) | Where-Object {$ids -contains $_.Current.ProcessId} | ForEach-Object {
- @{title=$_.Current.Name; text=@($_.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object {$_.Current.Name} | Where-Object {$_} | Select-Object -First 40)}
-}) | ConvertTo-Json -Depth 5 -Compress
 Add-Type -AssemblyName System.Windows.Forms,System.Drawing
 $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 $image = New-Object System.Drawing.Bitmap($b.Width,$b.Height)
@@ -122,19 +118,32 @@ $graphics.CopyFromScreen($b.X,$b.Y,0,0,$image.Size)
 $image.Save('${screenshot.replaceAll("'", "''")}')
 $graphics.Dispose()
 $image.Dispose()
+Add-Type -AssemblyName UIAutomationClient
+$ids = @(Get-Process -Name Ri -ErrorAction SilentlyContinue | ForEach-Object {$_.Id})
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+@($root.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition) | Where-Object {$ids -contains $_.Current.ProcessId} | ForEach-Object {
+ @{title=$_.Current.Name; text=@($_.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object {$_.Current.Name} | Where-Object {$_} | Select-Object -First 40)}
+}) | ConvertTo-Json -Depth 5 -Compress
 `], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
     report.startupWindows.push(result.stdout?.trim() || result.error?.message || result.stderr?.trim() || 'No Ri windows');
     console.info('[startup windows]', report.startupWindows.at(-1));
   }, 30_000);
-  try { await fixture.launchRaw(); }
-  finally { clearInterval(startupDiagnostics); debug?.disable(); }
+  await fixture.launchRaw();
+  for (const stream of [fixture.app!.process().stdout, fixture.app!.process().stderr]) stream?.on('data', data => {
+    const output = redact(String(data)).slice(-8_000);
+    report.output.push(output);
+    if (report.output.length > 100) report.output.shift();
+    console.info('[desktop]', output);
+  });
   assert.equal(await fixture.app!.evaluate(() => process.arch), 'x64');
   const setup = await localPage(fixture.app!, 'companion');
   assert(!fs.existsSync(path.join(fixture.root, 'data.db')), 'First launch must wait for the Home choice');
+  pass('Native x64 desktop shows the first-run Home choice before creating a database');
   await setup.locator('#create-home').click();
   const page = fixture.page!;
   await page.waitForURL(url => url.protocol === 'https:', { timeout: 240_000 });
   await page.waitForFunction(() => window.riDesktop?.platform === 'win32');
+  clearInterval(startupDiagnostics);
   fixture.origin = new URL(page.url()).origin;
   pass('First-run Home choice, real migrations, HTTPS sign-in and native bridge');
   const auth = await api<HarnessAuthResponse>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
@@ -231,9 +240,15 @@ $image.Dispose()
   assert(fs.existsSync(path.join(fixture.root, 'data.db')));
   pass('Uninstall removes software and keeps the Home database');
 } catch (error) {
+  if (fixture) {
+    const log = servicePaths().log;
+    report.diagnostics = { service: await serviceStatus().catch(() => null),
+      log: fs.existsSync(log) ? redact(fs.readFileSync(log, 'utf8')).slice(-24_000) : 'No service log' };
+  }
   report.error = error instanceof Error ? error.stack : String(error);
   throw error;
 } finally {
+  clearInterval(startupDiagnostics);
   try { await fixture?.cleanup(); }
   catch (error) { report.cleanupError = String(error); process.exitCode = 1; }
   report.passed = !report.error && !report.cleanupError;
