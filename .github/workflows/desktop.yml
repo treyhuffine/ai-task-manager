@@ -387,6 +387,5 @@ jobs:
             release/qualification/windows-home.png
             release/qualification/windows-startup.png
             release/qualification/windows-failure.png
-            .next-desktop/server/app/api/browser/route.js.nft.json
           if-no-files-found: ignore
           retention-days: 14

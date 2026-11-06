@@ -11,15 +11,18 @@ Windows 7/8, 32-bit Windows and Windows ARM are outside this preview.
 Sources: [Electron](https://github.com/electron/electron/blob/v44.4.5/README.md#platform-support),
 [Node](https://github.com/nodejs/node/blob/v26.5.0/BUILDING.md#platform-list).
 [Claude Code requirements](https://code.claude.com/docs/en/setup#system-requirements).
+Codex recommends Windows 11 and supports recent, fully updated Windows 10 on a
+best-effort basis. Its Windows sandbox also needs testing with a real account
+on the PC. See [OpenAI's Windows guidance](https://learn.chatgpt.com/docs/windows/windows-sandbox#windows-version-matrix).
 
 ## Completion checklist
 
 - [x] Actions produces an unsigned x64 `.exe` artifact
 - [x] Installer installs on the hosted Windows runner
-- [ ] First launch creates a Home and finishes setup
+- [x] First launch creates a Home and finishes setup
 - [ ] Windows process ownership, control transport and shutdown work
 - [ ] Claude Code and Codex discovery, installation, authentication and chat work
-- [ ] Tasks and notes work
+- [x] Tasks and notes work
 - [ ] Closing and reopening preserves data
 - [ ] Installing a newer installer over the old one preserves data
 - [ ] Uninstall removes software and preserves authored data
@@ -39,7 +42,18 @@ background service. Personal Homes are the qualified path for this preview.
 
 ## Verification
 
-Implementation and runner evidence will be recorded here as each step passes.
+The hosted Windows runner has created a fresh Home, applied the real database
+migrations, opened the HTTPS app, created and completed a task, and edited and
+autosaved a note. A real harness dispatch through Windows npm shim discovery
+and the agentex parser produced and persisted a stand-in Claude reply. The
+browser's WebSocket terminal accepted PowerShell input and ran its pinned
+session CLI. The current runtime qualification reuses an extracted installer
+with the current desktop shell. It does not qualify the final installer.
+
+The retained installer is about 319 MiB compressed and 3 GiB installed. Actual
+NSIS installation passed on the hosted runner in about 10.5 minutes. An older
+PC can take longer. The final candidate must repeat installation, runtime,
+upgrade and uninstall checks from the same newly built artifact.
 
 ## Implementation
 
@@ -91,7 +105,8 @@ candidate uses the same server commit, so it isolates installer replacement
 and data preservation. The first-run path applies the real database migrations.
 No provider credentials are supplied and no real billed model request runs.
 
-macOS checks so far: desktop suite 577 passed with one existing skip, focused
+macOS checks so far: desktop suite 578 passed with two skips, including the
+Windows-only OEM code-page test. Focused
 core checks passed, typecheck and desktop compilation passed. The broader
 repository suite has existing failures, including ten message-route tests
 reproduced unchanged at the starting commit. A new IPC shutdown listener also
@@ -118,6 +133,10 @@ The pinned node-pty beta kept a pipe worker after natural shell exit. Ri now
 calls its cleanup API at exit, and the packaging probe has a short timeout.
 Windows packaging omits dependency JavaScript, CSS and declaration source maps
 to reduce extraction cost. Ri's own build maps, declarations and licenses stay.
+The deployed Next copy of sqlite-vec keeps its native extension beside the
+JavaScript package, and both CommonJS and ESM loads are probed. Windows session
+launchers select UTF-8 before reading paths, including paths with non-ASCII
+characters. Slow controller probes stay within the existing startup deadline.
 
 ## PC checklist
 
@@ -127,6 +146,7 @@ to reduce extraction cost. Ri's own build maps, declarations and licenses stay.
    download `ri-windows-x64-preview`. Extract the ZIP and open `Ri-Setup-…-x64.exe`.
 3. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
    The preview is unsigned. Install for your account and open Ri.
+   Installation can take 10 minutes or longer. Let it finish.
 4. Choose **Start a new Ri**. Use **Install Claude Code** or **Install Codex**,
    then **Sign in**. Complete the browser sign-in and send a short chat message.
    Try the other tool too if your account supports it.
