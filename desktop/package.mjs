@@ -103,7 +103,7 @@ for (const name of ['better-sqlite3', 'node-pty']) {
   }
 }
 const portableNode = path.join(node, process.platform === 'win32' ? 'node.exe' : 'bin/node');
-run(portableNode, [path.join(repo, 'desktop/native-probe.cjs')], server, process.env, 35_000);
+run(portableNode, [path.join(repo, 'desktop/native-probe.mjs')], server, process.env, 35_000);
 run(portableNode, ['dist/cli/index.mjs', '--help'], server);
 for (const name of ['.env', '.env.local', '.env.production', '.config', '.work', 'data.db']) {
   if (fs.existsSync(path.join(server, name))) throw new Error(`Private data must not ship: server/${name}`);

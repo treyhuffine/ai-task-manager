@@ -1,6 +1,6 @@
-const assert = require('node:assert/strict');
-const { createRequire } = require('node:module');
-const path = require('node:path');
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 const runtime = createRequire(path.join(process.cwd(), 'package.json'));
 
 // Resolve against the working folder so packaging checks the deployed graph.
