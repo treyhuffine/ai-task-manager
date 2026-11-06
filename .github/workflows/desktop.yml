@@ -358,7 +358,7 @@ jobs:
           run-id: ${{ inputs.installer_run }}
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
-        if: ${{ inputs.installer_run }}
+        if: ${{ inputs.installer_run && !inputs.unpacked_runtime }}
         with:
           name: ri-windows-x64-upgrade-fixture
           path: release/windows-upgrade-test

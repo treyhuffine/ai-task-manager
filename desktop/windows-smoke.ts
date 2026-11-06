@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { createRequire } from 'node:module';
 import { promisify } from 'node:util';
 import { execFile, execFileSync, spawn, spawnSync } from 'node:child_process';
 import { AcceptanceFixture, api, eventually, nativeNavigate } from './acceptance-fixture';
@@ -30,11 +29,12 @@ if (unpacked) report.limitations.push('Unpacked runtime debugging only, NSIS ins
 const pass = (name: string) => { report.checks.push(name); console.info(`[windows] ${name}`); };
 const install = async (candidate = installer) => {
   if (unpacked) {
-    const buildRequire = createRequire(require.resolve('electron-builder'));
-    const root = path.dirname(buildRequire.resolve('app-builder-lib/package.json'));
-    const sevenZip = await buildRequire(path.join(root, 'out/toolsets/7zip.js')).getPath7za();
+    // The hosted image has full 7-Zip. Builder's reduced 7za cannot read NSIS.
+    const sevenZip = path.join(process.env.ProgramFiles!, '7-Zip', '7z.exe');
+    assert(fs.existsSync(sevenZip), 'The hosted Windows image must provide full 7-Zip');
     const run = promisify(execFile);
-    await run(sevenZip, ['e', '-y', candidate, '$PLUGINSDIR/app-64.7z', `-o${temporary}`], { windowsHide: true, timeout: 60_000 });
+    await run(sevenZip, ['e', '-y', candidate, '-ir!*app-64.7z', `-o${temporary}`], { windowsHide: true, timeout: 60_000 });
+    assert(fs.existsSync(path.join(temporary, 'app-64.7z')), 'NSIS payload extraction must produce app-64.7z');
     await run(sevenZip, ['x', '-y', path.join(temporary, 'app-64.7z'), `-o${installation}`], { windowsHide: true, timeout: 15 * 60_000, maxBuffer: 4 * 1024 * 1024 });
     return;
   }
