@@ -193,7 +193,8 @@ if (!headless) {
       extendInfo: { NSMicrophoneUsageDescription: 'Ri uses the microphone when you record a voice message.', NSCameraUsageDescription: 'Ri uses the camera when you scan a pairing code.' } },
     linux: { executableName: 'ri', syncDesktopName: true, icon: path.join(repo, 'assets/brand/icons'), category: 'Office' },
     win: { icon: path.join(repo, 'assets/brand/icons/icon.ico'), signAndEditExecutable: false, artifactName: 'Ri-Setup-${version}-${arch}.exe' },
-    nsis: { oneClick: false, perMachine: false, allowElevation: false, allowToChangeInstallationDirectory: true, deleteAppDataOnUninstall: false },
+    nsis: { oneClick: false, perMachine: false, allowElevation: false, allowToChangeInstallationDirectory: true, deleteAppDataOnUninstall: false,
+      include: path.join(repo, 'desktop/windows-installer.nsh') },
     // The native updater obtains the eligible URL from signed Ri metadata.
     publish: process.env.RI_RELEASE_FEED ? [{ provider: 'generic', url: new URL('.', process.env.RI_RELEASE_FEED).href }] : null,
     afterPack: async context => {
