@@ -64,7 +64,7 @@ function ActiveStatusPill({ label, count, icon, accentClass, countBgClass, heade
           <span className={cn('inline-flex items-center justify-center min-w-[18px] h-[16px] px-1.5 rounded-full text-[9.5px] font-bold font-mono tabular-nums', countBgClass)}>{count}</span>
           {action?.(close)}
         </div>
-        <div className="max-h-72 overflow-y-auto py-1">{children(close)}</div>
+        <div className="max-h-[min(28rem,60dvh)] overflow-y-auto py-1">{children(close)}</div>
         {footer}
       </PopoverContent>
     </Popover>

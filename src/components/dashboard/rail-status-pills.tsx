@@ -62,7 +62,7 @@ export function ReviewAttentionPill({ reviews, pendingSessionIds }: { reviews: N
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-2">
         <p className="px-1 pb-2 text-xs font-medium">AI review activity</p>
-        <div className="max-h-72 overflow-y-auto space-y-1">
+        <div className="max-h-[min(28rem,60dvh)] overflow-y-auto space-y-1">
           {reviews.map((review) => <Link key={review.reviewId} href={`/results/${review.resultId}`} onClick={() => setOpen(false)} className="block rounded-md px-2 py-2 hover:bg-muted">
             <p className="truncate text-xs font-medium">{review.label ?? 'AI review'}</p>
             <p className="mt-1 text-[11px] text-muted-foreground">{pendingSessionIds.includes(review.sessionId) ? 'Needs your response' : review.statusReason ? review.statusReason.replaceAll('_', ' ') : review.status === 'running' ? 'Reviewing with AI' : review.status === 'queued' ? 'Queued' : 'Review failed'}</p>
