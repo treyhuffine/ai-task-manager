@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { afterEach, expect, it, vi } from 'vitest';
 import { servicePaths } from '../src/lib/service/paths';
 import { hasPrivatePermissions } from '../src/lib/config/private-paths';
@@ -43,6 +44,35 @@ it('uses PowerShell syntax for native Windows instructions', () => {
   const command = bundledCliCommand('/node with spaces/node.exe', '/server', "/a person's home");
   expect(command).toContain("$env:RI_ROOT='/a person''s home'");
   expect(command).toContain("& '/node with spaces/node.exe'");
+});
+it.runIf(process.platform === 'win32')('runs the pinned Unicode CLI from a Windows OEM code page', () => {
+  const codePage = execFileSync('cmd.exe', ['/d', '/c', 'chcp'], { windowsHide: true, encoding: 'utf8' }).match(/\d+/)![0];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-cli-encoding-'));
+  const executable = process.execPath;
+  try {
+    const node = path.join(root, 'node é.exe');
+    fs.copyFileSync(executable, node);
+    fs.mkdirSync(path.join(root, 'repo/dist/cli'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'repo/dist/cli/index.mjs'), 'console.log(JSON.stringify({node:process.execPath,args:process.argv.slice(2),root:process.env.RI_ROOT}))');
+    vi.stubEnv('RI_RUNTIME_REPO', path.join(root, 'repo'));
+    vi.stubEnv('RI_ROOT', path.join(root, 'home'));
+    vi.stubEnv('RI_WORK_DIR', '');
+    Object.defineProperty(process, 'execPath', { value: node });
+    const plan = planSessionCli()!;
+    Object.defineProperty(process, 'execPath', { value: executable });
+    fs.mkdirSync(plan.binDir, { recursive: true }); fs.writeFileSync(plan.launcher, plan.content);
+    const child = spawnSync('cmd.exe', ['/d', '/c', `chcp 437 >nul & "${plan.launcher}" agent describe_paths`],
+      { windowsVerbatimArguments: true, windowsHide: true, encoding: 'utf8', timeout: 15_000, env: { ...process.env, RI_ROOT: '' } });
+    expect(child.status, child.stderr || child.error?.message).toBe(0);
+    const result = JSON.parse(child.stdout);
+    expect(result.args).toEqual(['agent', 'describe_paths']);
+    expect(fs.realpathSync.native(result.node)).toBe(fs.realpathSync.native(node));
+    expect(fs.realpathSync.native(result.root)).toBe(fs.realpathSync.native(path.join(root, 'home')));
+  } finally {
+    Object.defineProperty(process, 'execPath', { value: executable });
+    execFileSync('cmd.exe', ['/d', '/c', `chcp ${codePage} >nul`], { windowsHide: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 it('resolves npm cmd shims and creates repeatable skill links on the native filesystem', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ri windows dependency '));

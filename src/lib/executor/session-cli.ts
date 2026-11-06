@@ -84,7 +84,7 @@ export function planSessionCli(): SessionCliPlan | null {
     const batch = (value: string) => value.replaceAll('%', '%%');
     const pins = { [APP_ROOT_ENV]: getAppRoot(), ...Object.fromEntries([DB_PATH_ENV, CONFIG_DIR_ENV, WORK_DIR_ENV]
       .filter(name => process.env[name]).map(name => [name, process.env[name]!])) };
-    const content = ['@echo off', 'setlocal', `if not defined ${APP_ROOT_ENV} (`,
+    const content = ['@echo off', 'chcp 65001 >nul', 'setlocal', `if not defined ${APP_ROOT_ENV} (`,
       ...Object.entries(pins).map(([name, value]) => `  set "${name}=${batch(value)}"`), ')',
       `if not defined RI_RUNTIME_REPO set "RI_RUNTIME_REPO=${batch(repo)}"`,
       ...Object.entries(entry.env).map(([name, value]) => `set "${name}=${batch(value)}"`),

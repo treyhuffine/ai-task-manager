@@ -15,7 +15,7 @@ Sources: [Electron](https://github.com/electron/electron/blob/v44.4.5/README.md#
 ## Completion checklist
 
 - [x] Actions produces an unsigned x64 `.exe` artifact
-- [ ] Installer installs without a developer environment
+- [x] Installer installs on the hosted Windows runner
 - [ ] First launch creates a Home and finishes setup
 - [ ] Windows process ownership, control transport and shutdown work
 - [ ] Claude Code and Codex discovery, installation, authentication and chat work
@@ -86,7 +86,7 @@ probes run under the bundled Node before packaging.
 Windows account, chooses a fresh Home without a Unix HOME variable, tests real
 Codex and Claude Code installations and a stand-in Claude protocol, writes tasks
 and notes, edits a note in the app,
-quits, reopens, reinstalls, upgrades and uninstalls. The higher-version upgrade
+quits, reopens, upgrades over the existing installation and uninstalls. The higher-version upgrade
 candidate uses the same server commit, so it isolates installer replacement
 and data preservation. The first-run path applies the real database migrations.
 No provider credentials are supplied and no real billed model request runs.

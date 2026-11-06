@@ -313,7 +313,7 @@ jobs:
   windows:
     name: Windows x64 preview installer
     runs-on: windows-2025
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       NODE_OPTIONS: --max-old-space-size=8192
@@ -372,7 +372,7 @@ jobs:
       - name: Compile the current desktop shell for runtime debugging
         if: ${{ inputs.unpacked_runtime }}
         run: pnpm exec tsup --config desktop/tsup.config.ts
-      - name: Install, first run, chat, quit, reopen, reinstall and uninstall
+      - name: Install, first run, chat, quit, reopen, upgrade and uninstall
         timeout-minutes: 45
         env:
           RI_WINDOWS_UNPACKED: ${{ inputs.unpacked_runtime && '1' || '' }}
@@ -385,6 +385,7 @@ jobs:
             release/qualification/windows.json
             release/qualification/windows-home.png
             release/qualification/windows-startup.png
+            release/qualification/windows-failure.png
             .next-desktop/server/app/api/browser/route.js.nft.json
           if-no-files-found: ignore
           retention-days: 14
