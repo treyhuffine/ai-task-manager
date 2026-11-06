@@ -6,6 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
 import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
 import { execFile, execFileSync, spawn, spawnSync } from 'node:child_process';
 import { AcceptanceFixture, api, eventually, nativeNavigate } from './acceptance-fixture';
 import { localPage } from './acceptance-surfaces';
@@ -26,8 +27,8 @@ assert(fs.existsSync(installer));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-windows-install-'));
 const installation = path.join(temporary, 'Program Files', 'Ri preview é');
 const unpacked = process.env.RI_WINDOWS_UNPACKED === '1';
-const report: { checks: string[]; startupWindows: string[]; output: string[]; diagnostics?: unknown; error?: string; cleanupError?: string; passed?: boolean; startedAt: string; finishedAt?: string; installer: string; limitations: string[] } = {
-  checks: [], startupWindows: [], output: [], startedAt: new Date().toISOString(), installer: path.basename(installer),
+const report: { checks: string[]; startupWindows: string[]; output: string[]; harnessVersions: Record<string, string>; diagnostics?: unknown; error?: string; cleanupError?: string; passed?: boolean; startedAt: string; finishedAt?: string; installer: string; limitations: string[] } = {
+  checks: [], startupWindows: [], output: [], harnessVersions: {}, startedAt: new Date().toISOString(), installer: path.basename(installer),
   limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Higher installer version uses the same server build to isolate installer upgrade behavior'],
 };
 if (unpacked) report.limitations.push('Current desktop shell and agentex resolver over an unpacked retained runtime, exact installer and NSIS installation/upgrade/uninstall not qualified');
@@ -100,6 +101,22 @@ try {
   delete fixture.env.HOME;
   const npm = path.join(fixture.env.APPDATA, 'npm');
   fs.mkdirSync(npm, { recursive: true });
+  const server = path.join(installation, 'resources/server');
+  const portableNode = path.join(installation, 'resources/node/node.exe');
+  const sdk = await import(pathToFileURL(createRequire(path.join(server, 'package.json')).resolve('@agentex/agent/utils/binary')).href);
+  const verifyHarnessVersion = async (harness: 'claude' | 'codex', auth: HarnessAuthResponse) => {
+    const binary = await sdk.findBinary(harness);
+    assert.equal(binary.bin, auth.binary.resolvedPath);
+    // SDK metadata uses a best-effort five-second probe. Qualify the actual
+    // installed command with room for its first Windows/antivirus cold start.
+    const { stdout, stderr } = await promisify(execFile)(binary.bin, [...binary.prefixArgs, '--version'], {
+      cwd: server, env: { ...fixture!.env, PATH: [path.dirname(portableNode), npm, fixture!.env.PATH].join(path.delimiter) },
+      windowsHide: true, timeout: 30_000,
+    });
+    const version = (stdout || stderr).trim();
+    assert.match(version, /\d+\.\d+\.\d+/);
+    report.harnessVersions[harness] = version;
+  };
   // Exercise real Windows .cmd discovery and the real agentex stream parser.
   // The stand-in itself is ordinary JS and never ships inside the installer.
   fs.writeFileSync(path.join(npm, 'claude.cmd'), '@echo off\r\nnode "%~dp0fixture.js" %*\r\n');
@@ -179,7 +196,7 @@ $acl = Get-Acl -LiteralPath '${fixture.root.replaceAll("'", "''")}'
   }
   const codex = await api<HarnessAuthResponse>(page, '/api/harness/auth', 'POST', { harness: 'codex', fresh: true });
   assert.equal(codex.binary.installed, true); assert.equal(codex.hasSubscription, false);
-  assert(codex.binary.version, 'The installed Codex CLI must successfully report its version');
+  await verifyHarnessVersion('codex', codex);
   pass('Install the real Codex CLI using bundled Node/npm, then discover its native Windows binary without a sign-in');
   const note = await api<{ id: string }>(page, '/api/notes', 'POST', { title: 'Windows persistence note', body: 'Synthetic Windows fixture body.' });
   const task = await api<{ id: string }>(page, '/api/tasks', 'POST', { title: 'Windows persistence task', rawInput: 'Windows persistence task', status: 'todo' });
@@ -252,10 +269,13 @@ $acl = Get-Acl -LiteralPath '${fixture.root.replaceAll("'", "''")}'
   await eventually(async () => !(await windowsProcesses()).some(child => ownedBirthIds.has(child.birthId)), 'owned server, harness and terminal processes exit', 30_000);
   pass('Quit stops the app-owned controller, server, harnesses and terminal processes');
   await fixture.launch();
+  assert.equal((await api<{ body: string }>(fixture.page!, `/api/notes/${note.id}`)).body, 'Synthetic Windows fixture body.');
+  assert.equal((await api<{ status: string }>(fixture.page!, `/api/tasks/${task.id}`)).status, 'done');
+  pass('Reopen retains the same Home, note and completed task');
   // Restart clears the resolver's stand-in path from this test's earlier chat.
   const installedClaude = await api<HarnessAuthResponse>(fixture.page!, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
   assert.equal(installedClaude.binary.installed, true); assert.equal(installedClaude.hasSubscription, false);
-  assert(installedClaude.binary.version, `The installed Claude Code CLI must report its version: ${JSON.stringify(installedClaude.binary)}`);
+  await verifyHarnessVersion('claude', installedClaude);
   pass('The real Claude Code CLI starts after reopening and reports a signed-out Windows state');
   if (!unpacked) {
     await nativeNavigate(fixture.page!, `${fixture.origin}/?settings=models`);
@@ -264,9 +284,6 @@ $acl = Get-Acl -LiteralPath '${fixture.root.replaceAll("'", "''")}'
     await row.getByRole('button', { name: 'Sign in to Claude Code', exact: true }).waitFor();
     pass('Settings offers Claude Code browser sign-in again after onboarding');
   }
-  assert.equal((await api<{ body: string }>(fixture.page!, `/api/notes/${note.id}`)).body, 'Synthetic Windows fixture body.');
-  assert.equal((await api<{ status: string }>(fixture.page!, `/api/tasks/${task.id}`)).status, 'done');
-  pass('Reopen retains the same Home, note and completed task');
   await fixture.quit();
   if (unpacked) return;
   await eventually(async () => await serviceStatus() === null, 'shutdown before version upgrade', 75_000);
