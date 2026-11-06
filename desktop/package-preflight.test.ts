@@ -14,13 +14,14 @@ it.each(['24.2.0', '26.4.0', '26.5.1'])('rejects Node %s instead of mixing nativ
 });
 
 it('rejects unsupported operating systems and architectures', () => {
-  expect(() => assertDesktopPackagingRuntime({ platform: 'win32', arch: 'x64', nodeVersion: DESKTOP_NODE_VERSION })).toThrow(/matching macOS\/Linux/);
+  expect(() => assertDesktopPackagingRuntime({ platform: 'win32', arch: 'x64', nodeVersion: DESKTOP_NODE_VERSION })).not.toThrow();
+  expect(() => assertDesktopPackagingRuntime({ platform: 'win32', arch: 'arm64', nodeVersion: DESKTOP_NODE_VERSION })).toThrow(/Windows x64/);
   expect(() => assertDesktopPackagingRuntime({ platform: 'linux', arch: 'ia32', nodeVersion: DESKTOP_NODE_VERSION })).toThrow(/matching macOS\/Linux/);
 });
 
 it.each([
   { property: 'node', value: '24.2.0', message: 'Build with pinned Node 26.5.0' },
-  { property: 'platform', value: 'win32', message: 'Build on the matching macOS/Linux arm64/x64 host.' },
+  { property: 'platform', value: 'freebsd', message: 'Build on the matching macOS/Linux arm64/x64 or Windows x64 host.' },
 ])('the real package entrypoint rejects $property before writing or building', ({ property, value, message }) => {
   // Run the actual entrypoint with mutation/build tripwires. A late guard
   // fails this test safely before it can create artifacts or start pnpm.

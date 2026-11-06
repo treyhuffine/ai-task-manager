@@ -298,7 +298,7 @@ export function linkMirror(location: SkillLocation, dir: string): void {
   }
   fs.mkdirSync(channels.mirror, { recursive: true });
   const target = location.kind === 'project' ? path.relative(channels.mirror, dir) : dir;
-  fs.symlinkSync(target, link, 'dir');
+  fs.symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir');
 }
 
 /** Remove the mirror link for a skill folder, only when it points at that folder. */

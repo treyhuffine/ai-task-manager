@@ -103,10 +103,10 @@ const terminals = g.__ptyRegistry.terminals;
  */
 function resolveShell(): string {
   const candidates: string[] = [];
-  if (process.env.SHELL) candidates.push(process.env.SHELL);
   if (process.platform === 'win32') {
-    candidates.push('powershell.exe', 'cmd.exe');
+    candidates.push(path.join(/* turbopackIgnore: true */ process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'), process.env.COMSPEC ?? 'cmd.exe');
   } else {
+    if (process.env.SHELL) candidates.push(process.env.SHELL);
     candidates.push('/bin/zsh', '/bin/bash', '/bin/sh');
   }
   for (const c of candidates) {
@@ -214,7 +214,7 @@ export function createTerminal(input: CreateTerminalInput): TerminalDescriptor {
   // from `.bash_profile` / `.zprofile`, which only run for login shells.
   // Without `-l`, `cd <tab>` completes files (no bash-completion), `node`
   // points at the wrong version (no nvm), etc.
-  const args = process.platform === 'win32' ? [] : ['-l'];
+  const args = process.platform === 'win32' ? ['-NoLogo', '-NoProfile'] : ['-l'];
 
   let proc: nodePty.IPty;
   try {

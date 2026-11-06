@@ -1,3 +1,4 @@
+import { hasPrivatePermissions } from '../src/lib/config/private-paths';
 import path from 'node:path';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -34,7 +35,7 @@ const updateRecord = z.object({
 
 function readPrivateJson(file: string, maximumBytes: number): unknown {
   const stat = fs.lstatSync(file);
-  if (!stat.isFile() || stat.size > maximumBytes || (process.getuid && stat.uid !== process.getuid()) || (stat.mode & 0o022)) throw new Error('Unsafe saved recovery metadata');
+  if (!stat.isFile() || stat.size > maximumBytes || (process.getuid && stat.uid !== process.getuid()) || !hasPrivatePermissions(stat, 0o022)) throw new Error('Unsafe saved recovery metadata');
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
@@ -100,6 +101,7 @@ function hasRecordedRecovery(active: NonNullable<ReturnType<typeof installedRunt
 /** The checkout a development launch runs from, or null for anything else. A
  * packaged app is never development (`main.ts`) and carries its resources. */
 function sourceDevelopmentRepo(): string | null {
+  if (process.platform === 'win32' && process.env.RI_DESKTOP_RESOURCES) return process.env.RI_DESKTOP_REPO || null;
   if (process.env.RI_DESKTOP_MODE !== 'development' || process.env.RI_DESKTOP_RESOURCES) return null;
   return process.env.RI_DESKTOP_REPO || null;
 }

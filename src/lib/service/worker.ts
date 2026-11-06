@@ -1,3 +1,4 @@
+import { hasPrivatePermissions } from '@/lib/config/private-paths';
 /** Local controller for the enrolled worker. No Home database imports. */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -40,7 +41,7 @@ function readPreference(enrollment: string): Preference {
   const file = preferenceFile();
   if (!fs.existsSync(file)) return { format: 1, enrollment, enabled: true };
   const stat = fs.lstatSync(file);
-  if (!stat.isFile() || stat.size > 8192 || (stat.mode & 0o077) || (process.getuid && stat.uid !== process.getuid())) throw new Error('Unsafe worker service preference. Inspect its permissions before starting.');
+  if (!stat.isFile() || stat.size > 8192 || !hasPrivatePermissions(stat) || (process.getuid && stat.uid !== process.getuid())) throw new Error('Unsafe worker service preference. Inspect its permissions before starting.');
   const value = JSON.parse(fs.readFileSync(file, 'utf8')) as Preference;
   if (value.format !== 1 || typeof value.enrollment !== 'string' || typeof value.enabled !== 'boolean') throw new Error('Unsupported worker service preference. Inspect it before starting.');
   return value.enrollment === enrollment ? value : { format: 1, enrollment, enabled: true };

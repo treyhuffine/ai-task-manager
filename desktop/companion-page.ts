@@ -15,6 +15,7 @@ ${style.brand}
 <button id="back" class="link" hidden>‹ Back</button>
 <button id="return-to-app" class="link" hidden>Back to Ri</button>
 <h1 id="heading">Welcome to Ri</h1><p id="intro">A place for your tasks, notes and conversations.</p>
+<p id="windows-preview" class="hint" hidden>Windows preview: Ri runs while this app is open. Close Ri before installing a newer version. Your tasks, notes and chats stay on this computer. Automatic updates, start at login and local speech are unavailable.</p>
 <p id="error" role="alert"></p><p id="progress" role="status" hidden></p>
 <section id="starting" hidden><p id="startup-status" role="status" aria-live="polite">Starting Ri…</p><p>Your Ri will open as soon as it is ready.</p></section>
 <section id="welcome" hidden>
@@ -143,11 +144,11 @@ function render(){
  $('execution').hidden=!configured;$('worker-status').textContent=role==='home'?'Your agents run here.':role==='viewer'?'Local agents are off.':'Local execution: '+(state?.worker?.state||'starting');
  $('worker-reason').textContent=state?.worker?.error||state?.worker?.reason||'';
  $('enable-worker').hidden=role!=='viewer';$('stop-worker').hidden=role!=='worker'||state?.worker?.enabled===false;$('resume-worker').hidden=role!=='worker'||state?.worker?.enabled!==false;
- $('service').hidden=!configured;$('login').checked=!!state?.login?.enabled;$('login-detail').textContent=state?.login?.detail||'This starts the background service after login, independently of the Ri window.';
+ $('windows-preview').hidden=state?.platform!=='win32';$('service').hidden=!configured||state?.platform==='win32';$('login').checked=!!state?.login?.enabled;$('login-detail').textContent=state?.login?.detail||'This starts the background service after login, independently of the Ri window.';
  const prefs=state?.preferences;$('preferences').hidden=!prefs;
  if(prefs){$('desktop-login').checked=prefs.login.enabled;$('desktop-login-detail').textContent=prefs.login.detail||'Keep notifications and Quick Capture available from the menu bar.';if(!captureEdited){$('capture-enabled').checked=prefs.shortcut.enabled;$('capture-shortcut').value=prefs.shortcut.accelerator;}$('capture-detail').textContent=prefs.shortcut.detail||('Shortcut '+prefs.shortcut.state);}
  $('notifications').hidden=!state?.notifications;$('native-notifications').checked=!!state?.notifications?.enabled;$('notification-detail').textContent=state?.notifications?.error||(state?.notifications?.appSigned===false?'macOS shows notifications only from apps signed with an Apple Developer ID, and this build of Ri isn’t signed. Telegram and browser push still reach you.':state?.notifications?.supported===false?'Desktop notifications are unavailable on this computer.':state?.notifications?.enabled?'On for this computer.':'Off for this computer. Turn on alerts above.');
- $('updates').hidden=!state?.service;$('version').textContent='Desktop '+(state?.desktop||'')+(state?.service?.version?' · Runtime '+state.service.version:'');
+ $('updates').hidden=!state?.service||state?.platform==='win32';$('version').textContent='Desktop '+(state?.desktop||'')+(state?.service?.version?' · Runtime '+state.service.version:'');
  const update=state?.update;$('update-status').textContent=update?.reason||update?.error||(update?'Update '+update.phase:'No pending update');
  $('update-download').hidden=update?.phase!=='available';$('update-apply').hidden=!['ready','waiting'].includes(update?.phase);$('update-later').hidden=!update||['idle','committed'].includes(update.phase);
  updateDisabled();

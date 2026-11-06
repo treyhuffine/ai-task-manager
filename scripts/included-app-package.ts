@@ -130,7 +130,7 @@ async function bundledWorkflows(dir: string) {
     const file = `skills/${name}/SKILL.md`;
     const text = await fs.readFile(path.join(dir, file), 'utf8').catch(() => null);
     if (!text) continue;
-    const front = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? '';
+    const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] ?? '';
     const description = /^description:\s*(.+)$/m.exec(front)?.[1]?.trim().replace(/^["']|["']$/g, '');
     const declared = /^name:\s*(.+)$/m.exec(front)?.[1]?.trim();
     const parsed = z.object({ name: z.string().regex(/^[a-z][a-z0-9-]*$/), description: z.string().min(1).max(2000) }).parse({ name: declared ?? name, description });

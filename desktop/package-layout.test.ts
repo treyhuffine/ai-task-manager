@@ -13,5 +13,7 @@ it('finds the explicitly named Linux executable and unpacked resources', () => {
   }
 });
 it('refuses unsupported native packages', () => {
-  expect(() => desktopPackageLayout('/package', 'win32')).toThrow('macOS and Linux');
+  const root = path.resolve('release/desktop/win-unpacked');
+  expect(desktopPackageLayout(root, 'win32')).toEqual({ executable: path.join(root, 'Ri.exe'), resources: path.join(root, 'resources') });
+  expect(() => desktopPackageLayout('/package', 'freebsd')).toThrow('macOS, Linux and Windows');
 });

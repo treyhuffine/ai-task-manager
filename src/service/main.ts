@@ -105,7 +105,8 @@ async function stopBackend() {
   expectedExit = true;
   if (child.exitCode === null && child.signalCode === null) {
     const exited = once(child, 'exit');
-    child.kill('SIGTERM');
+    if (process.platform === 'win32' && child.connected) child.send({ type: 'stop' });
+    else child.kill('SIGTERM');
     const force = setTimeout(() => child.kill('SIGKILL'), 15_000);
     try { await exited; } finally { clearTimeout(force); }
   }
@@ -536,12 +537,12 @@ async function start() {
     },
     unavailable: error => { status.phase = 'failed'; status.error = error; },
   });
-  if (fs.existsSync(paths.socket)) {
+  if (process.platform !== 'win32' && fs.existsSync(paths.socket)) {
     if (!fs.lstatSync(paths.socket).isSocket()) throw new Error('The service socket path is occupied by another file');
     fs.unlinkSync(paths.socket);
   }
   await new Promise<void>((resolve, reject) => { control.once('error', reject); control.listen(paths.socket, resolve); });
-  fs.chmodSync(paths.socket, 0o600);
+  if (process.platform !== 'win32') fs.chmodSync(paths.socket, 0o600);
   // Keep the private recovery/status surface alive without a crash loop.
   try { await updater.recover(); }
   catch (error) {
@@ -719,6 +720,9 @@ function startTimers() {
   const checks = setInterval(() => void check(), (6 + Math.random()) * 60 * 60_000); checks.unref();
 }
 process.once('SIGTERM', () => void shutdown()); process.once('SIGINT', () => void shutdown());
+// Windows has no POSIX signals. A desktop-owned controller ends with the
+// helper's IPC connection, including when the app crashes.
+if (process.env.RI_DESKTOP_OWNED === '1') process.once('disconnect', () => void shutdown());
 void start().catch(async error => {
   console.error('[service]', error instanceof Error ? error.message : 'Startup failed');
   status.phase = 'failed'; status.error = error instanceof Error ? error.message : 'Startup failed';

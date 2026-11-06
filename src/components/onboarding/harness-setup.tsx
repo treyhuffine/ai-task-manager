@@ -3,6 +3,7 @@
 import { CursorCredentialPanel } from '@/components/settings/cursor-credential-panel';
 import { HarnessPermissionNotice } from '@/components/settings/harness-permission-notice';
 import { HarnessPicker } from '@/components/settings/harness-picker';
+import { WindowsHarnessSetup } from './windows-harness-setup';
 import { OpenCodeProviderPanel } from '@/components/settings/opencode-provider-panel';
 import { Button } from '@/components/ui/button';
 import { useHarnessModels } from '@/hooks/use-harness-models';
@@ -264,6 +265,9 @@ export function HarnessSetup({
       />
 
       {state.harness === 'cursor' && <CursorCredentialPanel />}
+      {!state.harnessAuth.report?.hasSubscription && <WindowsHarnessSetup harness={state.harness}
+        installed={state.harnessAuth.report?.binary.installed === true}
+        onComplete={() => void runCheck(state.harness, { fresh: true })} />}
       {state.harness === 'opencode' && <OpenCodeProviderPanel />}
 
       {state.harnessAuth.report?.binary.installed && (

@@ -12,6 +12,7 @@ export interface RiDesktop {
   connection?(action: DesktopConnectionAction): Promise<DesktopConnectionState>;
   onConnectionChange?(callback: (state: DesktopConnectionState) => void): () => void;
   settings?(action: DesktopSettingsAction): Promise<DesktopSettingsStatus>;
+  setupHarness?(request: { harness: 'claude' | 'codex'; action: 'install' | 'login' }): Promise<void>;
   /** Read-only status for this computer, including its local consent. */
   notificationStatus?(): Promise<DesktopNotificationStatus>;
   /** Change this computer's notifications. From a connected Home, the desktop asks the person natively before turning them on. */

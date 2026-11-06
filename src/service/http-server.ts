@@ -150,6 +150,8 @@ async function start() {
   };
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
+  process.on('message', message => { if ((message as { type?: string }).type === 'stop') stop(); });
+  if (process.connected) process.once('disconnect', stop);
   process.send?.({ type: 'listening', port });
   if (!process.send) console.info(`[server] ready on http://${hostname}:${port}`);
 }

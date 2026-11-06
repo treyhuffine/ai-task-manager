@@ -282,8 +282,7 @@ jobs:
             ${{ runner.temp }}/ri-acceptance/ri-capture-smoke-*/*.png
           if-no-files-found: ignore
           retention-days: 14
-      - uses: actions/upload-artifact@v4
-        # Source/notice evidence only, never executable helper or app binaries.
+      # Source/notice evidence only, never executable helper or app binaries.
         # A separate publisher must review the final signed helper and pass
         # release_materials.py verify-release with artifact-bound approval.
         # A repository flag is not approval of these particular binary bytes.
@@ -330,3 +329,20 @@ jobs:
           path: release/desktop/Ri-Setup-*-x64.exe
           if-no-files-found: error
           retention-days: 14
+      - name: Check Windows types and platform contracts
+        run: |
+          pnpm ts
+          pnpm exec vitest run --config desktop/vitest.config.ts desktop/windows-platform.test.ts desktop/package-layout.test.ts desktop/package-preflight.test.ts
+      - name: Install, first run, chat, quit, reopen, reinstall and uninstall
+        timeout-minutes: 20
+        run: pnpm exec tsx desktop/windows-smoke.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ri-windows-x64-qualification
+          path: |
+            release/qualification/windows.json
+            release/qualification/windows-home.png
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v4

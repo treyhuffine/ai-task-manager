@@ -121,7 +121,8 @@ export class AcceptanceFixture {
     }
     this.env = Object.fromEntries(Object.entries(demoEnvironment(path.resolve(__dirname, '..'), {
       ...inherited, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local/share'),
-      PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+      ...(process.platform === 'win32' ? { USERPROFILE: home, APPDATA: path.join(home, 'AppData/Roaming'), LOCALAPPDATA: path.join(home, 'AppData/Local') } : {}),
+      PATH: process.platform === 'win32' ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0` : '/usr/bin:/bin:/usr/sbin:/sbin',
       RI_DESKTOP_STATE_DIR: path.join(this.base, 'desktop-state'), RI_DESKTOP_ROOT: this.root,
       RI_INSTALL_ROOT: path.join(this.base, 'runtime'), RI_DESKTOP_SMOKE: '1',
     }, options.development ? 'development' : 'production')).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));

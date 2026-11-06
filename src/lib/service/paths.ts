@@ -22,7 +22,7 @@ export function servicePaths() {
   return {
     id, identity,
     // A short per-user socket path also works with macOS's sockaddr_un limit.
-    socket: path.join(os.tmpdir(), `ri-${process.getuid?.() ?? 'user'}-${id}.sock`),
+    socket: process.platform === 'win32' ? `\\\\.\\pipe\\ri-${id}` : path.join(os.tmpdir(), `ri-${process.getuid?.() ?? 'user'}-${id}.sock`),
     settings: path.join(identity.config, 'local-service.json'),
     log: path.join(identity.work, 'service.log'),
     ownerLock: `${identity.database}.owner.sqlite`,

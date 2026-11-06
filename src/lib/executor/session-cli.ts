@@ -80,6 +80,17 @@ export function planSessionCli(): SessionCliPlan | null {
   if (!entry) return null;
 
   const binDir = path.join(/* turbopackIgnore: true */ getWorkDir(), 'bin');
+  if (process.platform === 'win32') {
+    const batch = (value: string) => value.replaceAll('%', '%%');
+    const pins = { [APP_ROOT_ENV]: getAppRoot(), ...Object.fromEntries([DB_PATH_ENV, CONFIG_DIR_ENV, WORK_DIR_ENV]
+      .filter(name => process.env[name]).map(name => [name, process.env[name]!])) };
+    const content = ['@echo off', 'setlocal', `if not defined ${APP_ROOT_ENV} (`,
+      ...Object.entries(pins).map(([name, value]) => `  set "${name}=${batch(value)}"`), ')',
+      `if not defined RI_RUNTIME_REPO set "RI_RUNTIME_REPO=${batch(repo)}"`,
+      ...Object.entries(entry.env).map(([name, value]) => `set "${name}=${batch(value)}"`),
+      `${[process.execPath, ...entry.args].map(value => `"${batch(value)}"`).join(' ')} %*`, 'exit /b %errorlevel%', ''].join('\r\n');
+    return { binDir, launcher: path.join(/* turbopackIgnore: true */ binDir, 'ri.cmd'), content };
+  }
   // The home's own folders, pinned only when the shell hasn't chosen a home.
   // An override this server runs with goes along, so the CLI opens the same
   // database the server does.

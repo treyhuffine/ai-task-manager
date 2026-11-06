@@ -82,7 +82,7 @@ export async function serviceStatus(): Promise<ServiceStatus | null> {
   }
 }
 
-export interface ServiceStartOptions { repo: string; node: string; env?: NodeJS.ProcessEnv; timeoutMs?: number }
+export interface ServiceStartOptions { repo: string; node: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; desktopOwned?: boolean }
 
 /** Start or attach to any role without granting a local Home session. */
 export async function ensureServiceStatus(options: ServiceStartOptions): Promise<ServiceStatus> {
@@ -97,11 +97,12 @@ export async function ensureServiceStatus(options: ServiceStartOptions): Promise
     const log = fs.openSync(paths.log, 'a', 0o600);
     try {
       const child = spawn(options.node, [entry], {
-        cwd: options.repo, detached: true, stdio: ['ignore', log, log],
-        env: { ...options.env ?? process.env, RI_RUNTIME_REPO: options.repo },
+        cwd: options.repo, detached: !options.desktopOwned, windowsHide: true,
+        stdio: options.desktopOwned ? ['ignore', log, log, 'ipc'] : ['ignore', log, log],
+        env: { ...options.env ?? process.env, RI_RUNTIME_REPO: options.repo, ...(options.desktopOwned ? { RI_DESKTOP_OWNED: '1' } : {}) },
       });
       await new Promise<void>((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
-      child.unref();
+      if (!options.desktopOwned) child.unref();
     } finally { fs.closeSync(log); }
   }
   const deadline = Date.now() + (options.timeoutMs ?? 180_000);

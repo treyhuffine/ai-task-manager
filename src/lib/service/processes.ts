@@ -2,9 +2,19 @@ import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { serviceIdentity } from './paths';
+import { windowsProcesses } from '@/lib/utils/windows-processes';
 const execute = promisify(execFile);
 
 async function descendants(parent: number) {
+  if (process.platform === 'win32') {
+    const rows = await windowsProcesses();
+    const ids = new Set([parent]);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const row of rows) if (ids.has(row.ppid) && !ids.has(row.pid)) { ids.add(row.pid); grew = true; }
+    }
+    return rows.filter(row => row.pid !== parent && ids.has(row.pid)).map(row => ({ pid: row.pid, parent: row.ppid, name: row.command }));
+  }
   const { stdout } = await execute('/bin/ps', ['-axo', 'pid=,ppid=,comm=']);
   const rows = stdout.trim().split('\n').map(line => {
     const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);

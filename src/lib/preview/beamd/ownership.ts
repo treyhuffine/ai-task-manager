@@ -1,3 +1,4 @@
+import { hasPrivatePermissions } from '@/lib/config/private-paths';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -8,7 +9,7 @@ async function exclusive<T>(operation: () => Promise<T>) {
   const directory = path.join(os.tmpdir(), `ri-beamd-${process.getuid?.() ?? 'user'}`);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const stat = fs.lstatSync(directory);
-  if (!stat.isDirectory() || stat.isSymbolicLink() || (process.getuid && stat.uid !== process.getuid()) || (stat.mode & 0o077)) throw new Error('Unsafe tunnel coordination directory');
+  if (!stat.isDirectory() || stat.isSymbolicLink() || (process.getuid && stat.uid !== process.getuid()) || !hasPrivatePermissions(stat)) throw new Error('Unsafe tunnel coordination directory');
   const lock = new Database(path.join(directory, 'ownership.sqlite'), { timeout: 0 });
   try { lock.exec('BEGIN IMMEDIATE'); return await operation(); } finally { lock.close(); }
 }

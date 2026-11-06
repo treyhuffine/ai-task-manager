@@ -5,5 +5,6 @@ export function desktopPackageLayout(directory: string, platform: NodeJS.Platfor
   const root = path.resolve(directory);
   if (platform === 'darwin') return { executable: path.join(root, 'Contents/MacOS/Ri'), resources: path.join(root, 'Contents/Resources') };
   if (platform === 'linux') return { executable: path.join(root, 'ri'), resources: path.join(root, 'resources') };
-  throw new Error('Packaged desktop tests support macOS and Linux.');
+  if (platform === 'win32') return { executable: path.join(root, 'Ri.exe'), resources: path.join(root, 'resources') };
+  throw new Error('Packaged desktop tests support macOS, Linux and Windows.');
 }

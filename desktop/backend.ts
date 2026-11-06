@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { InstallationInspection } from './installation';
-import { ensureServiceStatus, serviceStatus, serviceRequest, type ServiceSession, type ServiceStatus } from '../src/lib/service/client';
+import { ensureServiceStatus, serviceStatus, serviceRequest, stopService, type ServiceSession, type ServiceStatus } from '../src/lib/service/client';
 import { attachExistingOwner, runtimeForOwner } from './backend-selection';
 import { installedRuntime } from '../src/lib/service/runtime';
 import { stageFirstDesktopRuntime } from '../src/lib/service/initialization';
@@ -22,14 +22,22 @@ const env = demoEnvironment(repo, process.env, mode);
 Object.assign(process.env, env);
 const send = (message: BackendMessage) => { if (process.connected) process.send?.(message); };
 let retrySession = false;
+let ownsService = false;
+let stopping = false;
+async function stop() {
+  if (stopping) return;
+  stopping = true;
+  try { if (ownsService) await stopService(); }
+  finally { process.exit(0); }
+}
 process.on('message', message => {
   const type = (message as { type?: string }).type;
-  if (type === 'stop') process.exit(0);
+  if (type === 'stop') void stop();
   if (type === 'retry-session') retrySession = true;
 });
-process.once('disconnect', () => process.exit(0));
-process.once('SIGTERM', () => process.exit(0));
-process.once('SIGINT', () => process.exit(0));
+process.once('disconnect', () => void stop());
+process.once('SIGTERM', () => void stop());
+process.once('SIGINT', () => void stop());
 
 void (async () => {
   // Read role before inspecting or initializing a database. A connected viewer
@@ -62,10 +70,13 @@ void (async () => {
     const active = installedRuntime();
     // A development launch runs its own checkout, the way `pnpm dev` does, so
     // it starts the dev home's service itself (the inspection above passed).
-    if (!remote && existingInstallation && !active && mode !== 'development') throw new Error('Start this installation with its existing CLI service before connecting.');
-    const runtime = active ?? (process.env.RI_DESKTOP_RESOURCES ? stageFirstDesktopRuntime(process.env.RI_DESKTOP_RESOURCES) : undefined);
+    if (process.platform !== 'win32' && !remote && existingInstallation && !active && mode !== 'development') throw new Error('Start this installation with its existing CLI service before connecting.');
+    // The Windows preview runs the installer bundle directly. Reinstalling
+    // replaces software while the Home stays in the user's AppData folder.
+    const runtime = process.platform === 'win32' ? undefined : active ?? (process.env.RI_DESKTOP_RESOURCES ? stageFirstDesktopRuntime(process.env.RI_DESKTOP_RESOURCES) : undefined);
     const serviceRepo = runtime?.repo ?? repo;
-    status = await ensureServiceStatus({ repo: serviceRepo, node: runtime?.node ?? process.execPath,
+    ownsService = process.platform === 'win32';
+    status = await ensureServiceStatus({ repo: serviceRepo, node: runtime?.node ?? process.execPath, desktopOwned: ownsService,
       env: { ...process.env, RI_RUNTIME_REPO: serviceRepo, RI_DESKTOP_REPO: serviceRepo } });
   }
   const ownerRuntime = (owner: ServiceStatus) => {

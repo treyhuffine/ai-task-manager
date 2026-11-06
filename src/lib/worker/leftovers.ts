@@ -24,6 +24,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { getWorkDir } from '@/lib/config/paths';
 import { writeFileAtomic } from './durable-file';
+import { windowsProcesses, windowsProcessesSync } from '@/lib/utils/windows-processes';
 
 const run = promisify(execFile);
 
@@ -50,6 +51,10 @@ export function processRecordPath(): string {
 const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*)$/;
 
 async function ps(args: string[]): Promise<{ processes: ProcessIdentity[]; psPid: number | undefined }> {
+  if (process.platform === 'win32') {
+    const pid = args.indexOf('-p');
+    return { processes: await windowsProcesses(pid < 0 ? undefined : args[pid + 1].split(',').map(Number)), psPid: undefined };
+  }
   const pending = run('ps', ['-ww', '-o', 'pid=,ppid=,lstart=,command=', ...args], {
     maxBuffer: 16 * 1024 * 1024,
     env: { ...process.env, LC_ALL: 'C' },
@@ -91,6 +96,7 @@ function parsePs(stdout: string): ProcessIdentity[] {
  */
 export function processIdentitiesSync(pids: number[]): Map<number, ProcessIdentity> {
   if (pids.length === 0) return new Map();
+  if (process.platform === 'win32') return new Map(windowsProcessesSync(pids).map(p => [p.pid, p]));
   let stdout: string;
   try {
     stdout = execFileSync('ps', ['-ww', '-o', 'pid=,ppid=,lstart=,command=', '-p', pids.join(',')], {
