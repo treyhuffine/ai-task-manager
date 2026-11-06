@@ -282,7 +282,8 @@ jobs:
             ${{ runner.temp }}/ri-acceptance/ri-capture-smoke-*/*.png
           if-no-files-found: ignore
           retention-days: 14
-      # Source/notice evidence only, never executable helper or app binaries.
+      - uses: actions/upload-artifact@v4
+        # Source/notice evidence only, never executable helper or app binaries.
         # A separate publisher must review the final signed helper and pass
         # release_materials.py verify-release with artifact-bound approval.
         # A repository flag is not approval of these particular binary bytes.
@@ -345,4 +346,3 @@ jobs:
             release/qualification/windows-home.png
           if-no-files-found: ignore
           retention-days: 14
-      - uses: actions/upload-artifact@v4

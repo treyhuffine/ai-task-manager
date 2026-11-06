@@ -25,6 +25,7 @@
  */
 import * as nodePty from 'node-pty';
 import * as fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
 import { sliceReplay } from './replay';

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { AcceptanceFixture, api, eventually } from './acceptance-fixture';
 import { localPage } from './acceptance-surfaces';
 import { serviceStatus } from '../src/lib/service/client';
@@ -19,7 +19,11 @@ const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-windows-install-'));
 const installation = path.join(temporary, 'Program Files', 'Ri preview é');
 const report: { checks: string[]; error?: string; limitations: string[] } = { checks: [], limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Reinstall uses the same candidate installer'] };
 const pass = (name: string) => { report.checks.push(name); console.info(`[windows] ${name}`); };
-const install = () => execFileSync(installer, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, timeout: 180_000, stdio: 'pipe' });
+const install = () => {
+  const result = spawnSync(installer, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, timeout: 180_000, stdio: 'pipe' });
+  if (result.error) throw result.error;
+  assert.equal(result.status, 0, result.stderr?.toString());
+};
 let fixture: AcceptanceFixture | undefined;
 try {
   install();
