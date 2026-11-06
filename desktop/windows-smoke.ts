@@ -107,6 +107,10 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   const paths = JSON.parse(fs.readFileSync(proof, 'utf8').replace(/^\uFEFF/, ''));
   assert.equal(paths.ok, true); assert.equal(paths.result.appRoot, fixture.root);
   pass('Browser WebSocket terminal runs native PowerShell and the pinned ri.cmd against this Home');
+  await page.evaluate(() => window.riDesktop!.setupHarness!({ harness: 'claude', action: 'install' }));
+  const installedClaude = await api<{ binary: { installed: boolean }; hasSubscription: boolean }>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
+  assert.equal(installedClaude.binary.installed, true); assert.equal(installedClaude.hasSubscription, false);
+  pass('Install the real Claude Code CLI using bundled Node/npm, then inspect its signed-out Windows state');
   fs.mkdirSync(path.join(repository, 'release/qualification'), { recursive: true });
   await page.screenshot({ path: path.join(repository, 'release/qualification/windows-home.png') });
   const controller = (await serviceStatus())!;
