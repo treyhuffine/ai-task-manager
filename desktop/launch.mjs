@@ -14,6 +14,10 @@ delete env.ELECTRON_RUN_AS_NODE;
 delete env.NODE_OPTIONS;
 
 function run(executable, args, childEnv) {
+  if (process.platform === 'win32' && executable === 'pnpm') {
+    args = [process.env.npm_execpath, ...args];
+    executable = process.execPath;
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd: repo, env: childEnv, stdio: 'inherit' });
     const stop = () => child.kill('SIGTERM');

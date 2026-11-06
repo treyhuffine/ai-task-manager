@@ -54,7 +54,7 @@ function inventory(root: string): RuntimeFile[] {
       if (!target.startsWith(`${physicalRoot}${path.sep}`)) throw new Error(`Runtime link escapes its package: ${relative}`);
       files.push({ name: relative, link, executable: false });
     } else if (stat.isDirectory()) {
-      for (const name of fs.readdirSync(/* turbopackIgnore: true */ absolute).sort()) walk(path.join(/* turbopackIgnore: true */ relative, name));
+      for (const name of fs.readdirSync(/* turbopackIgnore: true */ absolute).sort()) walk(path.posix.join(relative, name));
     } else if (stat.isFile()) {
       files.push({ name: relative, sha256: digestFile(absolute), executable: !!(stat.mode & 0o111) });
     } else throw new Error(`Unsupported runtime entry: ${relative}`);
@@ -80,7 +80,7 @@ export function createRuntimeManifest(resources: string): RuntimeManifest {
   return manifest;
 }
 
-const REQUIRED = ['node/bin/node', 'server/dist/service/main.cjs', 'server/dist/service/http-server.cjs', 'server/dist/service/handoff.cjs', 'server/dist/service/runtime-job.cjs', 'server/dist/cli/index.mjs'];
+const REQUIRED = [process.platform === 'win32' ? 'node/node.exe' : 'node/bin/node', 'server/dist/service/main.cjs', 'server/dist/service/http-server.cjs', 'server/dist/service/handoff.cjs', 'server/dist/service/runtime-job.cjs', 'server/dist/cli/index.mjs'];
 
 function readManifest(resources: string): RuntimeManifest {
   const manifest = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ resources, 'runtime-manifest.json'), 'utf8')) as RuntimeManifest;

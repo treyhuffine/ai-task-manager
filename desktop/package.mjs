@@ -26,6 +26,10 @@ const releaseDirArg = process.argv.indexOf('--release-dir');
 const releaseDir = releaseDirArg === -1 ? null : path.resolve(process.argv[releaseDirArg + 1] ?? '');
 if (releaseDir && (!process.argv[releaseDirArg + 1] || !headless || releaseBuild)) throw new Error('--release-dir needs a folder, and is only for a headless, unsigned local build');
 const run = (cmd, args, cwd = repo, env = process.env) => {
+  if (process.platform === 'win32' && cmd === 'pnpm') {
+    args = [process.env.npm_execpath ?? require.resolve('pnpm/bin/pnpm.cjs'), ...args];
+    cmd = process.execPath;
+  }
   const result = spawnSync(cmd, args, { cwd, env, stdio: 'inherit' });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${cmd} exited with ${result.status}`);
@@ -46,7 +50,7 @@ if (!fs.existsSync(path.join(repo, '.next-desktop/BUILD_ID'))) throw new Error('
 // pnpm deploy copies the package allowlist and a self-contained production graph.
 // Explicitly copy Next runtime assets afterwards. Never copy .env or a data home.
 const deployed = path.join(stage, 'deployed');
-run('pnpm', ['--filter', 'ai-task-manager', 'deploy', '--prod', '--legacy', '--ignore-scripts', deployed]);
+run('pnpm', ['--filter', 'ai-task-manager', 'deploy', '--prod', '--legacy', '--ignore-scripts', ...(process.platform === 'win32' ? ['--config.node-linker=hoisted'] : []), deployed]);
 // Workspace packages may be hardlinked to the checkout. Freeze their bytes so
 // editing source while packaging cannot change a manifest that was just made.
 // On macOS `cp -c` clones: the bytes are frozen but share disk until either
@@ -71,7 +75,7 @@ const { transformSync } = createRequire(require.resolve('tsup'))('esbuild');
 fs.writeFileSync(path.join(server, 'next.config.mjs'), transformSync(fs.readFileSync(path.join(repo, 'next.config.ts'), 'utf8'), { loader: 'ts', format: 'esm' }).code);
 
 const version = DESKTOP_NODE_VERSION;
-const archive = `node-v${version}-${process.platform}-${process.arch}.tar.gz`;
+const archive = `node-v${version}-${process.platform === 'win32' ? 'win' : process.platform}-${process.arch}.${process.platform === 'win32' ? 'zip' : 'tar.gz'}`;
 const base = `https://nodejs.org/dist/v${version}/`;
 const checksums = await fetch(`${base}SHASUMS256.txt`).then((r) => { if (!r.ok) throw new Error('Could not download Node checksums'); return r.text(); });
 const expected = checksums.split('\n').map((line) => line.trim().split(/\s+/)).find(([, name]) => name === archive)?.[0];
@@ -84,7 +88,7 @@ if (!fs.existsSync(cache)) {
 }
 if (createHash('sha256').update(fs.readFileSync(cache)).digest('hex') !== expected) throw new Error('Node download checksum mismatch');
 fs.mkdirSync(node);
-run('/usr/bin/tar', ['-xzf', cache, '--strip-components=1', '-C', node]);
+run(process.platform === 'win32' ? 'tar.exe' : '/usr/bin/tar', ['-xf', cache, '--strip-components=1', '-C', node]);
 
 // Scripts were disabled in deploy, so preserve the already-built native artifacts
 // from this exact Node ABI. Do not rebuild these libraries for Electron.
@@ -96,8 +100,8 @@ for (const name of ['better-sqlite3', 'node-pty']) {
     fs.cpSync(path.join(source, folder), path.join(target, folder), { recursive: true });
   }
 }
-const portableNode = path.join(node, 'bin/node');
-run(portableNode, ['-e', "const db = new (require('better-sqlite3'))(':memory:'); require('sqlite-vec').load(db); console.log('SQLite/vector:', db.prepare('select vec_version() version').get()); db.close(); require('node-pty').spawn('/bin/echo', ['PTY ready']).onExit(({exitCode}) => {if (exitCode) process.exitCode=exitCode;});"], server);
+const portableNode = path.join(node, process.platform === 'win32' ? 'node.exe' : 'bin/node');
+run(portableNode, ['-e', "const db = new (require('better-sqlite3'))(':memory:'); require('sqlite-vec').load(db); console.log('SQLite/vector:', db.prepare('select vec_version() version').get()); db.close(); require('node-pty').spawn(process.platform === 'win32' ? 'cmd.exe' : '/bin/echo', process.platform === 'win32' ? ['/c', 'echo PTY ready'] : ['PTY ready']).onExit(({exitCode}) => {if (exitCode) process.exitCode=exitCode;});"], server);
 run(portableNode, ['dist/cli/index.mjs', '--help'], server);
 
 fs.mkdirSync(shell);
@@ -167,8 +171,8 @@ await tar.c({ file: runtimeArchive, cwd: runtimeOutput, gzip: true, portable: tr
 console.info(`Headless runtime: ${runtimeOutput}`);
 console.info(`Update payload: ${runtimeArchive}`);
 if (!headless) {
-  const platform = process.platform === 'darwin' ? Platform.MAC : Platform.LINUX;
-  const targets = releaseBuild ? (process.platform === 'darwin' ? ['dmg', 'zip'] : ['AppImage']) : ['dir'];
+  const platform = process.platform === 'darwin' ? Platform.MAC : process.platform === 'win32' ? Platform.WINDOWS : Platform.LINUX;
+  const targets = process.platform === 'win32' ? ['nsis'] : releaseBuild ? (process.platform === 'darwin' ? ['dmg', 'zip'] : ['AppImage']) : ['dir'];
   const resourcesToCopy = ['server', 'node', 'desktop-config.json', 'runtime-manifest.json', ...(fs.existsSync(policy) ? ['release-policy.json'] : [])];
   const output = await build({ targets: platform.createTarget(targets, process.arch === 'arm64' ? Arch.arm64 : Arch.x64), publish: 'never', config: {
     appId: 'app.ri.desktop', productName: 'Ri', electronVersion: pkg.devDependencies.electron,
@@ -179,6 +183,8 @@ if (!headless) {
     mac: { icon: path.join(repo, 'assets/brand/icons/icon.icns'), identity: releaseBuild ? process.env.CSC_NAME : null, signIgnore: ['Contents/Resources/server/', 'Contents/Resources/node/'], hardenedRuntime: true, notarize: releaseBuild,
       extendInfo: { NSMicrophoneUsageDescription: 'Ri uses the microphone when you record a voice message.', NSCameraUsageDescription: 'Ri uses the camera when you scan a pairing code.' } },
     linux: { executableName: 'ri', syncDesktopName: true, icon: path.join(repo, 'assets/brand/icons'), category: 'Office' },
+    win: { icon: path.join(repo, 'assets/brand/icons/icon.ico'), signAndEditExecutable: false, artifactName: 'Ri-Setup-${version}-${arch}.exe' },
+    nsis: { oneClick: false, perMachine: false, allowElevation: false, allowToChangeInstallationDirectory: true, deleteAppDataOnUninstall: false },
     // The native updater obtains the eligible URL from signed Ri metadata.
     publish: process.env.RI_RELEASE_FEED ? [{ provider: 'generic', url: new URL('.', process.env.RI_RELEASE_FEED).href }] : null,
     afterPack: async context => {

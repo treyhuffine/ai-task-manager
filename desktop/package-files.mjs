@@ -23,7 +23,11 @@ export function rebaseResourceLinks(root, sourceRoot) {
     const mapped = source ? path.join(root, path.relative(source, target)) : target;
     if (!inside(root, mapped)) throw new Error(`Packaged symlink escapes resources: ${path.relative(root, link)}`);
     fs.unlinkSync(link);
-    fs.symlinkSync(path.relative(path.dirname(link), mapped), link);
+    // Windows junctions carry absolute targets and NSIS cannot install them
+    // portably. The Windows deployment is hoisted, so only build asset links
+    // remain and can be shipped as ordinary files/directories.
+    if (process.platform === 'win32') fs.cpSync(mapped, link, { recursive: true, dereference: true });
+    else fs.symlinkSync(path.relative(path.dirname(link), mapped), link);
   }
   const physicalRoot = fs.realpathSync(root);
   for (const link of links) {

@@ -1,6 +1,11 @@
 name: Desktop and headless runtime
 on:
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Build only the Windows preview
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'desktop/**'
@@ -52,6 +57,7 @@ permissions:
   contents: read
 jobs:
   build:
+    if: ${{ !inputs.windows_only }}
     name: Runtime ${{ matrix.platform }} / ${{ matrix.arch }}
     strategy:
       fail-fast: false
@@ -295,3 +301,32 @@ jobs:
           retention-days: 7
       # Signing/notarization and public upload are separate publisher operations.
       # This workflow never publishes an unsigned build as an eligible release.
+  windows:
+    name: Windows x64 preview installer
+    runs-on: windows-2025
+    timeout-minutes: 90
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/setup@v3
+        with:
+          version: 12.14.0
+          install: false
+          node-version-file: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.5.0'
+          cache: pnpm
+      - name: Verify Windows x64
+        run: node -e "const a=require('node:assert/strict'); a.equal(process.platform,'win32'); a.equal(process.arch,'x64')"
+      - run: pnpm install --frozen-lockfile
+      - name: Build unsigned installer without speech or an update feed
+        run: pnpm desktop:package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ri-windows-x64-preview
+          path: release/desktop/Ri-Setup-*-x64.exe
+          if-no-files-found: error
+          retention-days: 14
