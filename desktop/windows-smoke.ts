@@ -26,7 +26,7 @@ const report: { checks: string[]; error?: string; cleanupError?: string; passed?
   checks: [], startedAt: new Date().toISOString(), installer: path.basename(installer),
   limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Higher installer version uses the same server build to isolate installer upgrade behavior'],
 };
-if (unpacked) report.limitations.push('Unpacked runtime debugging only, NSIS installation/upgrade/uninstall not qualified');
+if (unpacked) report.limitations.push('Current desktop shell over an unpacked retained runtime, exact installer and NSIS installation/upgrade/uninstall not qualified');
 const pass = (name: string) => { report.checks.push(name); console.info(`[windows] ${name}`); };
 const install = async (candidate = installer) => {
   if (unpacked) {
@@ -37,6 +37,16 @@ const install = async (candidate = installer) => {
     await run(sevenZip, ['e', '-y', candidate, '-ir!*app-64.7z', `-o${temporary}`], { windowsHide: true, timeout: 60_000 });
     assert(fs.existsSync(path.join(temporary, 'app-64.7z')), 'NSIS payload extraction must produce app-64.7z');
     await run(sevenZip, ['x', '-y', path.join(temporary, 'app-64.7z'), `-o${installation}`], { windowsHide: true, timeout: 15 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+    const builder = createRequire(require.resolve('electron-builder'));
+    const asar = createRequire(builder.resolve('app-builder-lib/package.json'))('@electron/asar');
+    const archive = path.join(installation, 'resources/app.asar');
+    const shell = path.join(temporary, 'current-shell');
+    asar.extractAll(archive, shell);
+    const bundles = fs.readdirSync(shell).filter(name => name.endsWith('.cjs'));
+    assert(bundles.length > 0);
+    for (const name of bundles) fs.copyFileSync(path.join(repository, 'dist/desktop', name), path.join(shell, name));
+    await asar.createPackage(shell, `${archive}.new`);
+    fs.renameSync(`${archive}.new`, archive);
     return;
   }
   const child = spawn(candidate, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, stdio: 'ignore' });
@@ -65,7 +75,7 @@ let fixture: AcceptanceFixture | undefined;
 try {
   await install();
   assert(fs.existsSync(path.join(installation, 'Ri.exe')));
-  pass(unpacked ? 'Extracted the exact installer payload into a path with spaces and Unicode' : 'Per-user NSIS installation into a path with spaces and Unicode');
+  pass(unpacked ? 'Extracted the retained runtime and overlaid the current desktop shell for debugging in a path with spaces and Unicode' : 'Per-user NSIS installation into a path with spaces and Unicode');
   process.env.RI_DESKTOP_PACKAGE = installation;
   fixture = new AcceptanceFixture('windows-home', { chooseHome: false });
   fixture.env.RI_LOCAL_APPS = '0';
@@ -187,6 +197,7 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   const upgrade = path.join(upgradeDirectory, fs.readdirSync(upgradeDirectory).find(name => /^Ri-Setup-.*-x64\.exe$/.test(name))!);
   await install(upgrade);
   await fixture.launch();
+  assert.equal(await fixture.app!.evaluate(({ app }) => app.getVersion()), /^Ri-Setup-(.+)-x64\.exe$/.exec(path.basename(upgrade))![1], 'The higher-version application must actually replace the earlier one');
   assert.equal((await api<{ title: string }>(fixture.page!, `/api/notes/${note.id}`)).title, 'Windows note edited in the app');
   assert.equal((await api<{ status: string }>(fixture.page!, `/api/tasks/${task.id}`)).status, 'done');
   pass('A higher-version installer upgrades the application and keeps tasks and notes');

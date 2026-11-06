@@ -11,7 +11,7 @@ on:
         type: string
         default: ''
       unpacked_runtime:
-        description: Debug the extracted Windows runtime without qualifying NSIS
+        description: Debug the current desktop shell over an extracted runtime without qualifying NSIS
         type: boolean
         default: false
   pull_request:
@@ -369,6 +369,9 @@ jobs:
           pnpm ts
           pnpm exec vitest run --config desktop/vitest.config.ts desktop/windows-platform.test.ts desktop/package-layout.test.ts desktop/package-preflight.test.ts
           pnpm exec vitest run --config desktop/vitest.config.ts desktop/package-files.test.ts -t "Windows Next externals"
+      - name: Compile the current desktop shell for runtime debugging
+        if: ${{ inputs.unpacked_runtime }}
+        run: pnpm exec tsup --config desktop/tsup.config.ts
       - name: Install, first run, chat, quit, reopen, reinstall and uninstall
         timeout-minutes: 45
         env:

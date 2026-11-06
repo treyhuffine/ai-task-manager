@@ -1130,6 +1130,9 @@ async function start() {
     if (process.platform !== 'darwin') throw new Error('Open your computer’s notification settings to allow Ri.');
     await shell.openExternal(MAC_NOTIFICATION_SETTINGS);
   });
+  // Give the covered viewer a document before the local setup view appears.
+  // A never-navigated WebContents cannot finish attaching a DevTools client.
+  await window.loadURL('about:blank');
   await localSurface.show({ id: 'loading', html: startingPage(randomUUID().replaceAll('-', ''), localStyleOptions()) });
   teams = teamFlow({
     personalRoot: () => identity.root,

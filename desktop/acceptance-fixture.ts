@@ -161,17 +161,8 @@ export class AcceptanceFixture {
     this.select();
     assert(!this.app, 'Quit the current viewer before reopening it');
     console.info(`[acceptance] Launching ${this.source || options.source ? 'source' : 'packaged'} viewer with temporary home ${this.root}`);
-    // Playwright adds this loader only when it chooses Electron's executable.
-    // Our explicit source/packaged executable needs the same ready handshake.
-    const loader = path.join(path.dirname(require.resolve('playwright-core/package.json')), 'lib/server/electron/loader.js');
-    this.app = await _electron.launch({ executablePath: options.source || this.source ? electron as unknown as string : this.executable, args: ['-r', loader, ...(options.source || this.source ? [path.resolve(__dirname, '../dist/desktop/main.cjs'), ...args] : args)], cwd: this.base, env: this.env, timeout: 240_000 });
+    this.app = await _electron.launch({ executablePath: options.source || this.source ? electron as unknown as string : this.executable, args: options.source || this.source ? [path.resolve(__dirname, '../dist/desktop/main.cjs'), ...args] : args, cwd: this.base, env: this.env, timeout: 240_000 });
     await this.app.firstWindow({ timeout: 30_000 });
-    // Before a Home is chosen the covered viewer has never navigated, so CDP
-    // has no page target for it. Give that empty test renderer a document.
-    await this.app.evaluate(async ({ BrowserWindow }) => {
-      const contents = BrowserWindow.getAllWindows()[0].webContents;
-      if (!contents.getURL() && !contents.isLoading()) await contents.loadURL('about:blank');
-    });
     const page = await viewerPage(this.app);
     page.setDefaultTimeout(30_000);
     // Electron can cancel beforeunload before Chromium's CDP dialog reply.
