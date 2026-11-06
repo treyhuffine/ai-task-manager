@@ -65,6 +65,9 @@ const nextConfig: NextConfig = {
     "better-sqlite3",
     "sqlite-vec",
     "node-pty",
+    // Node browser driver. Its runtime browser/trace path discovery must not
+    // be evaluated as application assets, especially on Windows.
+    "playwright-core",
     "ws",
     // Tracked subscription envelopes carry a module-local symbol. HTTP and
     // instrumentation must use one Node instance, including after hot reload.

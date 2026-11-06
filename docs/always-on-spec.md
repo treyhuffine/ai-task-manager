@@ -214,9 +214,15 @@ Both `ri doctor` and Settings also warn when free disk space drops below the lar
 
 A Mac that must serve before anyone logs in would need a system LaunchDaemon. That process couldn't reach the user's login keychain, where harnesses keep their sign-ins. It isn't planned (section 13.2).
 
-### 6.6 Windows (later)
+### 6.6 Windows supervision (later)
 
 Windows uses a Scheduled Task running as the user, triggered at boot and at logon, that runs the launcher. This is OpenClaw's approach. Because the controller restarts the server itself, the task only has to keep the launcher alive, which avoids Hermes's gap where a crashed gateway stays down on Windows. It also needs Windows release builds (`node-pty`, `better-sqlite3`) and a Windows launcher, which the packager doesn't produce yet.
+
+The [first native Windows preview](windows-first-version.md) has a narrower
+scope: an unsigned x64 installer and a Home that runs while the desktop app is
+open. It uses the controller's existing server supervision without an OS job,
+shared release installation or update feed. Closing the app stops its Home.
+The Scheduled Task and always-on promise above remain future work.
 
 ## 7. Updating
 
@@ -607,7 +613,7 @@ Acceptance: an SSH-only Linux server goes from `curl … | sh` and `ri start` to
    - **Cost:** one flag the controller passes after the crash-loop threshold, telling the server to start without re-sending and to report which chats it held back.
    - It needs the owner's OK before it is built.
 4. **A Home handing its release to its connected computers,** so source-built setups stay aligned too (section 7.7).
-5. **Windows.** Native first, or WSL first, as OpenClaw supports both?
+5. **Windows.** The first desktop preview uses native Windows, as decided on 2026-11-06. The Scheduled Task adapter and Windows launcher remain future work.
 6. **Backups.** The nightly backup is an owner-only launchd job (`pnpm backup install`). Whether every Home should get one, kept by the same controller, is a separate decision.
 7. **Before-login Macs.** A system LaunchDaemon for Macs that must serve before anyone logs in. Not planned, and it can't reach the login keychain.
 8. **The desktop app and a plain HTTP Home on the same computer** (phase D). A Home taken over from a terminal keeps `http://localhost:4224` (section 10.3), so its `/session` has no certificate. The desktop app's local window expects one (`isLocalViewer` in `desktop/viewer-trust.ts`), so today it would treat that Home as one elsewhere. Nobody runs the app on the owner's Mini, where both such Homes live. Phase D decides whether the app accepts a local HTTP Home or offers to move it to HTTPS.

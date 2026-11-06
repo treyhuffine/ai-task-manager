@@ -8,6 +8,11 @@ Quick navigation: [Status](#status-and-landing-boundary), [Implementation review
 
 ## Status and landing boundary
 
+The native [Windows x64 preview](windows-first-version.md) has a separate
+qualification record. It runs its Home only while the app is open and has no
+login service, update feed or speech helper. Historical platform qualification
+claims below describe their dated candidates.
+
 **The standalone desktop and personal Homes implementation are on main. The P5.4 companion integration is built and exercised on macOS arm64.** Electron can select a Home or connected-device role before database startup, pair a viewer, opt into a supervised worker, and keep local controls outside the remote Home page. This is an unsigned local beta candidate, not a published or qualified production release. No production Home, OS login service, live tunnel, provider account or public release was changed by implementation tests.
 
 The original audit and phase snapshots later in this document are dated evidence. This status, the P5.4 checklist and the current implementation matrix supersede their statements about features still missing. Homes' personal device design is now adopted. Teams P6/P7 remain separate.

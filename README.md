@@ -59,6 +59,12 @@ Run `pnpm desktop:demo` to build and open Ri in Electron, or `pnpm desktop:dev` 
 
 Build an unsigned app with `pnpm desktop:package`. On macOS arm64 the output is `release/desktop/mac-arm64/Ri.app`, with its own Node runtime and Ri CLI. `pnpm runtime:package` builds the headless runtime on matching macOS/Linux hosts.
 
+The [Windows x64 preview](docs/windows-first-version.md) builds an unsigned
+`.exe` installer on GitHub Actions. It runs while the desktop app is open and
+keeps the Home in AppData across reinstalls. Windows 10 version 1809 or newer
+is required. This preview has no start at login, self-updates or bundled local
+speech helper. Downloading is limited to Actions artifacts during qualification.
+
 Desktop and CLI can share one explicitly selected local service. Quitting the GUI leaves that service running, and the desktop flushes pending edits before closing. Login supervision, persistent runtime setup, verified updates and SQLite migration/recovery are implemented. Default desktop homes remain isolated. Signed distribution and additional host/provider qualification are still required. The [desktop implementation and delivery plan](docs/desktop.md) covers setup, current verification, publisher configuration and conditional multi-device integration.
 
 ## Running the CLI (prod)
