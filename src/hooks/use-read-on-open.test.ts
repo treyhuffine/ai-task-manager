@@ -1,7 +1,8 @@
 /**
  * Opening a chat is its read receipt, however it was opened. It used to lean on
  * the composer taking focus, and a chat opened from the header's Unread popover
- * never got focus, so it stayed unread while it was open.
+ * never got focus, so it stayed unread while it was open. A tab nobody is looking
+ * at holds the receipt, or every restart would read each chat left open in one.
  */
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -15,6 +16,8 @@ vi.mock('@/lib/api/sessions', () => ({ sessionsApi: { markRead } }));
 
 let root: Root;
 let client: QueryClient;
+let visibility: DocumentVisibilityState;
+let setVisibility: (next: DocumentVisibilityState) => Promise<void>;
 
 function Harness({ chatId }: { chatId: string }) {
   useReadOnOpen(chatId);
@@ -26,17 +29,30 @@ const show = (chatId: string) => act(async () => {
 });
 
 beforeEach(() => {
-  const { window, document } = parseHTML('<!doctype html><html><body><div id="root"></div></body></html>');
+  const { window, document, Event } = parseHTML('<!doctype html><html><body><div id="root"></div></body></html>');
   vi.stubGlobal('window', window);
   vi.stubGlobal('document', document);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  visibility = 'visible';
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
+  setVisibility = (next) => act(async () => {
+    visibility = next;
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
   markRead.mockClear();
   client = new QueryClient();
   root = createRoot(document.getElementById('root')!);
 });
 
 afterEach(async () => {
+  // A settling mutation tells React on a timer, which must fire while `window` exists.
+  const nextTimer = () => new Promise((resolve) => setTimeout(resolve, 0));
+  await act(async () => {
+    while (client.isMutating() > 0) await nextTimer();
+    await nextTimer();
+  });
   await act(async () => root.unmount());
+  await nextTimer();
   client.clear();
   vi.unstubAllGlobals();
 });
@@ -51,6 +67,37 @@ it('reads each chat you move to, and only once while one stays open', async () =
   await show('chat-a');
   await show('chat-b');
   expect(markRead.mock.calls).toEqual([['chat-a'], ['chat-b']]);
+});
+
+it('holds the read in a tab nobody is looking at, and sends it when you come to the tab', async () => {
+  visibility = 'hidden';
+  await show('chat-a');
+  expect(markRead).not.toHaveBeenCalled();
+  await setVisibility('visible');
+  expect(markRead.mock.calls).toEqual([['chat-a']]);
+});
+
+it("doesn't read a chat the hidden tab moved on from", async () => {
+  visibility = 'hidden';
+  await show('chat-a');
+  await show('chat-b');
+  await setVisibility('visible');
+  expect(markRead.mock.calls).toEqual([['chat-b']]);
+});
+
+it('reads once, whatever the tab does afterwards', async () => {
+  await show('chat-a');
+  await setVisibility('hidden');
+  await setVisibility('visible');
+  expect(markRead.mock.calls).toEqual([['chat-a']]);
+
+  markRead.mockClear();
+  visibility = 'hidden';
+  await show('chat-b');
+  await setVisibility('visible');
+  await setVisibility('hidden');
+  await setVisibility('visible');
+  expect(markRead.mock.calls).toEqual([['chat-b']]);
 });
 
 it('sends nothing without a chat', async () => {

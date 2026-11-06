@@ -467,11 +467,26 @@ export function useMarkSessionRead() {
  * focus can't stand in for this: its autofocus yields to anything still on
  * screen, so a chat opened from a popover (the header's Unread) stayed unread.
  * Output that lands while the chat is open stays unread until you engage.
+ *
+ * A tab you aren't looking at holds the receipt until you come to it: a chat
+ * also mounts when a background tab reloads, as every open tab does when Ri
+ * restarts, and nobody has seen it then.
  */
 export function useReadOnOpen(chatId: string) {
   const { mutate } = useMarkSessionRead();
   useEffect(() => {
-    if (chatId) mutate(chatId);
+    if (!chatId) return;
+    if (document.visibilityState === 'visible') {
+      mutate(chatId);
+      return;
+    }
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      document.removeEventListener('visibilitychange', onVisible);
+      mutate(chatId);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [chatId, mutate]);
 }
 
