@@ -182,7 +182,9 @@ if (!headless) {
   const platform = process.platform === 'darwin' ? Platform.MAC : process.platform === 'win32' ? Platform.WINDOWS : Platform.LINUX;
   const targets = process.platform === 'win32' ? ['nsis'] : releaseBuild ? (process.platform === 'darwin' ? ['dmg', 'zip'] : ['AppImage']) : ['dir'];
   const resourcesToCopy = ['server', 'node', 'desktop-config.json', 'runtime-manifest.json', ...(fs.existsSync(policy) ? ['release-policy.json'] : [])];
-  const packageOptions = { targets: platform.createTarget(targets, process.arch === 'arm64' ? Arch.arm64 : Arch.x64), publish: 'never', config: {
+  // electron-builder normalizes its configuration in place. Each installer
+  // needs fresh arrays and objects, including the higher-version test build.
+  const packageOptions = () => ({ targets: platform.createTarget(targets, process.arch === 'arm64' ? Arch.arm64 : Arch.x64), publish: 'never', config: {
     appId: 'app.ri.desktop', productName: 'Ri', electronVersion: pkg.devDependencies.electron,
     directories: { app: shell, output: path.join(repo, 'release/desktop'), buildResources: path.join(repo, 'assets/brand/icons') },
     files: [...SHELL_ENTRYPOINTS, 'package.json', '!node_modules/**/*'], asar: true,
@@ -210,13 +212,15 @@ if (!headless) {
       const resources = path.join(context.appOutDir, 'Ri.app/Contents/Resources');
       run(process.execPath, ['dist/cli/index.mjs', 'service', 'verify', resources]);
     },
-  } };
-  const output = await build(packageOptions);
+  } });
+  const output = await build(packageOptions());
   if (process.platform === 'win32' && process.argv.includes('--upgrade-test')) {
     const parts = pkg.version.split('.').map(Number);
     const upgradeVersion = `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
-    await build({ ...packageOptions, config: { ...packageOptions.config, extraMetadata: { version: upgradeVersion },
-      directories: { ...packageOptions.config.directories, output: path.join(repo, 'release/windows-upgrade-test') } } });
+    const upgradeOptions = packageOptions();
+    upgradeOptions.config.extraMetadata = { version: upgradeVersion };
+    upgradeOptions.config.directories.output = path.join(repo, 'release/windows-upgrade-test');
+    await build(upgradeOptions);
   }
   console.info(`Desktop output: ${output.join(', ') || path.join(repo, 'release/desktop')}`);
 }
