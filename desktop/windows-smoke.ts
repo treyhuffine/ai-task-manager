@@ -44,7 +44,7 @@ const write=x=>process.stdout.write(JSON.stringify(x)+'\\n');
 const id='windows-fixture-'+randomUUID();
 if(process.argv.includes('--version')){console.log('2.1.295 (Claude Code)');process.exit(0);}
 if(process.argv.includes('auth')){write({loggedIn:true,authMethod:'claude.ai',email:'windows-fixture@example.test'});process.exit(0);}
-const init=()=>write({type:'system',subtype:'init',session_id:id,model:'claude-sonnet-4-6'});
+const init=()=>write({type:'system',subtype:'init',session_id:id,model:'sonnet'});
 const reply=()=>{init();write({type:'assistant',session_id:id,message:{content:[{type:'text',text:'Windows harness reply.'}]}});write({type:'result',subtype:'success',session_id:id,result:'Windows harness reply.',is_error:false,total_cost_usd:0,num_turns:1,usage:{input_tokens:1,output_tokens:1}});};
 if(!process.argv.includes('--input-format')){reply();process.exit(0);}
 createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(line)}catch{return}
@@ -79,7 +79,7 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   await noteTitle.fill('Windows note edited in the app');
   await eventually(async () => (await api<{ title: string }>(page, `/api/notes/${note.id}`)).title === 'Windows note edited in the app', 'editor autosave');
   pass('The installed note editor opens and autosaves a real user edit');
-  const chat = await api<{ session: { id: string } }>(page, '/api/orchestrator-chat', 'POST', { providerId: 'claude', model: 'claude-sonnet-4-6' });
+  const chat = await api<{ session: { id: string } }>(page, '/api/orchestrator-chat', 'POST', { providerId: 'claude', model: 'sonnet' });
   await api(page, `/api/sessions/${chat.session.id}/messages`, 'POST', { content: 'Windows smoke message' });
   await eventually(async () => {
     const result = await api<{ role: string; content: string }[]>(page, `/api/sessions/${chat.session.id}/events`);

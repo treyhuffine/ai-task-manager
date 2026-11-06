@@ -90,7 +90,7 @@ candidate uses the same server commit, so it isolates installer replacement
 and data preservation. The first-run path applies the real database migrations.
 No provider credentials are supplied and no real billed model request runs.
 
-macOS checks so far: desktop suite 571 passed with one existing skip, focused
+macOS checks so far: desktop suite 573 passed with one existing skip, focused
 core checks passed, typecheck and desktop compilation passed. The broader
 repository suite has existing failures, including ten message-route tests
 reproduced unchanged at the starting commit. A new IPC shutdown listener also
@@ -100,10 +100,18 @@ servers and uses a Ri-specific message, and the HTTP-server checks pass.
 A clean macOS worktree also passed the production Next build and trace guard.
 A real Electron session created a fresh Home, created and completed a task,
 edited and autosaved a note, quit, reopened and retained both records. Its
-service stayed running after quitting, as macOS requires. The wider companion
+service stayed running after quitting, as macOS requires. A real dispatch also
+produced and persisted a reply through the same stand-in Claude protocol used
+by Windows qualification. No real provider account or billed request was used.
+The wider companion
 smoke reaches three first-run checks and then stops on an existing renamed
 pairing-field selector. The acceptance fixture now supplies Playwright's loader
 for explicit executables and creates a document for its initially empty viewer.
+
+The Windows production web build and trace guard now pass. SQLite/vector,
+canvas, sharp, and native terminal output/exit passed the Windows preflight.
+The pinned node-pty beta kept a pipe worker after natural shell exit. Ri now
+calls its cleanup API at exit, and the packaging probe has a short timeout.
 
 ## PC checklist
 
