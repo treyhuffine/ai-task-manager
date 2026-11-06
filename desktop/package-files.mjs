@@ -18,6 +18,16 @@ export function pruneDependencySourceMaps(directory) {
   return removed;
 }
 
+/** sqlite-vec finds its extension in a sibling package using __dirname.
+ * Windows materializes Next's junctions, so preserve that sibling layout. */
+export function copyNextVectorExtension(server) {
+  if (process.platform !== 'win32') return;
+  const modules = path.join(server, '.next-desktop/node_modules');
+  if (!fs.existsSync(modules) || !fs.readdirSync(modules).some(name => /^sqlite-vec-[a-f0-9]+$/.test(name))) return;
+  const native = 'sqlite-vec-windows-x64';
+  fs.cpSync(path.join(server, 'node_modules', native), path.join(modules, native), { recursive: true });
+}
+
 /** Node's default copy resolves symlinks to the staging directory. Rebase them
  * before removing staging, then reject every link escaping the shipped tree. */
 export function rebaseResourceLinks(root, sourceRoot, server) {

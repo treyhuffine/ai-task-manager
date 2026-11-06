@@ -14,6 +14,7 @@ import { windowsProcesses } from '../src/lib/utils/windows-processes';
 import { servicePaths } from '../src/lib/service/paths';
 import { redactServiceLine } from '../src/lib/service/logging';
 import { PAIRING_TOKEN_FRAGMENT_KEY } from '../src/constants/app';
+import { copyNextVectorExtension } from './package-files.mjs';
 import type { HarnessAuthResponse } from '../src/lib/server/operations/harness/auth';
 
 assert.equal(process.platform, 'win32');
@@ -50,6 +51,11 @@ const install = async (candidate = installer) => {
     for (const name of bundles) fs.copyFileSync(path.join(repository, 'dist/desktop', name), path.join(shell, name));
     await asar.createPackage(shell, `${archive}.new`);
     fs.renameSync(`${archive}.new`, archive);
+    // Exercise the current packaging layout while reusing the web build.
+    copyNextVectorExtension(path.join(installation, 'resources/server'));
+    await run(path.join(installation, 'resources/node/node.exe'), [path.join(repository, 'desktop/native-probe.mjs')], {
+      cwd: path.join(installation, 'resources/server'), windowsHide: true, timeout: 35_000,
+    });
     return;
   }
   const child = spawn(candidate, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, stdio: 'ignore' });

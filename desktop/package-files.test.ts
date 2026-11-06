@@ -2,7 +2,8 @@ import { afterEach, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks, pruneDependencySourceMaps } from './package-files.mjs';
+import { createRequire } from 'node:module';
+import { assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks, pruneDependencySourceMaps, copyNextVectorExtension } from './package-files.mjs';
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
@@ -73,6 +74,28 @@ it.each([true, false])('materializes Windows Next externals only from a matching
       expect(fs.readFileSync(path.join(link, 'index.js'), 'utf8')).toBe('deployed bytes');
     }
   } finally { Object.defineProperty(process, 'platform', { value: platform }); }
+});
+
+it('keeps the native sibling beside a materialized Windows Next sqlite-vec external', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-next-vector-')); dirs.push(temp);
+  const server = path.join(temp, 'server');
+  const external = path.join(server, '.next-desktop/node_modules/sqlite-vec-123abc');
+  const native = path.join(server, 'node_modules/sqlite-vec-windows-x64');
+  fs.mkdirSync(external, { recursive: true }); fs.mkdirSync(native, { recursive: true });
+  fs.copyFileSync(require.resolve('sqlite-vec'), path.join(external, 'index.cjs'));
+  fs.writeFileSync(path.join(native, 'vec0.dll'), 'native extension');
+  const platform = process.platform; const arch = process.arch;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  Object.defineProperty(process, 'arch', { value: 'x64' });
+  try {
+    const adapter = createRequire(path.join(temp, 'package.json'))(path.join(external, 'index.cjs'));
+    expect(() => adapter.getLoadablePath()).toThrow('extension for sqlite-vec not found');
+    copyNextVectorExtension(server);
+    expect(fs.readFileSync(adapter.getLoadablePath(), 'utf8')).toBe('native extension');
+  } finally {
+    Object.defineProperty(process, 'platform', { value: platform });
+    Object.defineProperty(process, 'arch', { value: arch });
+  }
 });
 
 it('refuses a new companion package missing setup, worker, privileged preload or offline appearance assets', () => {
