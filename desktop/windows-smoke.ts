@@ -8,6 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { AcceptanceFixture, api, eventually, nativeNavigate } from './acceptance-fixture';
 import { localPage } from './acceptance-surfaces';
 import { serviceStatus } from '../src/lib/service/client';
+import { windowsProcesses } from '../src/lib/utils/windows-processes';
 
 assert.equal(process.platform, 'win32');
 assert.equal(process.env.GITHUB_ACTIONS, 'true');
@@ -103,9 +104,19 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   pass('Browser WebSocket terminal runs native PowerShell and the pinned ri.cmd against this Home');
   fs.mkdirSync(path.join(repository, 'release/qualification'), { recursive: true });
   await page.screenshot({ path: path.join(repository, 'release/qualification/windows-home.png') });
+  const controller = (await serviceStatus())!;
+  const beforeQuit = await windowsProcesses();
+  const ownedPids = new Set([controller.pid]);
+  let previousSize = 0;
+  while (previousSize !== ownedPids.size) {
+    previousSize = ownedPids.size;
+    for (const child of beforeQuit) if (ownedPids.has(child.ppid)) ownedPids.add(child.pid);
+  }
+  const ownedBirthIds = new Set(beforeQuit.filter(child => ownedPids.has(child.pid)).map(child => child.birthId));
   await fixture.quit();
   await eventually(async () => await serviceStatus() === null, 'app close stops the controller', 75_000);
-  pass('Quit stops the app-owned controller and server');
+  await eventually(async () => !(await windowsProcesses()).some(child => ownedBirthIds.has(child.birthId)), 'owned server, harness and terminal processes exit', 30_000);
+  pass('Quit stops the app-owned controller, server, harnesses and terminal processes');
   await fixture.launch();
   assert.equal((await api<{ body: string }>(fixture.page!, `/api/notes/${note.id}`)).body, 'Synthetic Windows fixture body.');
   assert.equal((await api<{ status: string }>(fixture.page!, `/api/tasks/${task.id}`)).status, 'done');
