@@ -8,9 +8,9 @@ import { isSessionUnread } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
 
 /**
- * Mark unread, where you're reading. Opening a chat reads it, so this is the
+ * Mark unread, where you're reading. Reading a chat clears it, so this is the
  * way back to it: marked unread, it stays lit (bold with a dot in the rail,
- * counted in the header's Unread) until you open it again. Marked, the button
+ * counted in the header's Unread) until you read it again. Marked, the button
  * says Unread in the rail's amber, and a click marks it read.
  *
  * Reads and writes the chat's own read state (`unread_marker_at`, the same

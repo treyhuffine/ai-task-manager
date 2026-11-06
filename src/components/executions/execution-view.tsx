@@ -12,7 +12,7 @@ import {
   useSessionReferences,
   useScratchpad,
 } from '@/hooks/use-execution';
-import { useDiffStats, useReadOnOpen } from '@/hooks/use-workspaces';
+import { useDiffStats, useReadOnLeave } from '@/hooks/use-workspaces';
 import { useElementWidth } from '@/hooks/use-element-width';
 import { cn } from '@/lib/utils';
 import { ExecutionHeader } from './execution-header';
@@ -63,8 +63,8 @@ interface ExecutionViewProps {
  * is actually on screen, measured by width. That also keeps a hidden copy
  * from spawning a terminal.
  *
- * Marks the session as viewed on open so it leaves the Needs Review
- * surface — opening the session is the read receipt.
+ * An unread chat stays unread while it's open. Leaving it or engaging with
+ * its composer reads it (`useReadOnLeave`, `useReadOnEngage`).
  */
 export function ExecutionView(props: ExecutionViewProps) {
   const { data: session, error } = useSession(props.sessionId);
@@ -337,7 +337,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
     },
   });
 
-  useReadOnOpen(sessionId);
+  useReadOnLeave(sessionId);
 
   const handleClose = goHome;
 

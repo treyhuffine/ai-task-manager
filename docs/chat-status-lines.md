@@ -34,12 +34,12 @@ Recency stays the order. The size of your part and what it unblocks are on the r
 Stored on the chat as `chat_sessions.turn_status` (JSON, null until set, migration 0029).
 
 - **A new message to the chat clears it** (`insertChatEvent`, a `user` or `cron` event): a new turn starts, so the last line no longer says where things stand.
-- **Reading a chat leaves its line.** Opening a chat or marking it read works the same with or without a status, and the line stays on the row until a new message clears it.
+- **Reading a chat leaves its line.** A chat goes read the same way with or without a status ([chat-sessions.md](chat-sessions.md#ux-rules)), and the line stays on the row until a new message clears it.
 - **Turning status lines off** clears every status and drops the rule, so the app is as it was. Agents that call the tool anyway are refused.
 
 ## Tried and removed
 
-From 2026-11-03 to 2026-11-05, a status that waited on you kept the chat in Unread after you looked at it, until you answered or marked it read, so a glance couldn't drop a question out of Unread. In use it read as marking read being broken: a chat you had just opened still said Unread, nothing in the chat said why, and an ask you finish outside the chat (restarting prod) cleared only through Mark as read. So a status no longer has any say in read or unread, and opening a chat reads it.
+From 2026-11-03 to 2026-11-05, a status that waited on you kept the chat in Unread after you looked at it, until you answered or marked it read, so a glance couldn't drop a question out of Unread. In use it read as marking read being broken: a chat you had just opened still said Unread, nothing in the chat said why, and an ask you finish outside the chat (restarting prod) cleared only through Mark as read. So a status no longer has any say in read or unread.
 
 ## Reverting
 

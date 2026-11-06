@@ -9,7 +9,7 @@ import { sessionsApi, type HistoryResponse, type RailResponse } from '@/lib/api/
 import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
 import type { DirtyWorktreeBody, UncommittedFile } from '@/lib/workspaces/uncommitted-files';
 import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query';
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import type { AgentMentionItem } from '@/components/chat/editor/mention-menu/types';
 import { resolveAgentPicture } from '@/components/agents/agent-icon';
 import { useAreas } from '@/hooks/use-areas';
@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { optimisticPatch } from '@/lib/query/optimistic-entity';
 import type { WorkResultDetailResponse } from '@/lib/api/results';
 import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
+import { isSessionUnread, latestActivityAt } from '@/lib/utils/session-sort';
 
 const WORKSPACES_KEY = ['workspaces'] as const;
 const UPDATE_WORKSPACE_KEY = ['workspaces', 'update'] as const;
@@ -463,31 +464,48 @@ export function useMarkSessionRead() {
 }
 
 /**
- * Opening a chat is its read receipt, however it was opened. The composer's
- * focus can't stand in for this: its autofocus yields to anything still on
- * screen, so a chat opened from a popover (the header's Unread) stayed unread.
- * Output that lands while the chat is open stays unread until you engage.
- *
- * A tab you aren't looking at holds the receipt until you come to it: a chat
- * also mounts when a background tab reloads, as every open tab does when Ri
- * restarts, and nobody has seen it then.
+ * A chat's read state as this client knows it. The rail holds one chat per
+ * execution, so a sibling chat comes from its own record.
  */
-export function useReadOnOpen(chatId: string) {
+function cachedReadState(qc: QueryClient, chatId: string) {
+  const rail = qc.getQueryData<RailResponse>(RAIL_KEY);
+  return rail?.sessions.find((s) => s.id === chatId) ?? qc.getQueryData<ChatSessionWithExecution>(['session', chatId]);
+}
+
+/**
+ * Entering an unread chat leaves it unread while it's open. Leaving without
+ * engaging reads it, as long as what was unread when you came is still what's
+ * unread: output that landed while you were here stays unread. A tab nobody is
+ * looking at reads nothing, whatever unmounts it.
+ */
+export function useReadOnLeave(chatId: string) {
+  const qc = useQueryClient();
   const { mutate } = useMarkSessionRead();
   useEffect(() => {
     if (!chatId) return;
-    if (document.visibilityState === 'visible') {
-      mutate(chatId);
-      return;
-    }
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return;
-      document.removeEventListener('visibilitychange', onVisible);
-      mutate(chatId);
+    const entry = cachedReadState(qc, chatId);
+    const unreadAtEntry = entry && isSessionUnread(entry) ? latestActivityAt(entry) : null;
+    return () => {
+      if (!unreadAtEntry || document.visibilityState === 'hidden') return;
+      const now = cachedReadState(qc, chatId);
+      if (now && isSessionUnread(now) && latestActivityAt(now) === unreadAtEntry) mutate(chatId);
     };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [chatId, mutate]);
+  }, [chatId, qc, mutate]);
+}
+
+/**
+ * Reads the chat when a person engages with it, not when the composer merely
+ * takes focus: it focuses itself on arrival and whenever you come back to the
+ * window. Fires on every keystroke, so it sends only while the chat is unread.
+ */
+export function useReadOnEngage(chatId: string | null | undefined) {
+  const qc = useQueryClient();
+  const { mutate } = useMarkSessionRead();
+  return useCallback(() => {
+    if (!chatId) return;
+    const state = cachedReadState(qc, chatId);
+    if (state && isSessionUnread(state)) mutate(chatId);
+  }, [chatId, qc, mutate]);
 }
 
 export function useMarkSessionUnread() {

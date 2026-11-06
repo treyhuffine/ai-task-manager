@@ -813,6 +813,7 @@ The original cross-ingest concern was that stdio and rollout-file identifiers do
 - **When a task or note chat is first opened, the pane is empty.** That's fine. The agent still knows you — retrieval spans all transcripts. First message starts the content chat.
 - **Full transcripts. No collapsed exchanges. No summarized past.** Orientation markers are OK. Collapsed tool-call detail is OK. Hidden messages are not.
 - **CLI rollovers are visible.** When an execution's CLI session rotates (died, expired, machine changed, user hit `+`), the transcript shows a divider and the handoff message. Never a silent continuation claiming state the agent doesn't have.
+- **A chat goes read when you leave it or engage with it, not when you open it.** An unread chat stays unread while it's open. Clicking into its composer, typing, sending or Mark as read reads it, and so does leaving it, unless output landed while you were there (`useReadOnLeave`, `useReadOnEngage`). The composer focusing itself on arrival doesn't count, and neither does a tab nobody is looking at. An agent's main chat and the chats beside it read when they come to the front ([agents-view-spec.md](agents-view-spec.md)).
 
 ## In-document content chat (implementation)
 

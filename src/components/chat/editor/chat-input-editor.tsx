@@ -224,13 +224,6 @@ export interface ChatInputEditorProps {
   onBackspaceOnEmpty?: () => void;
   /** Optional toast hook for upload errors. Defaults to console.error. */
   onUploadError?: (err: Error) => void;
-  /**
-   * Called the first time the editor receives focus per mount. The
-   * execution composer uses this to mark the session read on
-   * interaction — opening the chat no longer marks it read on its own;
-   * the user has to actually engage with the textarea.
-   */
-  onFocus?: () => void;
   /** Whether ⌘I focuses this composer, as that changes (several can be on screen). */
   onHotkeyTargetChange?: (isTarget: boolean) => void;
   className?: string;
@@ -413,7 +406,6 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       submitOnEnter,
       onBackspaceOnEmpty,
       onUploadError,
-      onFocus,
       onHotkeyTargetChange,
       className,
       slashCommands,
@@ -451,7 +443,6 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     onBackspaceRef.current = onBackspaceOnEmpty;
     const onUploadErrorRef = useRef(onUploadError);
     onUploadErrorRef.current = onUploadError;
-    const onFocusRef = useRef(onFocus);
     // Mirror slashCommands in a ref so the suggestion extension's
     // closure always reads the latest list without re-creating the
     // editor when TanStack Query refreshes the data.
@@ -477,7 +468,6 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     loadReferenceTreeRef.current = loadReferenceTree;
     const prsRef = useRef(prs);
     prsRef.current = prs;
-    onFocusRef.current = onFocus;
     // Mirror the recall ring in a ref so the keymap (built once) always
     // reads the latest sent-message list without re-creating the editor.
     const historyRef = useRef(history);
@@ -865,9 +855,6 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         // this to disable Send while an upload is in flight.
         onPendingUploadsChange?.(editorHasPendingChip(editor));
         triggerDraftSave();
-      },
-      onFocus() {
-        onFocusRef.current?.();
       },
     });
 

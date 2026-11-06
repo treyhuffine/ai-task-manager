@@ -29,7 +29,7 @@ import {
   useSessionEvents,
 } from '@/hooks/use-execution';
 import { buildRecallHistory } from '@/components/chat/editor/history-recall';
-import { useMarkSessionRead, useMentionAgents } from '@/hooks/use-workspaces';
+import { useMarkSessionRead, useMentionAgents, useReadOnEngage } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import { PERMISSION_MODE_META } from '@/lib/permission-modes';
 import { HarnessPermissionNotice } from '@/components/settings/harness-permission-notice';
@@ -271,16 +271,11 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       updateUserState.mutate({ voiceAutoSend: !autoSend });
     }, [autoSend, updateUserState]);
 
-    // Read receipt: textarea focus marks the session read. We also mark
-    // on send (handleSend) for the case where the user pastes-and-sends
-    // without ever clicking the editor. Both paths fire markRead eagerly
-    // so the rail snaps to "read" as soon as the user engages — no extra
-    // cleanup-time bookkeeping required.
+    // Read receipt: clicking into the editor or typing reads the chat, and so
+    // does sending (handleSend), for the user who pastes and sends. The editor
+    // taking focus doesn't: it focuses itself when you land on a chat.
     const markRead = useMarkSessionRead();
-    const handleEditorFocus = useCallback(() => {
-      if (!sessionId) return;
-      markRead.mutate(sessionId);
-    }, [sessionId, markRead]);
+    const readOnEngage = useReadOnEngage(sessionId);
 
     // Auto-focus the composer when the user lands on a session — opens
     // up the "click execution → type immediately" flow without an
@@ -705,6 +700,9 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
               className="relative"
               onFocus={() => setEditorFocused(true)}
               onBlur={() => setEditorFocused(false)}
+              onPointerDown={readOnEngage}
+              onInput={readOnEngage}
+              onPaste={readOnEngage}
             >
               {voice.isRecording ? (
                 <div className="px-3 pt-2.5 pb-1 flex items-center" style={{ minHeight: 36 }}>
@@ -743,7 +741,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   onPendingUploadsChange={setHasPendingUploads}
                   onSubmit={() => handleSend()}
                   onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
-                  onFocus={handleEditorFocus}
                   onHotkeyTargetChange={setHotkeyTarget}
                   slashCommands={slashCommandsQuery.data?.commands}
                   mentionFiles={mentionFiles}

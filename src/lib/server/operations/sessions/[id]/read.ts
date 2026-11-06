@@ -7,10 +7,10 @@ import { z as rpcZ } from 'zod/v4';
 /**
  * Mark the session as read. Bumps `lastViewedAt = now()` and clears
  * any prior `unreadMarkerAt` (which the "Mark as unread" affordance
- * may have set). Fired by the client when a chat is opened, and on
- * textarea focus, send, or explicit Mark read. A chat that flips into the
- * agent-finished state while the user is looking at it still surfaces as
- * Unread until the user engages.
+ * may have set). Fired by the client when the user leaves a chat, engages
+ * with its composer or sends, and on explicit Mark read. Opening a chat
+ * doesn't read it, and a chat that flips into the agent-finished state while
+ * the user is looking at it still surfaces as Unread until the user engages.
  */
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {

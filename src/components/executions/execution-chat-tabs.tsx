@@ -546,9 +546,8 @@ function ChatTab({
   onActivate: () => void;
   onClose: () => void;
 }) {
-  // The chat you're looking at can't be unread — opening it is the read
-  // receipt, and the mark-read write lands a beat later than this render,
-  // so trust `isCurrent` over `lastViewedAt`.
+  // The chat you're looking at needs no dot, even while it's still unread
+  // (leaving it or engaging reads it), so trust `isCurrent` over `lastViewedAt`.
   const unread = !entry.isCurrent && isSessionUnread(entry);
   const label = entry.label ?? 'Untitled chat';
   const tooltip = [
