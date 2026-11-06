@@ -126,8 +126,10 @@ export class ServiceWorker {
       child.send({ action, id }, error => { if (error) { clearTimeout(timer); this.pending.delete(id); reject(error); } });
     });
   }
+  /** What it's doing, without the processes that draining is about to close. */
+  async work() { return (await this.request('activity')).activity; }
   async activity() {
-    const reasons = (await this.request('activity')).activity;
+    const reasons = await this.work();
     const children = this.child?.pid ? await ownedProcesses(this.child.pid) : [];
     return [...reasons, ...(children.length ? [`${children.length} worker-owned processes`] : [])];
   }

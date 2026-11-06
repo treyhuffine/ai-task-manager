@@ -30,6 +30,9 @@ import { registerServiceCommand } from './commands/service';
 import { registerPerfCommand } from './commands/perf';
 import { registerAttachmentCommand } from './commands/attachment';
 import { registerTeamCommand, selectTeamRoot } from './commands/team';
+import { spawnSync } from 'node:child_process';
+import { delegationTarget, selectDefaultHome, selectExplicitRoot } from './lib/release-delegation';
+import { registerHomeControlCommands } from './commands/home-control';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -46,13 +49,25 @@ let releaseCommand: (() => void) | undefined;
 program.hook('preAction', (_program, action) => {
   if (action.name() === 'acp') return;
   if (action.name() === 'create' && action.parent?.name() === 'team') selectTeamRoot(action.opts().root);
+  let top = action;
+  while (top.parent && top.parent !== program) top = top.parent;
+  const sub = top === action ? undefined : action.name();
+  selectExplicitRoot(top.name(), top.opts().root, action.opts().root);
+  // `--dev` names its Home itself.
+  if (!action.opts().dev) selectDefaultHome(top.name(), sub);
+  const target = delegationTarget(top.name(), sub);
+  if (target) {
+    const result = spawnSync(target.node, [target.cli, ...process.argv.slice(2)], { stdio: 'inherit',
+      env: { ...process.env, RI_CLI_DELEGATED: '1', RI_RUNTIME_REPO: target.repo, RI_DESKTOP_REPO: target.repo, NEXT_DIST_DIR: '.next-desktop' } });
+    process.exit(result.status ?? 1);
+  }
   // These commands only read local inputs and call the running server. The
   // server owns persistence, including reports from a read-only reviewer.
   if (['report_result', 'report_result_review'].includes(action.name())
     || (action.name() === 'upload' && action.parent?.name() === 'attachment')) return;
   let command = action;
   while (command.parent && command.parent !== program) command = command.parent;
-  if (!['service', 'update', 'start', 'stop'].includes(command.name())) {
+  if (!['service', 'update', 'start', 'stop', 'restart', 'logs'].includes(command.name())) {
     applyServiceEnvironment(process.execPath);
     releaseCommand = beginActivity();
   }
@@ -61,8 +76,10 @@ program.hook('postAction', () => { releaseCommand?.(); releaseCommand = undefine
 
 program
   .command('start', { isDefault: true })
-  .description(`Start ${APP_NAME} and open the app`)
-  .option('-p, --port <number>', 'port to bind (default: 4224, or 42241 with --dev)')
+  .description(`Start ${APP_NAME}, keep it running in the background, and open the app`)
+  .option('--root <dir>', 'the Home\'s folder, when it isn\'t ~/ri')
+  .option('--foreground', 'run in this terminal instead of the background, for debugging')
+  .option('-p, --port <number>', 'port for a new Home (default: 4224, or 42241 with --dev)')
   .option('--no-open', 'do not launch the browser')
   .option('--pair', 'open the pairing URL even if already paired')
   .option('--dev', 'run the server in dev mode (next dev) instead of production')
@@ -81,7 +98,8 @@ program
 
 program
   .command('stop')
-  .description(`Stop a running ${APP_NAME} server`)
+  .description(`Stop ${APP_NAME}, and keep it stopped after restarts until \`ri start\``)
+  .option('--root <dir>', 'the Home, when this computer runs several')
   .option('-p, --port <number>', 'port of the instance to stop')
   .option('--dev', 'target the dev instance (dev data root, default port 42241)')
   .option('-f, --force', 'send SIGKILL immediately instead of SIGTERM')
@@ -114,6 +132,7 @@ program
   .description('Run diagnostic checks')
   .action(doctorCommand);
 
+registerHomeControlCommands(program);
 registerVoiceCommand(program);
 registerAcpCommand(program);
 registerSnapshotCommand(program);

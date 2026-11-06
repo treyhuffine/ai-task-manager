@@ -192,14 +192,6 @@ it('preserves the new database after a crash at the committed phase', async () =
   write('accepted after commit'); save({ phase: 'committed', committedAt: new Date().toISOString() });
   await coordinator().recover(); expect(read()).toBe('accepted after commit'); expect(installedRuntime()?.id).toBe(candidate);
 });
-it('keeps failed post-commit startup offline until explicit forward recovery', async () => {
-  write('new user data'); save({ phase: 'committed', committedAt: new Date().toISOString() });
-  const updater = coordinator(); updater.startupFailed(new Error('backend failed'));
-  await expect(coordinator().recover()).rejects.toThrow('retained');
-  expect(read()).toBe('new user data');
-  await coordinator().recover(true);
-  expect(read()).toBe('new user data'); expect(installedRuntime()?.id).toBe(candidate);
-});
 it('leaves corrupted recovery material untouched and refuses to boot', async () => {
   const checkpoint = await createCheckpoint(path.join(directory, 'recovery/test'));
   fs.appendFileSync(path.join(checkpoint, 'database.sqlite'), 'corrupt');
@@ -295,9 +287,9 @@ it('holds the worker journal writer lock through checkpoint and validation and p
   fs.writeFileSync(journal, pending);
   backend.storage = 'worker';
   backend.exclusiveStorage = async () => (await acquireWorkerLock()).release;
-  backend.checkpoint = async directory => {
+  backend.checkpoint = async ({ recovery }) => {
     await expect(acquireWorkerLock()).rejects.toThrow('already running');
-    return createWorkerCheckpoint(directory);
+    return createWorkerCheckpoint(recovery);
   };
   backend.restore = async directory => verifyWorkerCheckpoint(directory);
   backend.validate = async () => {

@@ -30,6 +30,7 @@
  * This module never loads better-sqlite3, so the runner and worker, which
  * reach no database (src/lib/runner/boundary.test.ts), can open scopes too.
  */
+import v8 from 'node:v8';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -305,7 +306,11 @@ export function flushPerfRollup(): void {
   for (const [label, v] of s.labels) {
     labels[label] = { n: v.n, ms: round(v.ms), maxMs: round(v.maxMs), dbMs: round(v.dbMs), dbN: v.dbN };
   }
-  write({ type: 'rollup', windowMs: now - s.windowStartedAt, loop, labels });
+  // Memory over days tells a slow leak apart from one spike (docs/always-on-spec.md 6.2).
+  const heap = v8.getHeapStatistics();
+  const mib = (bytes: number) => Math.round(bytes / 1024 / 1024);
+  const memory = { heapUsedMiB: mib(heap.used_heap_size), heapLimitMiB: mib(heap.heap_size_limit), rssMiB: mib(process.memoryUsage.rss()) };
+  write({ type: 'rollup', windowMs: now - s.windowStartedAt, loop, memory, labels });
   s.labels = new Map();
   s.stalls = 0;
   s.stalledMs = 0;

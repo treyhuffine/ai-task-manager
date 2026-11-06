@@ -57,6 +57,10 @@ function print(summary: PerfSummary, file: string, since: string): void {
   }
   const starts = summary.starts === 1 ? '1 server start' : `${summary.starts} server starts`;
   console.log(`${dim('covers')}  ${when(summary.from)} to ${when(summary.to!)}, ${summary.minutes} min of rollups, ${starts}`);
+  if (summary.memory) {
+    const share = summary.memory.heapLimitMiB ? ` (${Math.round(summary.memory.peakHeapMiB / summary.memory.heapLimitMiB * 100)}% of its ${summary.memory.heapLimitMiB} MiB limit)` : '';
+    console.log(`${dim('memory')}  heap peaked at ${summary.memory.peakHeapMiB} MiB${share}, resident ${summary.memory.latestRssMiB} MiB at the end`);
+  }
   if (summary.loop.worstP99Ms !== null) {
     console.log(`${dim('loop')}    worst minute's p99 delay ${duration(summary.loop.worstP99Ms)}, longest delay ${duration(summary.loop.maxMs ?? 0)}`);
   }

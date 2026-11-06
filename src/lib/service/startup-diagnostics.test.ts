@@ -58,6 +58,13 @@ describe('startup diagnostics', () => {
     expect(new StartupDiagnostics().failure('Backend exited').message).not.toContain('failure99');
   });
 
+  it("gives a restart's reason in one line with the server's last error", () => {
+    const diagnostics = new StartupDiagnostics();
+    expect(diagnostics.brief('The server exited (SIGKILL)')).toBe('The server exited (SIGKILL)');
+    diagnostics.capture('Error: SQLITE_CORRUPT: database disk image is malformed');
+    expect(diagnostics.brief('The server exited (exit 1)')).toBe('The server exited (exit 1): Error: SQLITE_CORRUPT: database disk image is malformed');
+  });
+
   it('provides useful fallback guidance when no Next errors were emitted', () => {
     expect(new StartupDiagnostics().failure('Backend did not become ready within three minutes').message).toBe('Backend did not become ready within three minutes\nOpen the service log folder for the full startup log.');
   });

@@ -8,7 +8,7 @@ Production runs from this checkout, `~/ai-task-manager`, serving the real home `
 
 ## Production on the Mac Mini
 
-Production isn't supervised yet: a crash, a hang or a restart leaves it down until someone starts it again. [always-on-spec.md](always-on-spec.md) is the plan to change that, and this section is rewritten when it ships.
+Production isn't supervised yet: a crash, a hang or a restart leaves it down until someone starts it again. The code to change that is on `main`, and moving this computer to it is [the cutover in always-on-spec.md](always-on-spec.md#102-the-owners-mac-mini). This section describes today until that runs, and is rewritten then.
 
 | | |
 | --- | --- |

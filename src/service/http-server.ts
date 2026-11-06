@@ -2,12 +2,14 @@ import { localApps } from '@/lib/local-apps/service';
 import { localAppsEnabled } from '@/lib/config/features';
 /** The service's ordinary-Node HTTP boundary. Next remains the application. */
 import http from 'node:http';
+import v8 from 'node:v8';
 import next from 'next';
 import { beginActivity, readMaintenance } from '@/lib/service/maintenance';
 import './watchdog';
 import { isTrpcDrainSave } from '@/lib/trpc/admission';
 import { listRunningSessions, listBackgroundTaskSessions, listSessionsWithPending } from '@/lib/executor/status-snapshot';
 import { isWebSocketPath } from '@/lib/trpc/ws-runtime';
+import { terminalsInUse } from '@/lib/terminal/in-use';
 import { DEFAULT_PORT } from '@/lib/auth/port';
 import { beginPerfScope, stopPerfRecorder } from '@/lib/perf/recorder';
 import { startServerPerfLog } from '@/lib/perf/server';
@@ -73,11 +75,15 @@ async function start() {
       }
       if (pathname === '/__ri_activity') {
         response.setHeader('content-type', 'application/json');
-        response.end(JSON.stringify({ executions: listRunningSessions().length + (localAppsEnabled() ? localApps().activeCount() : 0), background: listBackgroundTaskSessions().length, permissions: listSessionsWithPending().length }));
+        response.end(JSON.stringify({ executions: listRunningSessions().length, apps: localAppsEnabled() ? localApps().activeCount() : 0, background: listBackgroundTaskSessions().length, permissions: listSessionsWithPending().length, terminals: terminalsInUse() }));
         return;
       }
       response.setHeader('content-type', 'application/json');
-      response.end(JSON.stringify({ ready: true, validation: process.env.RI_SERVICE_VALIDATING === '1', pid: process.pid, repo: process.cwd() }));
+      // Memory rides along, so the controller restarts a server heading for
+      // Node's heap limit before it crashes there (docs/always-on-spec.md 6.2).
+      const heap = v8.getHeapStatistics();
+      const memory = { heapUsed: heap.used_heap_size, heapLimit: heap.heap_size_limit, rss: process.memoryUsage.rss() };
+      response.end(JSON.stringify({ ready: true, validation: process.env.RI_SERVICE_VALIDATING === '1', pid: process.pid, repo: process.cwd(), memory }));
       return;
     }
     const workerCompletion = request.method === 'POST' && /^\/api\/workers\/me\/(?:heartbeat|events|commands\/[^/]+\/ack|requests\/[^/]+\/result)$/.test(pathname);

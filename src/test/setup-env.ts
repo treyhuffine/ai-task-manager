@@ -43,6 +43,15 @@ if (!process.env.PORT) {
   process.env.PORT = '9';
 }
 
+/**
+ * No test reaches this computer's Ri installation: its release store, its
+ * Homes' records and launchers, or `~/.local/bin/ri`. With a release on the
+ * machine, `ri start` in a test would otherwise supervise a test Home through
+ * the real launchd or systemd. Tests that need an installation set their own.
+ */
+process.env.RI_INSTALL_ROOT = path.join(process.env[APP_ROOT_ENV]!, 'installation');
+process.env.RI_COMMAND_DIR = path.join(process.env[APP_ROOT_ENV]!, 'command');
+
 /** Ordinary fixtures keep the optional app runtime out of their chat prompts
  * and scheduler ticks. App tests explicitly unset this override to exercise
  * normal default-on startup, or set it when testing enable/disable behavior. */

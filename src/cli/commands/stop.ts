@@ -22,6 +22,8 @@ import { DEFAULT_PORT, DEV_PORT, getRunningPort } from '@/lib/auth/port';
 import { APP_ROOT_ENV, resolveDevAppRoot } from '@/lib/config/paths';
 import { probeHealth } from '../lib/server';
 import { serviceStatus, stopService } from '@/lib/service/client';
+import { hasLoginSupervision } from '@/lib/service/supervision-state';
+import { markStopped, readStopped } from '@/lib/service/stopped';
 import {
   clearServerRuntimeIfOwned,
   isProcessAlive,
@@ -47,9 +49,21 @@ export async function stopCommand(opts: StopOptions) {
   if (opts.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
 
   const service = await serviceStatus();
+  const supervised = hasLoginSupervision();
   if (service && (!opts.port || Number(opts.port) === Number(new URL(service.origin ?? 'https://localhost').port))) {
+    // A stop survives restarts (docs/always-on-spec.md 6.4): record it first,
+    // so the OS starting the Home at the next login finds it and stays down.
+    if (supervised) markStopped();
     await stopService();
-    outro('Stopped the background service. Data was retained.');
+    outro(supervised
+      ? `Stopped. It stays stopped, after restarts too, until you run \`ri start\`. Data was retained.`
+      : 'Stopped the background service. Data was retained.');
+    return;
+  }
+  if (!service && supervised && !opts.port) {
+    const stopped = readStopped();
+    if (!stopped) markStopped();
+    outro(stopped ? `Already stopped at ${new Date(stopped.at).toLocaleString()}. Run \`ri start\` to start it.` : 'Not running. It stays stopped until you run `ri start`.');
     return;
   }
 

@@ -16,7 +16,9 @@ export function clearMaintenance(database?: string) { fs.rmSync(gatePath(databas
 function lock(database: string, kind: 'access' | 'activity', exclusive: boolean) {
   const file = `${canonical(database)}.${kind}.sqlite`;
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  fs.closeSync(fs.openSync(file, 'a', 0o600));
+  // Only when it's missing. SQLite's locks are POSIX locks, and closing any
+  // descriptor to the file drops every lock this process holds on it.
+  if (!fs.existsSync(file)) fs.closeSync(fs.openSync(file, 'a', 0o600));
   const db = new Database(file, { timeout: 0 });
   try {
     // A first opener initializes before admitting readers. Read-only SELECT

@@ -1,7 +1,8 @@
 import { createWorkerCheckpoint, verifyWorkerCheckpoint } from '@/lib/service/worker-checkpoint';
 import { verifyRuntime } from '@/lib/service/runtime';
 import { downloadRelease, type Release } from '@/lib/service/release';
-import { createCheckpoint, restoreCheckpointDatabase, validateDatabase } from '@/lib/service/checkpoint';
+import { validateDatabase } from '@/lib/service/checkpoint';
+import { createSnapshot, restoreSnapshot, type SnapshotOptions } from '@/lib/service/snapshot';
 import { acquireRuntimeJobLease, type RuntimeJobOwner } from '@/lib/service/runtime-job-owner';
 process.once('disconnect', () => process.exit(1));
 process.once('message', (message: { action: string; value: unknown; owner: RuntimeJobOwner }) => {
@@ -23,8 +24,11 @@ process.once('message', (message: { action: string; value: unknown; owner: Runti
         }
         case 'worker-checkpoint': return createWorkerCheckpoint(String(message.value));
         case 'worker-checkpoint-verify': return verifyWorkerCheckpoint(String(message.value));
-        case 'checkpoint': return await createCheckpoint(String(message.value));
-        case 'restore': await restoreCheckpointDatabase(String(message.value)); return null;
+        case 'checkpoint': {
+          const { from, to } = message.value as SnapshotOptions;
+          return await createSnapshot({ from, to });
+        }
+        case 'restore': await restoreSnapshot(String(message.value)); return null;
         case 'validate-database': validateDatabase(String(message.value), true); return null;
         default: throw new Error('Unsupported runtime job');
       }

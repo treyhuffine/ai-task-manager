@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { _internals, SEND_REFUSED_SUBTYPE } from './health';
+import { _internals, cutOffByRestart, SEND_REFUSED_SUBTYPE } from './health';
 import type { ChatEventRecord } from '@/db/types';
+import { parseStreamEvent } from '@/lib/runner/parse';
 
 /**
  * Targets the pure activity-probe logic — orphan detection and
@@ -136,3 +137,45 @@ describe('inspectActivity', () => {
   });
 });
 
+
+describe('cutOffByRestart', () => {
+  const now = Date.parse('2026-10-29T18:00:00Z');
+  const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
+  const read = { lastViewedAt: at(30), unreadMarkerAt: null, lastOutcomeEventAt: at(31) };
+
+  it('marks a chat the restart stopped mid-reply, or while it asked a permission question', () => {
+    expect(cutOffByRestart([row({ role: 'assistant', source: 'tool_call', createdAt: at(1) }), row({ role: 'user', source: 'user', createdAt: at(2) })], read, now)).toBe(true);
+    expect(cutOffByRestart([row({ role: 'assistant', source: 'permission_request', createdAt: at(1) })], read, now)).toBe(true);
+    // The person's message that this startup didn't send again.
+    expect(cutOffByRestart([row({ role: 'user', source: 'user', createdAt: at(1) })], read, now)).toBe(true);
+  });
+
+  it('reads what the live parser really writes: an ID on every agent event', () => {
+    const live = (event: Record<string, unknown>) => {
+      const input = parseStreamEvent('s', { timestamp: at(1), ...event } as unknown as Parameters<typeof parseStreamEvent>[1])!;
+      expect(input.externalEventId).toBeTruthy();
+      return row({ ...input, role: input.role as ChatEventRecord['role'], source: input.source as ChatEventRecord['source'], createdAt: at(1) });
+    };
+    for (const event of [{ type: 'assistant', text: 'halfway through' }, { type: 'thinking', text: 'hm' }, { type: 'tool_call', name: 'Bash', input: {} }]) {
+      expect(cutOffByRestart([live(event)], read, now)).toBe(true);
+    }
+    expect(cutOffByRestart([live({ type: 'result' })], read, now)).toBe(false);
+  });
+
+  it('counts an answer to a permission prompt, whose row carries this app\'s own ID', () => {
+    const answer = row({ role: 'system', source: 'permission_response', createdAt: at(1), externalEventId: 'pending-response:request-1' });
+    expect(cutOffByRestart([answer], read, now)).toBe(true);
+  });
+
+  it('leaves alone a finished turn, a terminal session, old work, and anything already seen or unread', () => {
+    expect(cutOffByRestart([row({ role: 'assistant', source: 'result', createdAt: at(1) }), row({ role: 'assistant', source: 'tool_call', createdAt: at(2) })], read, now)).toBe(false);
+    // A person's message mirrored from a session in their terminal, not sent from here.
+    expect(cutOffByRestart([row({ role: 'user', source: 'user', createdAt: at(1), externalEventId: 'from-a-terminal' })], read, now)).toBe(false);
+    expect(cutOffByRestart([row({ role: 'assistant', source: 'thinking', createdAt: at(25 * 60) })], read, now)).toBe(false);
+    expect(cutOffByRestart([row({ role: 'assistant', source: 'thinking', createdAt: at(40) })], read, now)).toBe(false);
+    expect(cutOffByRestart([row({ role: 'assistant', source: 'thinking', createdAt: at(1) })], { ...read, lastOutcomeEventAt: at(5) }, now)).toBe(false);
+    expect(cutOffByRestart([row({ role: 'assistant', source: 'thinking', createdAt: at(1) })], { ...read, unreadMarkerAt: at(0) }, now)).toBe(false);
+    expect(cutOffByRestart([row({ role: 'system', source: 'error', createdAt: at(1), raw: { subtype: SEND_REFUSED_SUBTYPE } })], read, now)).toBe(false);
+    expect(cutOffByRestart([], read, now)).toBe(false);
+  });
+});
