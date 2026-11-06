@@ -5,6 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { nextFlyoutState, type FlyoutEvent, type FlyoutState } from '@/lib/client/rail-flyout';
+import { cn } from '@/lib/utils';
 import { RailIconButton } from './rail-icon-button';
 
 /** How long the pointer rests on the trigger before the flyout peeks. */
@@ -44,6 +45,7 @@ export function useDismissRailFlyout() {
  */
 export function RailFlyout({
   contentLabel,
+  className,
   trigger,
   onClick,
   hoverTarget,
@@ -52,6 +54,7 @@ export function RailFlyout({
 }: {
   /** The flyout's accessible name. */
   contentLabel: string;
+  className?: string;
   /** Resting on the trigger peeks the flyout. Off, only a click opens it. */
   hoverOpens?: boolean;
   trigger: (props: { ref: Ref<HTMLButtonElement>; open: boolean }) => ReactElement;
@@ -250,7 +253,7 @@ export function RailFlyout({
           }}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
-          className="z-50 flex h-[var(--radix-popper-anchor-height)] w-[256px] flex-col border-r border-border bg-background shadow-xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-left-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"
+          className={cn('z-50 flex h-[var(--radix-popper-anchor-height)] w-[256px] flex-col border-r border-border bg-background shadow-xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-left-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0', className)}
         >
           <RailFlyoutDismissContext.Provider value={dismiss}>
             {children}

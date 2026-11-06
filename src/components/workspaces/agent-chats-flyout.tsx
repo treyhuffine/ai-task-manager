@@ -40,6 +40,7 @@ export function AgentChatsFlyout({
   return (
     <RailFlyout
       contentLabel={`${name} chats`}
+      className="w-80"
       hoverTarget={hoverTarget}
       hoverOpens={hoverOpens}
       onClick={onClick}

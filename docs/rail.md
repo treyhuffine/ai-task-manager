@@ -69,6 +69,8 @@ One rule hides a row: what can't open waits in the library with its state. A res
 
 Apps and Agents both open a flyout (`RailFlyout`). Agents peeks on hover and holds on click. Apps peeks on hover, and a click opens the library.
 
+Unread and each agent's chat list use a 320px flyout, giving chat titles and status lines more room. Apps and the collapsed strip's Agents list use 256px.
+
 Executions aren't listed in the strip. The Agents button carries an amber count of what needs you (approvals and unread, agents included, the same rows the header's pills count) and opens the wide rail's list as a **flyout** that floats over the page from the rail's edge, top to bottom, so it never takes width or pushes the page:
 
 - **Peek:** rest the pointer on Agents for 150ms. It closes 200ms after the pointer leaves the button and the flyout.

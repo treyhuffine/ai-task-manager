@@ -63,6 +63,7 @@ export function UnreadRow() {
     <div className="border-b border-border/40 px-2 pb-1.5 pt-1">
       <RailFlyout
         contentLabel="Unread"
+        className="w-80"
         trigger={({ ref, open }) => <RailRow ref={ref} place={place} pressed={open} onClick={undefined} />}
       >
         <SessionHoverProvider>
