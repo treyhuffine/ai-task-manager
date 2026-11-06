@@ -4,6 +4,8 @@
  * own grammar (docs/deck-layout.md): deadlines pinned on top, a flat ranked
  * stack, status as quiet chips, the deck's reasoning as one-line glimpses.
  * A check finishes a task, Start starts it, and the title opens it in Ri.
+ * Full screen, as ChatGPT's sidebar entry opens it, it's a small app: Today,
+ * Tasks with a search, and a field to add a task, in the deck's own spirit.
  * Browser code: bundled into the view by `pnpm mcp-views:build`.
  */
 import type { DeckView, TasksView, ViewTask } from '../data';
@@ -22,6 +24,12 @@ const rowErrors = new Map<string, string>();
 let notice: string | null = null;
 /** The last redraw from Ri failed, so what's on screen may be behind. */
 let stale = false;
+/**
+ * Tasks finished in this list. A list of current tasks no longer includes
+ * them, so without this a tick would make the row vanish with no way back.
+ * They stay where they were, ticked, until the list changes.
+ */
+const finishedHere = new Map<string, { task: ViewTask; index: number }>();
 
 // ─── Small DOM helpers ────────────────────────────────────────
 
@@ -99,10 +107,10 @@ function idempotencyKey(): string {
 }
 
 /** Draw what Ri says now. Reuses the call that drew the view, so a filtered list stays filtered. */
-async function refresh(): Promise<void> {
-  if (!bridge || !view) return;
+async function refresh(target: View['view'] | undefined = view?.view): Promise<void> {
+  if (!bridge || !target) return;
   try {
-    const result = await bridge.callTool(view.view === 'deck' ? 'show_deck' : 'show_tasks', view.view === 'deck' ? {} : toolArgs);
+    const result = await bridge.callTool(target === 'deck' ? 'show_deck' : 'show_tasks', target === 'deck' ? {} : toolArgs);
     stale = Boolean(result.isError || !result.structuredContent);
     if (!stale) show(result.structuredContent as unknown as View);
   } catch {
@@ -135,6 +143,8 @@ async function change(task: ViewTask, command: 'complete' | 'start' | 'reopen'):
       if (outcome.toStatus) task.status = outcome.toStatus;
       if (typeof outcome.statusChangedCount === 'number') task.statusChangedCount = outcome.statusChangedCount;
       if (outcome.nextRecurrenceAt) task.nextOccurrence = outcome.nextRecurrenceAt;
+      if (task.status === 'done' && view?.view === 'tasks') finishedHere.set(task.id, { task, index: view.items.indexOf(task) });
+      else finishedHere.delete(task.id);
       const done = command === 'complete' ? 'marked done' : command === 'start' ? 'started' : 'reopened';
       void bridge.updateModelContext(`In the Ri view, the person ${done} the task "${task.title}" (${task.id}).`).catch(() => {});
     }
@@ -148,6 +158,74 @@ async function change(task: ViewTask, command: 'complete' | 'start' | 'reopen'):
   await refresh();
   pending.delete(task.id);
   render();
+}
+
+// ─── Full screen: tabs, search and adding ─────────────────────
+
+/** Kept across redraws, so what's being typed survives a change landing. */
+function field(label: string, onEnter: () => void): HTMLInputElement {
+  return h('input', {
+    className: 'field', type: 'text', placeholder: label, 'aria-label': label, autocomplete: 'off',
+    // Enter by hand: a sandboxed frame may not allow a form to submit at all.
+    onKeydown: (event: KeyboardEvent) => { if (event.key === 'Enter') { event.preventDefault(); onEnter(); } },
+  });
+}
+
+const addField = field('Add a task', () => void addTask());
+const searchField = field('Search tasks', () => void search());
+let addNote: string | null = null;
+let adding = false;
+
+function listArgs(): Record<string, unknown> {
+  const q = searchField.value.trim();
+  return { limit: 50, ...(q ? { q } : {}) };
+}
+
+async function showTab(tab: View['view']): Promise<void> {
+  if (view?.view === tab) return;
+  addNote = null;
+  finishedHere.clear();
+  toolArgs = tab === 'tasks' ? listArgs() : {};
+  await refresh(tab);
+  render();
+}
+
+async function search(): Promise<void> {
+  finishedHere.clear();
+  toolArgs = listArgs();
+  await refresh('tasks');
+  render();
+}
+
+async function addTask(): Promise<void> {
+  const title = addField.value.trim();
+  if (!bridge || !title || adding) return;
+  adding = true;
+  addNote = null;
+  try {
+    const result = await bridge.callTool('create_task', { title });
+    const envelope = envelopeOf(result);
+    if (result.isError || !envelope.ok) {
+      addNote = envelope.error?.message?.slice(0, 200) || 'Ri couldn’t add that.';
+    } else {
+      addField.value = '';
+      addNote = `Added “${title}” to your tasks.`;
+      void bridge.updateModelContext(`In the Ri view, the person added the task "${title}".`).catch(() => {});
+    }
+  } catch {
+    addNote = 'Ri didn’t answer. Try again.';
+  }
+  adding = false;
+  await refresh();
+  render();
+}
+
+function appHead(active: View['view']): HTMLElement {
+  const tab = (id: View['view'], label: string) => h('button', {
+    type: 'button', role: 'tab', 'aria-selected': String(active === id), className: `tab${active === id ? ' on' : ''}`,
+    onClick: () => void showTab(id),
+  }, label);
+  return h('div', { className: 'app-head' }, h('div', { className: 'tabs', role: 'tablist', 'aria-label': 'Ri' }, tab('deck', 'Today'), tab('tasks', 'Tasks')), addField);
 }
 
 function open(url: string | null): void {
@@ -248,16 +326,29 @@ function tasks(data: TasksView): Node[] {
 }
 
 function render(): void {
+  // Before anything moves. Drawing moves the kept fields, which drops their
+  // focus, so it's given back below: a change landing never interrupts typing.
+  const focused = document.activeElement;
   const nodes: Node[] = [];
+  const app = bridge?.context.displayMode === 'fullscreen' ? view : null;
+  if (app) nodes.push(appHead(app.view));
+  if (app && addNote) nodes.push(h('p', { className: 'note', role: 'status' }, addNote));
   if (notice) nodes.push(h('p', { className: 'notice', role: 'status' }, notice));
   if (stale) nodes.push(h('p', { className: 'notice', role: 'status' }, 'This view may be out of date. ', h('button', { type: 'button', className: 'retry', onClick: () => void refresh().then(render) }, 'Try again')));
+  if (app?.view === 'tasks') nodes.push(searchField);
   if (view) nodes.push(...(view.view === 'deck' ? deck(view) : tasks(view)));
   else if (!notice) nodes.push(h('p', { className: 'loading', role: 'status' }, 'Loading from Ri'));
   root.replaceChildren(...nodes);
+  if (focused instanceof HTMLElement && focused !== document.body && root.contains(focused)) focused.focus();
 }
 
 function show(next: View): void {
   if (next?.view !== 'deck' && next?.view !== 'tasks') return;
+  if (next.view === 'tasks') {
+    for (const { task, index } of finishedHere.values()) {
+      if (!next.items.some(item => item.id === task.id)) next.items.splice(Math.min(index, next.items.length), 0, task);
+    }
+  }
   view = next;
   notice = null;
   render();
@@ -268,6 +359,7 @@ function show(next: View): void {
 function applyContext(context: HostContext): void {
   const html = document.documentElement;
   if (context.theme) html.dataset.theme = context.theme;
+  html.dataset.display = context.displayMode === 'fullscreen' ? 'fullscreen' : 'inline';
   for (const [name, value] of Object.entries(context.styles?.variables ?? {})) {
     if (name.startsWith('--') && value) html.style.setProperty(name, value);
   }
@@ -287,7 +379,7 @@ connect({
     if (result.isError || !result.structuredContent) { notice = 'Ri couldn’t load this.'; render(); return; }
     show(result.structuredContent as unknown as View);
   },
-  hostContext: applyContext,
+  hostContext: context => { applyContext(context); render(); },
   cancelled: () => { if (!view) { notice = 'Cancelled.'; render(); } },
 }).then(connected => {
   bridge = connected;

@@ -9,6 +9,7 @@ export const MCP_APPS_PROTOCOL = '2026-01-26';
 
 export interface HostContext {
   theme?: 'light' | 'dark';
+  displayMode?: string;
   styles?: { variables?: Record<string, string | undefined>; css?: { fonts?: string } };
   locale?: string;
   timeZone?: string;
@@ -107,7 +108,7 @@ export function connect(handlers: BridgeHandlers, host: Window = window.parent):
   return request('ui/initialize', {
     protocolVersion: MCP_APPS_PROTOCOL,
     appInfo: { name: 'Ri', version: '1.0.0' },
-    appCapabilities: { availableDisplayModes: ['inline'] },
+    appCapabilities: { availableDisplayModes: ['inline', 'fullscreen'] },
   }).then(result => {
     const init = (result ?? {}) as { hostContext?: HostContext; hostCapabilities?: HostCapabilities };
     context = init.hostContext ?? {};

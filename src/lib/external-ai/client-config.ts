@@ -498,7 +498,7 @@ export function aiClientSetup(kind: AiClientKind, target: AiConnectionTarget, to
           { label: 'In ChatGPT, open Plugins, choose + and then Add custom MCP server. Give it this name.', text: target.server === 'ri-dev' ? 'Ri dev' : 'Ri' },
           { label: 'Paste this into its server URL.', text: url },
         ],
-        caveat: 'Under Authentication choose OAuth and leave any client ID or secret empty, since ChatGPT registers itself. Accept the warning and choose Create as a plugin. ChatGPT opens Ri’s sign-in page: choose Allow. Then ask ChatGPT what’s on your deck.',
+        caveat: 'Under Authentication choose OAuth. ChatGPT finds Ri’s sign-in on its own, so there’s no client to set up. Accept the warning and choose Create as a plugin. ChatGPT opens Ri’s sign-in page: choose Allow. Then ask ChatGPT what’s on your deck, or open Ri from its plugin page or sidebar.',
       };
     case 'ri':
       return {
