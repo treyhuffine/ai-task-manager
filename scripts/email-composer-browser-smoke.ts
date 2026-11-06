@@ -45,7 +45,7 @@ async function main() {
   try {
     browser = await chromium.launch({ executablePath, headless: true });
     for (const width of [1440, 390]) {
-      const page = await browser.newPage({ viewport: { width, height: 1000 } });
+      const page = await browser.newPage({ viewport: { width, height: 1000 }, hasTouch: width === 390, permissions: ['clipboard-read', 'clipboard-write'] });
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.addInitScript({ content: "localStorage.setItem('ri.client.apiTransport', 'http');" });
@@ -78,6 +78,15 @@ async function main() {
       });
       await page.goto(`http://127.0.0.1:${address.port}`);
       await page.getByLabel('Message', { exact: true }).waitFor();
+      const copyBody = page.getByRole('button', { name: 'Copy email body', exact: true });
+      await page.getByRole('option', { name: 'sam@example.com (Gmail)', exact: true }).waitFor({ state: 'attached' });
+      await page.locator('section').screenshot({ path: path.join(output, `before-copy-${width}.png`) });
+      await copyBody.click();
+      await copyBody.getByText('Copied', { exact: true }).waitFor();
+      await page.locator('section').screenshot({ path: path.join(output, `after-copy-${width}.png`) });
+      assert.equal(await page.evaluate(() => navigator.clipboard.readText()), initial.body);
+      assert.equal(draft.revision, initial.revision, 'Copying must not change the draft');
+      assert.equal(sendCount, 0, 'Copying must not send the email');
       await page.getByRole('button', { name: 'Cc', exact: true }).click();
       await page.getByRole('button', { name: 'Bcc', exact: true }).click();
       await page.getByLabel('Cc', { exact: true }).fill('team@example.com');
@@ -91,6 +100,8 @@ async function main() {
       await page.getByLabel('Message', { exact: true }).fill('Keep this human edit');
       await page.waitForFunction(() => document.body.textContent?.includes('Saving…'));
       assert(heldUpdate);
+      await copyBody.click();
+      assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'Keep this human edit', 'Copy the visible unsaved body');
       draft = { ...draft, revision: draft.revision + 1, subject: 'Updated by AI', body: 'New AI body' };
       await page.evaluate(value => (window as unknown as { receiveEmailDraft: (value: EmailDraft) => void }).receiveEmailDraft(value), draft);
       heldUpdate();
@@ -105,12 +116,14 @@ async function main() {
       await page.screenshot({ path: path.join(output, `composer-${width}.png`), fullPage: true });
       await page.getByRole('button', { name: 'Send', exact: true }).click();
       await page.getByRole('heading', { name: 'Email sent', exact: true }).waitFor();
+      await copyBody.click();
+      assert.equal(await page.evaluate(() => navigator.clipboard.readText()), draft.body, 'Sent messages remain copyable');
       assert.equal(sendCount, 1);
       assert.equal(await page.getByRole('button', { name: 'Send', exact: true }).count(), 0);
       assert.deepEqual(errors, []);
       await page.screenshot({ path: path.join(output, `sent-${width}.png`), fullPage: true });
       await page.close();
-      console.log(`Email composer: editing, AI conflict, Cc/Bcc, account selection and lost-send recovery passed at ${width}px`);
+      console.log(`Email composer: body copying, editing, AI conflict, Cc/Bcc, account selection and lost-send recovery passed at ${width}px`);
     }
   } finally {
     await browser?.close();

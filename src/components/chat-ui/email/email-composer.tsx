@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Loader2, Mail, Send, Trash2 } from 'lucide-react';
+import { Check, Copy, Loader2, Mail, Send, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tip } from '@/components/ui/tip';
 import { useEmailDraft } from '@/hooks/use-email-draft';
@@ -33,6 +33,12 @@ export function EmailComposer({ id, sessionId, initial }: { id: string; sessionI
   const [showCc, setShowCc] = useState(false);
   const [showBcc, setShowBcc] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
+  useEffect(() => {
+    if (copyStatus === 'idle') return;
+    const timer = setTimeout(() => setCopyStatus('idle'), 1800);
+    return () => clearTimeout(timer);
+  }, [copyStatus]);
   const labelId = useId();
   const send = useMutation({
     retry: false,
@@ -85,8 +91,22 @@ export function EmailComposer({ id, sessionId, initial }: { id: string; sessionI
       {(showCc || draft.cc) && field('cc', 'Cc', 'Copy recipients')}
       {(showBcc || draft.bcc) && field('bcc', 'Bcc', 'Hidden recipients')}
       {field('subject', 'Subject', 'Subject')}
-      <textarea aria-label="Message" name="body" value={draft.body} disabled={!editable} placeholder="Write your message…" rows={9} maxLength={200_000}
-        className="block min-h-48 w-full resize-y bg-transparent px-4 py-4 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 disabled:opacity-80"
+      <div className="flex items-center justify-between gap-3 px-4 pt-2.5">
+        <label htmlFor={`${labelId}-body`} className="text-xs text-muted-foreground">Message</label>
+        <Button variant="ghost" size="xs" type="button" aria-label="Copy email body" disabled={!draft.body} className="text-muted-foreground pointer-coarse:h-11" onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(draft.body);
+            setCopyStatus('copied');
+          } catch {
+            setCopyStatus('error');
+          }
+        }}>
+          {copyStatus === 'copied' ? <Check aria-hidden /> : <Copy aria-hidden />}
+          <span role="status">{copyStatus === 'copied' ? 'Copied' : copyStatus === 'error' ? 'Copy failed' : 'Copy body'}</span>
+        </Button>
+      </div>
+      <textarea id={`${labelId}-body`} name="body" value={draft.body} disabled={!editable} placeholder="Write your message…" rows={9} maxLength={200_000}
+        className="block min-h-48 w-full resize-y bg-transparent px-4 pb-4 pt-2.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 disabled:opacity-80"
         onChange={event => { setMessage(null); editor.change({ body: event.target.value }); }} />
       {(conflict || save.isError || hasEdits && !save.isPending) && editable && <div role="alert" className="space-y-2 border-t border-border bg-muted/30 px-4 py-3 text-xs">
         <p>{conflict ? 'This draft changed while you were editing. Your edits are kept here.' : save.error?.message ?? 'Your recovered edits are ready to save.'}</p>

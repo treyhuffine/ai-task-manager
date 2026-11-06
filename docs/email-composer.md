@@ -7,6 +7,10 @@ in. The human sends from the card through a connected native Gmail or Outlook ac
 No connected account is required to draft. The account picker links to Connectors
 when an account needs connecting.
 
+Use **Copy body** beside the message to copy its plain text, including line
+breaks and any current unsaved edits. Copying needs no connected account and
+is also available on sent and delivery-unconfirmed cards.
+
 This is a local draft, not a draft synchronized into the provider mailbox. File
 attachments, rich HTML, and reply threading are outside this composer. Existing
 provider tools retain their separate capabilities and normal approval policy.
@@ -104,6 +108,7 @@ conflicts, live transcript revisions, account scope, recipient validation,
 both provider mappings, send claims, uncertain delivery, the viewer authorization
 boundary, typed-input retention and AI edits during typing. The browser fixture
 uses the real composer and tRPC client with fake APIs. It checks desktop and phone
-layouts, Cc/Bcc, account selection, conflict resolution and lost-send recovery.
+layouts, copying the current body, Cc/Bcc, account selection, conflict resolution
+and lost-send recovery.
 It sends no real email and does not open a Home. Screenshots go to
 `.work/email-composer`.
