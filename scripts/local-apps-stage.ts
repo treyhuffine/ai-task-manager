@@ -10,8 +10,8 @@ export const repository = fileURLToPath(new URL("../", import.meta.url));
 export async function runCommand(command: string, args: string[], cwd = repository) {
   if (process.platform === 'win32' && command === 'pnpm') {
     if (!process.env.npm_execpath) throw new Error('Run the catalog build through pnpm');
-    args = [process.env.npm_execpath, ...args];
-    command = process.execPath;
+    if (process.env.npm_execpath.endsWith('.exe')) command = process.env.npm_execpath;
+    else { args = [process.env.npm_execpath, ...args]; command = process.execPath; }
   }
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, { cwd, stdio: "inherit", env: { ...process.env, RI_RUNTIME_REPO: repository } });

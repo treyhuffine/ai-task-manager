@@ -15,8 +15,10 @@ delete env.NODE_OPTIONS;
 
 function run(executable, args, childEnv) {
   if (process.platform === 'win32' && executable === 'pnpm') {
-    args = [process.env.npm_execpath, ...args];
-    executable = process.execPath;
+    const entry = process.env.npm_execpath;
+    if (!entry) throw new Error('Run the desktop build through pnpm');
+    if (entry.endsWith('.exe')) executable = entry;
+    else { args = [entry, ...args]; executable = process.execPath; }
   }
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd: repo, env: childEnv, stdio: 'inherit' });

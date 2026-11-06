@@ -27,8 +27,10 @@ const releaseDir = releaseDirArg === -1 ? null : path.resolve(process.argv[relea
 if (releaseDir && (!process.argv[releaseDirArg + 1] || !headless || releaseBuild)) throw new Error('--release-dir needs a folder, and is only for a headless, unsigned local build');
 const run = (cmd, args, cwd = repo, env = process.env) => {
   if (process.platform === 'win32' && cmd === 'pnpm') {
-    args = [process.env.npm_execpath ?? require.resolve('pnpm/bin/pnpm.cjs'), ...args];
-    cmd = process.execPath;
+    const entry = process.env.npm_execpath;
+    if (!entry) throw new Error('Run packaging through pnpm');
+    if (entry.endsWith('.exe')) cmd = entry;
+    else { args = [entry, ...args]; cmd = process.execPath; }
   }
   const result = spawnSync(cmd, args, { cwd, env, stdio: 'inherit' });
   if (result.error) throw result.error;
