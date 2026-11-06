@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { promisify } from 'node:util';
+import { execFile, execFileSync, spawn, spawnSync } from 'node:child_process';
 import { AcceptanceFixture, api, eventually, nativeNavigate } from './acceptance-fixture';
 import { localPage } from './acceptance-surfaces';
 import { serviceStatus } from '../src/lib/service/client';
@@ -19,12 +21,23 @@ const installer = path.join(repository, 'release/desktop', fs.readdirSync(path.j
 assert(fs.existsSync(installer));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-windows-install-'));
 const installation = path.join(temporary, 'Program Files', 'Ri preview é');
+const unpacked = process.env.RI_WINDOWS_UNPACKED === '1';
 const report: { checks: string[]; error?: string; cleanupError?: string; passed?: boolean; startedAt: string; finishedAt?: string; installer: string; limitations: string[] } = {
   checks: [], startedAt: new Date().toISOString(), installer: path.basename(installer),
   limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Higher installer version uses the same server build to isolate installer upgrade behavior'],
 };
+if (unpacked) report.limitations.push('Unpacked runtime debugging only, NSIS installation/upgrade/uninstall not qualified');
 const pass = (name: string) => { report.checks.push(name); console.info(`[windows] ${name}`); };
 const install = async (candidate = installer) => {
+  if (unpacked) {
+    const buildRequire = createRequire(require.resolve('electron-builder'));
+    const root = path.dirname(buildRequire.resolve('app-builder-lib/package.json'));
+    const sevenZip = await buildRequire(path.join(root, 'out/toolsets/7zip.js')).getPath7za();
+    const run = promisify(execFile);
+    await run(sevenZip, ['e', '-y', candidate, '$PLUGINSDIR/app-64.7z', `-o${temporary}`], { windowsHide: true, timeout: 60_000 });
+    await run(sevenZip, ['x', '-y', path.join(temporary, 'app-64.7z'), `-o${installation}`], { windowsHide: true, timeout: 15 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+    return;
+  }
   const child = spawn(candidate, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, stdio: 'ignore' });
   const diagnostics = setInterval(() => {
     const windows = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `
@@ -51,7 +64,7 @@ let fixture: AcceptanceFixture | undefined;
 try {
   await install();
   assert(fs.existsSync(path.join(installation, 'Ri.exe')));
-  pass('Per-user NSIS installation into a path with spaces and Unicode');
+  pass(unpacked ? 'Extracted the exact installer payload into a path with spaces and Unicode' : 'Per-user NSIS installation into a path with spaces and Unicode');
   process.env.RI_DESKTOP_PACKAGE = installation;
   fixture = new AcceptanceFixture('windows-home', { chooseHome: false });
   fixture.env.RI_LOCAL_APPS = '0';
@@ -157,6 +170,7 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   assert.equal((await api<{ status: string }>(fixture.page!, `/api/tasks/${task.id}`)).status, 'done');
   pass('Reopen retains the same Home, note and completed task');
   await fixture.quit();
+  if (unpacked) return;
   await eventually(async () => await serviceStatus() === null, 'shutdown before reinstall', 75_000);
   await install();
   await fixture.launch();

@@ -10,6 +10,10 @@ on:
         description: Reuse installers from this Actions run for Windows qualification only
         type: string
         default: ''
+      unpacked_runtime:
+        description: Debug the extracted Windows runtime without qualifying NSIS
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'desktop/**'
@@ -367,6 +371,8 @@ jobs:
           pnpm exec vitest run --config desktop/vitest.config.ts desktop/package-files.test.ts -t "Windows Next externals"
       - name: Install, first run, chat, quit, reopen, reinstall and uninstall
         timeout-minutes: 45
+        env:
+          RI_WINDOWS_UNPACKED: ${{ inputs.unpacked_runtime && '1' || '' }}
         run: pnpm exec tsx desktop/windows-smoke.ts
       - uses: actions/upload-artifact@v4
         if: always()
