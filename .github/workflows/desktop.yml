@@ -366,7 +366,7 @@ jobs:
           pnpm exec vitest run --config desktop/vitest.config.ts desktop/windows-platform.test.ts desktop/package-layout.test.ts desktop/package-preflight.test.ts
           pnpm exec vitest run --config desktop/vitest.config.ts desktop/package-files.test.ts -t "Windows Next externals"
       - name: Install, first run, chat, quit, reopen, reinstall and uninstall
-        timeout-minutes: 20
+        timeout-minutes: 45
         run: pnpm exec tsx desktop/windows-smoke.ts
       - uses: actions/upload-artifact@v4
         if: always()

@@ -3,6 +3,21 @@ import path from 'node:path';
 import { isBuiltin } from 'node:module';
 import ts from 'typescript';
 
+/** Dependency debug maps are optional at runtime. Keep Ri's own build maps,
+ * declarations, licenses and package assets outside this dependency folder. */
+export function pruneDependencySourceMaps(directory) {
+  let removed = 0;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) removed += pruneDependencySourceMaps(file);
+    else if (entry.isFile() && /(?:\.[cm]?js|\.css|\.d\.[cm]?ts)\.map$/.test(entry.name)) {
+      fs.unlinkSync(file);
+      removed++;
+    }
+  }
+  return removed;
+}
+
 /** Node's default copy resolves symlinks to the staging directory. Rebase them
  * before removing staging, then reject every link escaping the shipped tree. */
 export function rebaseResourceLinks(root, sourceRoot, server) {

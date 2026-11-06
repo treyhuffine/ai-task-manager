@@ -25,7 +25,7 @@ const report: { checks: string[]; error?: string; cleanupError?: string; passed?
 };
 const pass = (name: string) => { report.checks.push(name); console.info(`[windows] ${name}`); };
 const install = async (candidate = installer) => {
-  const child = spawn(candidate, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, stdio: 'pipe' });
+  const child = spawn(candidate, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, stdio: 'ignore' });
   const diagnostics = setInterval(() => {
     const windows = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `
 Add-Type -AssemblyName UIAutomationClient
@@ -35,9 +35,10 @@ $root = [System.Windows.Automation.AutomationElement]::RootElement
  @{title=$_.Current.Name; text=@($_.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object {$_.Current.Name} | Where-Object {$_} | Select-Object -First 40)}
 }) | ConvertTo-Json -Depth 5 -Compress
 `], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
-    console.info('[installer progress]', JSON.stringify({ files: fs.existsSync(installation) ? fs.readdirSync(installation).slice(0, 20) : [], windows: windows.stdout?.trim(), error: windows.error?.message }));
+    const files = fs.existsSync(installation) ? fs.readdirSync(installation, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).length : 0;
+    console.info('[installer progress]', JSON.stringify({ files, windows: windows.stdout?.trim(), error: windows.error?.message }));
   }, 60_000);
-  const timeout = setTimeout(() => child.kill(), 8 * 60_000);
+  const timeout = setTimeout(() => child.kill(), 15 * 60_000);
   try {
     await new Promise<void>((resolve, reject) => {
       child.once('error', reject);

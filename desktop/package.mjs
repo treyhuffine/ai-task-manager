@@ -11,7 +11,7 @@ import { assertDesktopPackagingRuntime, DESKTOP_NODE_VERSION } from './package-p
 assertDesktopPackagingRuntime();
 const { build, Platform, Arch } = await import('electron-builder');
 const tar = await import('tar');
-const { assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks } = await import('./package-files.mjs');
+const { assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks, pruneDependencySourceMaps } = await import('./package-files.mjs');
 const { signRuntime } = await import('./sign-runtime.mjs');
 const { stageSpeechHelper } = await import('./speech/package.mjs');
 
@@ -103,6 +103,7 @@ for (const name of ['better-sqlite3', 'node-pty']) {
   }
 }
 const portableNode = path.join(node, process.platform === 'win32' ? 'node.exe' : 'bin/node');
+if (process.platform === 'win32') console.info(`Removed ${pruneDependencySourceMaps(path.join(server, 'node_modules'))} dependency debug maps from the Windows runtime.`);
 run(portableNode, [path.join(repo, 'desktop/native-probe.mjs')], server, process.env, 35_000);
 run(portableNode, ['dist/cli/index.mjs', '--help'], server);
 for (const name of ['.env', '.env.local', '.env.production', '.config', '.work', 'data.db']) {

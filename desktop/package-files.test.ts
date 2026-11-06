@@ -2,10 +2,24 @@ import { afterEach, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks } from './package-files.mjs';
+import { assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks, pruneDependencySourceMaps } from './package-files.mjs';
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
+it('removes optional dependency source maps while preserving executable code, types and assets', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-dependency-maps-')); dirs.push(root);
+  const modules = path.join(root, 'node_modules');
+  fs.mkdirSync(path.join(modules, 'example/nested'), { recursive: true });
+  const remove = ['example/index.js.map', 'example/nested/index.d.ts.map', 'example/style.css.map'];
+  const keep = ['example/index.js', 'example/index.d.ts', 'example/location.map', 'example/LICENSE'];
+  for (const name of [...remove, ...keep]) fs.writeFileSync(path.join(modules, name), 'fixture');
+  fs.mkdirSync(path.join(root, 'dist'));
+  fs.writeFileSync(path.join(root, 'dist/main.cjs.map'), 'Ri debug map');
+  expect(pruneDependencySourceMaps(modules)).toBe(3);
+  for (const name of remove) expect(fs.existsSync(path.join(modules, name))).toBe(false);
+  for (const name of keep) expect(fs.readFileSync(path.join(modules, name), 'utf8')).toBe('fixture');
+  expect(fs.readFileSync(path.join(root, 'dist/main.cjs.map'), 'utf8')).toBe('Ri debug map');
+});
 it('checks static constant, shorthand, nested and registered preloads against the shipped inventory', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-preload-inventory-')); dirs.push(root);
   fs.mkdirSync(path.join(root, 'windows'));
