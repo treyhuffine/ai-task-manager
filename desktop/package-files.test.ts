@@ -36,6 +36,31 @@ it('preserves pnpm links after the staging folder is removed and refuses externa
   expect(() => rebaseResourceLinks(output, source)).toThrow('escapes resources');
 });
 
+it.each([true, false])('materializes Windows Next externals only from a matching deployed package (%s)', (matching) => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-next-junction-')); dirs.push(temp);
+  const stage = path.join(temp, 'stage'); const server = path.join(stage, 'server');
+  const original = path.join(temp, 'checkout/node_modules/@ri/example');
+  const deployed = path.join(server, 'node_modules/@ri/example');
+  for (const directory of [original, deployed]) fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(original, 'package.json'), JSON.stringify({ name: '@ri/example', version: '1.0.0' }));
+  fs.writeFileSync(path.join(deployed, 'package.json'), JSON.stringify({ name: '@ri/example', version: matching ? '1.0.0' : '2.0.0' }));
+  fs.writeFileSync(path.join(deployed, 'index.js'), 'deployed bytes');
+  const link = path.join(server, '.next-desktop/node_modules/@ri/example-hash');
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  fs.symlinkSync(original, link, process.platform === 'win32' ? 'junction' : 'dir');
+  const platform = process.platform;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try {
+    if (!matching) expect(() => rebaseResourceLinks(stage, stage, server)).toThrow('does not match');
+    else {
+      expect(rebaseResourceLinks(stage, stage, server)).toBe(1);
+      fs.rmSync(path.join(temp, 'checkout'), { recursive: true });
+      expect(fs.lstatSync(link).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(path.join(link, 'index.js'), 'utf8')).toBe('deployed bytes');
+    }
+  } finally { Object.defineProperty(process, 'platform', { value: platform }); }
+});
+
 it('refuses a new companion package missing setup, worker, privileged preload or offline appearance assets', () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-package-companion-')); dirs.push(temporary);
   const server = path.join(temporary, 'server'); const shell = path.join(temporary, 'shell');

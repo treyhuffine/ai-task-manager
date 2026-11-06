@@ -125,7 +125,7 @@ if (callbackUrl) {
 fs.writeFileSync(desktopConfig, JSON.stringify({ callbackUrl, relayProviders: process.env.RI_DESKTOP_OAUTH_RELAY_PROVIDERS }));
 // Finalize resources before signing. Neither an updater nor a running service
 // may modify a signed .app after this step.
-console.info(`Verified ${rebaseResourceLinks(stage, stage)} portable resource links.`);
+console.info(`Verified ${rebaseResourceLinks(stage, stage, server)} portable resource links.`);
 if (releaseBuild && process.platform === 'darwin') {
   if (!process.env.CSC_NAME) throw new Error('Signed macOS releases require CSC_NAME with your Developer ID Application identity');
   signRuntime(stage, process.env.CSC_NAME, path.join(repo, 'desktop/runtime-entitlements.plist'));
@@ -201,7 +201,7 @@ if (!headless) {
       // Builder's dependency filters prune pnpm's virtual store even for
       // extraResources. Copy the already verified runtime verbatim instead.
       for (const name of resourcesToCopy) fs.cpSync(path.join(stage, name), path.join(resources, name), { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
-      rebaseResourceLinks(resources, stage);
+      rebaseResourceLinks(resources, stage, path.join(resources, 'server'));
       // Any changed bytes here are included in the subsequent OS signature.
       run(process.execPath, ['dist/cli/index.mjs', 'service', 'manifest', resources]);
     },

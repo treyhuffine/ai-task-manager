@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 /** Node's default copy resolves symlinks to the staging directory. Rebase them
  * before removing staging, then reject every link escaping the shipped tree. */
-export function rebaseResourceLinks(root, sourceRoot) {
+export function rebaseResourceLinks(root, sourceRoot, server) {
   const sourceRoots = [...new Set([path.resolve(sourceRoot), fs.realpathSync(sourceRoot)])];
   const links = [];
   const inside = (parent, child) => child === parent || child.startsWith(`${parent}${path.sep}`);
@@ -20,7 +20,15 @@ export function rebaseResourceLinks(root, sourceRoot) {
   for (const link of links) {
     const target = path.resolve(path.dirname(link), fs.readlinkSync(link));
     const source = sourceRoots.find((candidate) => inside(candidate, target));
-    const mapped = source ? path.join(root, path.relative(source, target)) : target;
+    let mapped = source ? path.join(root, path.relative(source, target)) : target;
+    // Windows Next externals are absolute junctions into the build checkout.
+    // Resolve those against the deployed graph, which is hoisted on Windows.
+    if (process.platform === 'win32' && server && !inside(root, mapped) && inside(path.join(server, '.next-desktop/node_modules'), link)) {
+      const original = JSON.parse(fs.readFileSync(path.join(target, 'package.json'), 'utf8'));
+      mapped = path.join(server, 'node_modules', original.name);
+      const deployed = JSON.parse(fs.readFileSync(path.join(mapped, 'package.json'), 'utf8'));
+      if (original.name !== deployed.name || original.version !== deployed.version) throw new Error(`Next external does not match the deployed package: ${original.name}`);
+    }
     if (!inside(root, mapped)) throw new Error(`Packaged symlink escapes resources: ${path.relative(root, link)}`);
     fs.unlinkSync(link);
     // Windows junctions carry absolute targets and NSIS cannot install them
