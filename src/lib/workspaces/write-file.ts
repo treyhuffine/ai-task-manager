@@ -5,10 +5,11 @@
  * path-traversal helper is shared so the security boundary is the same on
  * every side.
  *
- * Cap on writes: 5 MiB. Bigger than the 1 MiB read cap because users
+ * Cap on text saves: 5 MiB. Bigger than the 1 MiB read cap because users
  * occasionally drop in fixtures / large data files; the read cap is
  * purely about CodeMirror's render budget. We still reject anything that
  * looks like an attempt to write a multi-gigabyte blob through the API.
+ * File uploads use the shared 50 MiB file limit instead.
  */
 
 import { execFile } from 'node:child_process';
@@ -16,6 +17,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { FileReadError } from './read-file';
+import { MAX_FILE_BYTES } from '@/lib/api/limited-body';
 
 export const MAX_WRITE_BYTES = 5 * 1024 * 1024; // 5 MiB
 
@@ -241,15 +243,20 @@ export async function createWorkspaceDir(
 }
 
 /**
- * Create an empty file at `relPath`. Throws `exists` if anything is
- * there already — the create flow shouldn't silently overwrite.
+ * Create a file at `relPath`, empty unless bytes are supplied by an upload.
+ * Throws `exists` if anything is there already, so a create or upload
+ * never silently overwrites another file.
  */
 export async function createWorkspaceFile(
   ws: Pick<FolderRef, 'path'>,
   relPath: string,
+  content: Uint8Array = new Uint8Array(),
 ): Promise<{ path: string }> {
   const safe = sanitizeRelPath(relPath);
   if (!safe) throw new FileWriteError('invalid_path', `Invalid path: ${relPath}`);
+  if (content.byteLength > MAX_FILE_BYTES) {
+    throw new FileWriteError('too_large', 'This file is larger than the 50 MiB limit.');
+  }
 
   const absolute = path.join(/* turbopackIgnore: true */ ws.path, safe);
   const kind = await pathKind(absolute);
@@ -263,7 +270,11 @@ export async function createWorkspaceFile(
     // (another agent action might race in). `wx` flag throws EEXIST if
     // the file appeared between the check and the open.
     const handle = await fs.open(/* turbopackIgnore: true */ absolute, 'wx');
-    await handle.close();
+    try {
+      await handle.writeFile(content);
+    } finally {
+      await handle.close();
+    }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
       throw new FileWriteError('exists', `${relPath} already exists`);

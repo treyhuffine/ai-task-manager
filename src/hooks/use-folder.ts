@@ -174,6 +174,14 @@ export function useCreateFile(source: FolderSource) {
   });
 }
 
+export function useUploadFile(source: FolderSource) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ path, file }: { path: string; file: File }) => foldersApi.uploadFile(source, path, file),
+    onSuccess: () => invalidateFolder(qc, source),
+  });
+}
+
 export function useRenamePath(source: FolderSource) {
   const qc = useQueryClient();
   return useMutation({

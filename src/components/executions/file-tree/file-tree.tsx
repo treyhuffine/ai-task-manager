@@ -24,14 +24,15 @@ import {
 	useDeletePath,
 	useFolderTree,
 	useRenamePath,
+	useUploadFile,
 	writeFileMutationKey,
 } from '@/hooks/use-folder';
 import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { copyText } from '@/lib/clipboard';
 import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
 import { useMutationState } from '@tanstack/react-query';
-import { FilePlus, FolderPlus, Plus } from 'lucide-react';
-import { useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { FilePlus, FolderPlus, Loader2, Plus, Upload } from 'lucide-react';
+import { useCallback, useImperativeHandle, useMemo, useRef, useState, type DragEvent } from 'react';
 import { toast } from 'sonner';
 import { OpenWorktreeButton } from '../open-worktree-button';
 import { TreeRowsSkeleton } from '../skeletons';
@@ -60,8 +61,8 @@ import { Tip } from '@/components/ui/tip';
 interface FileTreeProps {
   /**
    * The folder to list: an execution's worktree (through a session, which
-   * also addresses the file mutations) or an agent's own folder, which is
-   * read-only here, so the create, rename and delete actions are hidden.
+   * also addresses the file mutations) or an agent's own folder. Archived
+   * agents are read-only, so their write controls are hidden.
    */
   source: FolderSource;
   /**
@@ -97,7 +98,7 @@ interface FileTreeProps {
    * view's full-width top bar instead, where they have room.
    */
   titleRow?: boolean;
-  /** Lets a host's own toolbar start "New file" / "New folder" in the tree. */
+  /** Lets a host's own toolbar create or upload files in the tree. */
   controlRef?: React.Ref<FileTreeHandle>;
   /** A shortcut hint shown in the empty search field, e.g. "⌘P". */
   searchShortcut?: string;
@@ -107,6 +108,7 @@ interface FileTreeProps {
 export interface FileTreeHandle {
   /** Start creating a file or folder at the root, as the tree's own New menu does. */
   beginCreate: (kind: 'file' | 'dir') => void;
+  uploadFiles: () => void;
 }
 
 const VIEW_MODE_KEY = (id: string) => `ri.execution.tree-view.${id}`;
@@ -393,6 +395,77 @@ export function FileTree({
   const deleteFile = useDeletePath(source);
   const deleteDir = useDeleteDir(source);
   const renamePath = useRenamePath(source);
+  const uploadFile = useUploadFile(source);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const uploadBusy = useRef(false);
+  const dragDepth = useRef(0);
+  const [dropDirectory, setDropDirectory] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+
+  const pickFiles = useCallback(() => {
+    if (writable && worktreePath && !uploadBusy.current) fileInput.current?.click();
+  }, [writable, worktreePath]);
+
+  const uploadFiles = useCallback(async (files: File[], parentPath: string) => {
+    if (!writable || !worktreePath || files.length === 0 || uploadBusy.current) return;
+    uploadBusy.current = true;
+    setQuery('');
+    setMode('all');
+    let uploaded = 0;
+    let firstPath: string | null = null;
+    try {
+      for (const [index, file] of files.entries()) {
+        setUploadProgress({ current: index + 1, total: files.length });
+        const path = parentPath ? `${parentPath}/${file.name}` : file.name;
+        try {
+          if (file.size > 50 * 1024 * 1024) throw new Error('This file is larger than the 50 MiB limit.');
+          await uploadFile.mutateAsync({ path, file });
+          uploaded++;
+          firstPath ??= path;
+          expandAncestors(path);
+        } catch (err) {
+          toast.error(`${file.name}: ${errorMessage(err)}`);
+        }
+      }
+      if (firstPath) onSelect(firstPath);
+      if (uploaded) toast.success(uploaded === 1 ? 'File uploaded' : `${uploaded} files uploaded`);
+    } finally {
+      uploadBusy.current = false;
+      setUploadProgress(null);
+    }
+  }, [writable, worktreePath, setMode, uploadFile, expandAncestors, onSelect]);
+
+  const dragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer.types.includes('Files')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const allowed = writable && !!worktreePath && !uploadBusy.current;
+    event.dataTransfer.dropEffect = allowed ? 'copy' : 'none';
+    if (allowed) {
+      const row = (event.target as Element).closest<HTMLElement>('[data-file-drop-directory]');
+      setDropDirectory(row?.dataset.fileDropDirectory ?? '');
+    }
+  };
+
+  const dropFiles = (event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer.types.includes('Files')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepth.current = 0;
+    setDropDirectory(null);
+    const row = (event.target as Element).closest<HTMLElement>('[data-file-drop-directory]');
+    const parentPath = row?.dataset.fileDropDirectory ?? '';
+    // Folder import needs a different picker and traversal. Say so instead of
+    // creating an empty file with the dropped folder's name.
+    const items = Array.from(event.dataTransfer.items);
+    const directories = items.filter((item) => item.webkitGetAsEntry?.()?.isDirectory);
+    if (directories.length) toast.error('Choose files inside the folder to upload them.');
+    const files = items.length
+      ? items.filter((item) => item.kind === 'file' && !item.webkitGetAsEntry?.()?.isDirectory)
+        .map((item) => item.getAsFile()).filter((file): file is File => file !== null)
+      : Array.from(event.dataTransfer.files);
+    void uploadFiles(files, parentPath);
+  };
 
   // Subscribe to in-flight write-file mutations so we can show a
   // per-row spinner while a file is being saved (autosave-on-blur fires
@@ -421,7 +494,7 @@ export function FileTree({
     [ensureExpanded, mode, setMode],
   );
 
-  useImperativeHandle(controlRef, () => ({ beginCreate: (kind) => beginCreate('', kind) }), [beginCreate]);
+  useImperativeHandle(controlRef, () => ({ beginCreate: (kind) => beginCreate('', kind), uploadFiles: pickFiles }), [beginCreate, pickFiles]);
 
   const cancelCreate = useCallback(() => {
     setPendingCreate(null);
@@ -558,7 +631,43 @@ export function FileTree({
   }, [deleteTarget, deleteFile, deleteDir, selectedPath, onSelect]);
 
   return (
-    <div className="flex h-full w-full flex-col border-r border-border bg-background min-w-0">
+    <div
+      className="relative flex h-full w-full flex-col border-r border-border bg-background min-w-0"
+      onDragOverCapture={dragOver}
+      onDragEnterCapture={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        dragDepth.current++;
+        dragOver(event);
+      }}
+      onDragLeaveCapture={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        if (--dragDepth.current <= 0) {
+          dragDepth.current = 0;
+          setDropDirectory(null);
+        }
+      }}
+      onDropCapture={dropFiles}
+    >
+      {writable && <input
+        ref={fileInput}
+        type="file"
+        multiple
+        hidden
+        aria-label="Upload files"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = '';
+          void uploadFiles(files, '');
+        }}
+      />}
+      {dropDirectory !== null && (
+        <div className="pointer-events-none absolute inset-0 z-20 rounded border-2 border-primary">
+          <div className="absolute inset-x-2 bottom-2 flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs text-primary-foreground shadow">
+            <Upload size={14} className="shrink-0" />
+            <span className="truncate">Upload to {dropDirectory || 'root folder'}</span>
+          </div>
+        </div>
+      )}
       {/* Title row — "Files" + create-new sit together on the left,
           "Open in editor" anchors the right. Hosts with their own toolbar
           (the execution workbench's Files view) turn it off. */}
@@ -572,7 +681,7 @@ export function FileTree({
             // Non-modal so the new-name field can take focus as it closes.
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
-                <Tip label="Create new file or folder">
+                <Tip label="Create or upload files">
                   <button
                     className="inline-flex items-center justify-center p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
                     aria-label="Create new"
@@ -596,6 +705,10 @@ export function FileTree({
                 <DropdownMenuItem onClick={() => beginCreate('', 'dir')}>
                   <FolderPlus size={14} />
                   New folder
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!worktreePath || !!uploadProgress} onClick={pickFiles}>
+                  <Upload size={14} />
+                  Upload files
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -669,6 +782,7 @@ export function FileTree({
             onSelect={onSelect}
             expanded={effectiveExpanded}
             onToggleDir={toggleDir}
+            dropDirectory={dropDirectory}
             filterQuery={trimmedQuery}
             savingPaths={savingPaths}
             onRename={writable ? beginRename : undefined}
@@ -691,6 +805,13 @@ export function FileTree({
           />
         )}
       </div>
+
+      {uploadProgress && (
+        <div role="status" className="flex items-center gap-2 border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
+          <Loader2 size={13} className="animate-spin" />
+          Uploading file {uploadProgress.current} of {uploadProgress.total}...
+        </div>
+      )}
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && cancelDelete()}>
         <AlertDialogContent>

@@ -25,6 +25,7 @@ import { copyWipToWorktree, detectSourceWip, moveWipToWorktree } from './wip';
 export type ExecutionWrite =
   | { kind: 'write'; path: string; content: string }
   | { kind: 'create_file'; path: string }
+  | { kind: 'upload_file'; path: string; contentBase64: string }
   | { kind: 'create_dir'; path: string }
   | { kind: 'rename'; from: string; to: string }
   | { kind: 'delete'; path: string }
@@ -55,6 +56,8 @@ export async function writeFolder(folder: FolderRef, write: FolderWrite): Promis
         return ok({ ok: true, ...(await writeWorkspaceFile(folder, write.path, write.content)) });
       case 'create_file':
         return ok({ ok: true, ...(await createWorkspaceFile(folder, write.path)) });
+      case 'upload_file':
+        return ok({ ok: true, ...(await createWorkspaceFile(folder, write.path, Buffer.from(write.contentBase64, 'base64'))) });
       case 'create_dir':
         return ok({ ok: true, ...(await createWorkspaceDir(folder, write.path)) });
       case 'rename':

@@ -1,4 +1,6 @@
-import { type FolderSource } from '@/lib/folders/source';
+import { folderApiBase, type FolderSource } from '@/lib/folders/source';
+import { api } from '@/lib/api/client';
+import { currentSpaceId, spaceApiBase } from '@/lib/spaces/document';
 import { trpcClient } from '@/lib/trpc/client';
 
 /**
@@ -7,6 +9,15 @@ import { trpcClient } from '@/lib/trpc/client';
  * folder, the same routes under different prefixes.
  */
 export const foldersApi = {
+  uploadFile(source: FolderSource, path: string, file: File) {
+    const form = new FormData();
+    form.append('path', path);
+    form.append('file', file);
+    const space = currentSpaceId();
+    const prefix = space ? spaceApiBase(space).replace(/^\/api/, '') : '';
+    return api.upload<{ ok: true; path: string }>(`${prefix}${folderApiBase(source)}/file/upload`, form);
+  },
+
   tree(source: FolderSource) {
     const id = source.kind === 'session' ? source.sessionId : source.workspaceId;
     return source.kind === 'session'

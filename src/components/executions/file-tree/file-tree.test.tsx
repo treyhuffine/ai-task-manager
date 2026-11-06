@@ -23,6 +23,7 @@ vi.mock('@/hooks/use-folder', () => ({
   useDeleteDir: mutation,
   useDeletePath: mutation,
   useRenamePath: mutation,
+  useUploadFile: mutation,
   writeFileMutationKey: () => ['write-file'],
 }));
 vi.mock('../open-worktree-button', () => ({ OpenWorktreeButton: () => null }));

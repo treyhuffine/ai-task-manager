@@ -22,6 +22,8 @@ interface RouteEntry {
 }
 
 const ROUTES: RouteEntry[] = [
+  { pattern: /^\/api\/sessions\/([^/]+)\/file\/upload$/, params: ['id'], load: () => import('@/app/api/sessions/[id]/file/upload/route') as unknown as Promise<RouteModule> },
+  { pattern: /^\/api\/workspaces\/([^/]+)\/file\/upload$/, params: ['id'], load: () => import('@/app/api/workspaces/[id]/file/upload/route') as unknown as Promise<RouteModule> },
   { pattern: /^\/api\/health$/, load: () => import('@/app/api/health/route') as Promise<RouteModule> },
   { pattern: /^\/api\/home$/, load: () => import('@/app/api/home/route') as Promise<RouteModule> },
   {

@@ -18,6 +18,8 @@ type Handler = (req: Request, context: { params: Promise<Record<string, string>>
 type RouteModule = Partial<Record<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', Handler>>;
 
 export const TEAM_ROUTES: Array<[RegExp, () => Promise<RouteModule>]> = [
+  [/^\/api\/sessions\/([^/]+)\/file\/upload$/, () => import('@/app/api/sessions/[id]/file/upload/route') as unknown as Promise<RouteModule>],
+  [/^\/api\/workspaces\/([^/]+)\/file\/upload$/, () => import('@/app/api/workspaces/[id]/file/upload/route') as unknown as Promise<RouteModule>],
   [/^\/api\/transcribe$/, () => import('@/app/api/transcribe/route') as unknown as Promise<RouteModule>],
   [/^\/api\/orchestrator\/actions\/([^/]+)$/, () => import('@/app/api/orchestrator/actions/[name]/route') as unknown as Promise<RouteModule>],
   [/^\/api\/tasks\/([^/]+)\/continue-targets$/, () => import('@/app/api/tasks/[id]/continue-targets/route') as unknown as Promise<RouteModule>],

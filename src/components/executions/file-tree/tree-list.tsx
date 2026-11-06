@@ -6,6 +6,7 @@ import type { TreeEntry } from '@/lib/api/sessions';
 import { buildTree, flattenTree, type TreeRenderNode } from './build-tree';
 import { TreeDirRow, TreeFileRow, CollapsedDirRow, TreeSectionHeader } from './tree-entry-row';
 import { TreeInputRow } from './tree-input-row';
+import { cn } from '@/lib/utils';
 
 export interface PendingCreate {
   /** Empty string for root. */
@@ -31,6 +32,7 @@ interface TreeListProps {
    */
   expanded: ReadonlySet<string>;
   onToggleDir: (path: string) => void;
+  dropDirectory?: string | null;
 
   /**
    * The search the entries were narrowed by. Highlights it in each name
@@ -101,6 +103,7 @@ export function TreeList({
   onSelect,
   expanded,
   onToggleDir,
+  dropDirectory,
   filterQuery,
   onRename,
   onDelete,
@@ -231,6 +234,8 @@ export function TreeList({
           return (
             <div
               key={vRow.key}
+              data-file-drop-directory={node.kind === 'dir' ? node.path : node.kind === 'file' ? node.path.slice(0, Math.max(0, node.path.lastIndexOf('/'))) : undefined}
+              className={cn(node.kind === 'dir' && dropDirectory === node.path && 'bg-primary/15 ring-1 ring-inset ring-primary')}
               style={{
                 position: 'absolute',
                 top: 0,

@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useDefaultLayout, type Layout, type LayoutStorage } from 'react-resizable-panels';
-import { ChevronDown, FilePlus, FileText, FolderPlus, PanelLeft, Plus } from 'lucide-react';
+import { ChevronDown, FilePlus, FileText, FolderPlus, PanelLeft, Plus, Upload } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import {
   DropdownMenu,
@@ -104,7 +104,7 @@ export function FilesView({
         // new-name field couldn't take the cursor.
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
-            <Tip label="Create a file or folder">
+            <Tip label="Create or upload files">
               <button className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted/60 hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground">
                 <Plus size={13} />
                 New
@@ -128,6 +128,10 @@ export function FilesView({
             <DropdownMenuItem onClick={() => treeRef.current?.beginCreate('dir')}>
               <FolderPlus size={14} />
               New folder
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={!worktreePath} onClick={() => treeRef.current?.uploadFiles()}>
+              <Upload size={14} />
+              Upload files
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

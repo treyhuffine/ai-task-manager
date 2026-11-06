@@ -64,6 +64,21 @@ async function viaHome(teamId: string, rest: string, init: { method?: string; sc
 }
 
 describe('a team space reaching its team through My Ri', () => {
+  it('uploads binary bytes to the team folder through the space relay', async () => {
+    const connection = await connected('Folder reviewer');
+    const cwd = path.join(teamRoot, 'upload-folder');
+    fs.mkdirSync(cwd, { recursive: true });
+    const workspace = await (await owner()).workspaces.create.mutate({ body: { name: 'Upload folder', cwd, isGit: false } });
+    const bytes = new Uint8Array([0, 255, 128, 42]);
+    const form = new FormData();
+    form.append('path', '資料/upload.bin');
+    form.append('file', new Blob([bytes]), 'upload.bin');
+    const response = await viaHome(connection.id, `workspaces/${workspace.id}/file/upload`, { method: 'POST', body: form });
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(fs.readFileSync(path.join(cwd, '資料/upload.bin'))).toEqual(Buffer.from(bytes));
+    expect(fs.existsSync(path.join(home.root, '資料/upload.bin'))).toBe(false);
+  });
+
   it('preserves binary uploads and explicitly published files through the Team proxy', async () => {
     const connection = await connected('Binary reviewer');
     const bytes = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.from(Array.from({ length: 8192 }, (_, index) => index % 256))]);

@@ -282,6 +282,15 @@ describe('an agent that lives on a connected device', () => {
     expect(await call('file?path=notes/plan.md', 'PUT', { content: 'on the laptop\n' })).toMatchObject({ status: 200, body: { ok: true } });
     expect(fs.readFileSync(path.join(repo, 'notes', 'plan.md'), 'utf8')).toBe('on the laptop\n');
     expect(await call('file/create', 'POST', { path: 'empty.txt' })).toMatchObject({ status: 200 });
+    const { POST: upload } = await import('@/app/api/workspaces/[id]/file/upload/route');
+    const bytes = new Uint8Array(6 * 1024 * 1024).fill(0xff);
+    const form = new FormData();
+    form.append('path', 'uploads/photo.bin');
+    form.append('file', new Blob([bytes]), 'photo.bin');
+    const uploaded = await upload(new NextRequest(`http://127.0.0.1/api/workspaces/${workspaceId}/file/upload`, { method: 'POST', body: form }), { params: Promise.resolve({ id: workspaceId }) });
+    expect(uploaded.status).toBe(200);
+    expect(fs.readFileSync(path.join(repo, 'uploads/photo.bin'))).toEqual(Buffer.from(bytes));
+    expect(fs.existsSync(path.join(homeFolder, 'uploads'))).toBe(false);
     expect(await call('dir', 'POST', { path: 'drafts' })).toMatchObject({ status: 200 });
     expect(await call('file/rename', 'POST', { from: 'empty.txt', to: 'drafts/empty.txt' })).toMatchObject({ status: 200 });
     expect(fs.existsSync(path.join(repo, 'drafts', 'empty.txt'))).toBe(true);

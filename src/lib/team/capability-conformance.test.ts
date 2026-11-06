@@ -90,6 +90,28 @@ it('checks edit authority for reverts and preview mutations while preserving rea
   await expect(client.executions.tasksGet.query({ params: { id: personal.execution.id } })).rejects.toThrow(/shared Team executions/);
 });
 
+it('attributes file uploads and checks folder editing on both upload routes', async () => {
+  const chat = q.createChatSession({ workspaceId: fixture.workspace.id, type: 'orchestration', harness: 'claude', surfaceKind: q.TEAM_CHAT_SURFACE });
+  const upload = (scope: 'workspaces' | 'sessions', filename: string) => {
+    const form = new FormData();
+    form.append('path', filename);
+    form.append('file', new Blob(['uploaded']), filename);
+    return serveTeam(`http://team.test/api/${scope}/${scope === 'sessions' ? chat.id : fixture.workspace.id}/file/upload`, {
+      method: 'POST', headers: { authorization: `Bearer ${fixture.member.token.plaintext}`, [API_PROTOCOL_HEADER]: String(API_PROTOCOL) }, body: form,
+    });
+  };
+  expect((await upload('workspaces', 'upload-agent.txt')).status).toBe(200);
+  expect((await upload('sessions', 'upload-chat.txt')).status).toBe(200);
+  expect(q.listTeamActivity(fixture.workspace.id).filter(a => a.operation === 'upload_file')).toEqual(expect.arrayContaining([
+    expect.objectContaining({ memberId: fixture.member.member.id, resource: 'upload-agent.txt' }),
+    expect.objectContaining({ memberId: fixture.member.member.id, resource: 'upload-chat.txt' }),
+  ]));
+  deny('editAgentFolder');
+  for (const scope of ['workspaces', 'sessions'] as const) expect((await upload(scope, `refused-${scope}.txt`)).status).toBe(403);
+  expect(fs.existsSync(path.join(fixture.workspace.cwd, 'refused-workspaces.txt'))).toBe(false);
+  expect(fs.existsSync(path.join(fixture.workspace.cwd, 'refused-sessions.txt'))).toBe(false);
+});
+
 it('defaults member voice to Browser and refuses host speech preferences', async () => {
   const client = await teamTrpc(fixture.member.token.plaintext);
   expect(await client.userState.list.query({})).toMatchObject({ voiceModel: 'web/speech-recognition' });

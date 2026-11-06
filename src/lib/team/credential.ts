@@ -60,6 +60,7 @@ const MEMBER_PREFIXES = ['/api/trpc', '/api/attachments', '/api/team'];
 const MEMBER_PATHS = new Set(['/api/version', '/api/home', '/api/workspaces', '/api/sessions/rail', '/api/sessions/history', '/api/sessions/needs-review', '/api/sessions/search', '/api/user-state', '/api/transcribe']);
 
 export function memberMayReach(pathname: string): boolean {
+  if (/^\/api\/(?:sessions|workspaces)\/[^/]+\/file\/upload$/.test(pathname)) return true;
   if (/^\/api\/(?:fs\/(?:browse|mkdir)|gh\/status|preview\/settings(?:\/test)?|reference-folders(?:\/[^/]+(?:\/(?:tree|archive))?)?|workspaces\/(?:detect-stack|preview-files))$/.test(pathname)) return true;
   if (/^\/api\/workspaces\/[^/]+\/(?:folders(?:\/[^/]+(?:\/linked\/[^/]+)?)?|referenced-by)$/.test(pathname)) return true;
   if (/^\/api\/sessions\/[^/]+\/reference-folders$/.test(pathname)) return true;

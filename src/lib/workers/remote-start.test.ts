@@ -208,6 +208,13 @@ describe('starting an execution on a connected device', () => {
     expect(fs.readFileSync(there('NOTES.md'), 'utf8')).toBe('saved from the phone\n');
     expect(await call('file/create', 'POST', '', { path: 'src/new.ts' })).toMatchObject({ status: 200, body: { path: 'src/new.ts' } });
     expect(fs.existsSync(there('src/new.ts'))).toBe(true);
+    const { POST: upload } = await import('@/app/api/sessions/[id]/file/upload/route');
+    const uploadedBytes = new Uint8Array([0, 255, 128, 42]);
+    const form = new FormData();
+    form.append('path', 'uploads/image.bin');
+    form.append('file', new Blob([uploadedBytes]), 'image.bin');
+    expect((await upload(new NextRequest(`http://127.0.0.1/api/sessions/${session.id}/file/upload`, { method: 'POST', body: form }), ctx)).status).toBe(200);
+    expect(fs.readFileSync(there('uploads/image.bin'))).toEqual(Buffer.from(uploadedBytes));
     expect(await call('dir', 'POST', '', { path: 'docs/guides' })).toMatchObject({ status: 200 });
     expect(fs.statSync(there('docs/guides')).isDirectory()).toBe(true);
     expect(await call('file/rename', 'POST', '', { from: 'src/new.ts', to: 'src/renamed.ts' })).toMatchObject({ status: 200, body: { to: 'src/renamed.ts' } });

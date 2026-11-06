@@ -34,6 +34,7 @@ function reachable(method: string, path: string[]): boolean {
   if (path[0] === 'trpc') return path.length === 2 && (method === 'GET' || method === 'POST');
   if (path[0] === 'transcribe') return path.length === 1 && method === 'POST';
   if (path[0] === 'attachments') return (path.length === 1 && method === 'POST') || (path.length === 2 && method === 'GET');
+  if (path[0] === 'sessions' || path[0] === 'workspaces') return path.length === 4 && path[2] === 'file' && path[3] === 'upload' && method === 'POST';
   return false;
 }
 
