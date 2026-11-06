@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { AcceptanceFixture, api, eventually, nativeNavigate } from './acceptance-fixture';
 import { localPage } from './acceptance-surfaces';
 import { serviceStatus } from '../src/lib/service/client';
@@ -24,15 +24,31 @@ const report: { checks: string[]; error?: string; cleanupError?: string; passed?
   limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Higher installer version uses the same server build to isolate installer upgrade behavior'],
 };
 const pass = (name: string) => { report.checks.push(name); console.info(`[windows] ${name}`); };
-const install = (candidate = installer) => {
-  const result = spawnSync(candidate, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, timeout: 180_000, stdio: 'pipe' });
-  if (result.error) throw result.error;
-  assert.equal(result.status, 0, result.stderr?.toString());
+const install = async (candidate = installer) => {
+  const child = spawn(candidate, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, stdio: 'pipe' });
+  const diagnostics = setInterval(() => {
+    const windows = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `
+Add-Type -AssemblyName UIAutomationClient
+$ids = @(Get-Process | Where-Object {$_.ProcessName -like 'Ri-Setup-*'} | ForEach-Object {$_.Id})
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+@($root.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition) | Where-Object {$ids -contains $_.Current.ProcessId} | ForEach-Object {
+ @{title=$_.Current.Name; text=@($_.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object {$_.Current.Name} | Where-Object {$_} | Select-Object -First 40)}
+}) | ConvertTo-Json -Depth 5 -Compress
+`], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
+    console.info('[installer progress]', JSON.stringify({ files: fs.existsSync(installation) ? fs.readdirSync(installation).slice(0, 20) : [], windows: windows.stdout?.trim(), error: windows.error?.message }));
+  }, 60_000);
+  const timeout = setTimeout(() => child.kill(), 8 * 60_000);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', (code, signal) => code === 0 ? resolve() : reject(new Error(`Installer exited with ${code ?? signal}`)));
+    });
+  } finally { clearInterval(diagnostics); clearTimeout(timeout); }
 };
 void (async () => {
 let fixture: AcceptanceFixture | undefined;
 try {
-  install();
+  await install();
   assert(fs.existsSync(path.join(installation, 'Ri.exe')));
   pass('Per-user NSIS installation into a path with spaces and Unicode');
   process.env.RI_DESKTOP_PACKAGE = installation;
@@ -141,7 +157,7 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   pass('Reopen retains the same Home, note and completed task');
   await fixture.quit();
   await eventually(async () => await serviceStatus() === null, 'shutdown before reinstall', 75_000);
-  install();
+  await install();
   await fixture.launch();
   assert.equal((await api<{ title: string }>(fixture.page!, `/api/notes/${note.id}`)).title, 'Windows note edited in the app');
   pass('Installing over the existing app preserves authored data');
@@ -149,7 +165,7 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   await eventually(async () => await serviceStatus() === null, 'shutdown before version upgrade', 75_000);
   const upgradeDirectory = path.join(repository, 'release/windows-upgrade-test');
   const upgrade = path.join(upgradeDirectory, fs.readdirSync(upgradeDirectory).find(name => /^Ri-Setup-.*-x64\.exe$/.test(name))!);
-  install(upgrade);
+  await install(upgrade);
   await fixture.launch();
   assert.equal((await api<{ title: string }>(fixture.page!, `/api/notes/${note.id}`)).title, 'Windows note edited in the app');
   assert.equal((await api<{ status: string }>(fixture.page!, `/api/tasks/${task.id}`)).status, 'done');
