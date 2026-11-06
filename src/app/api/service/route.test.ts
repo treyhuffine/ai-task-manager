@@ -24,12 +24,12 @@ it('keeps detailed diagnostics available to the installation owner', async () =>
   mocks.owner.mockReturnValue(true);
   const status = { phase: 'failed', error: 'Next.js: Error: actionable cause', update: { phase: 'recovery-required', error: 'Startup failed: actionable cause' } };
   mocks.status.mockResolvedValue(status);
-  expect(await (await GET(request())).json()).toEqual({ ...status, canManage: true });
+  expect(await (await GET(request())).json()).toEqual({ ...status, canManage: true, platform: process.platform });
 });
 
 it('preserves healthy and unmanaged status without inventing failures', async () => {
   mocks.status.mockResolvedValue({ phase: 'running', update: { phase: 'idle' } });
-  expect(await (await GET(request())).json()).toEqual({ phase: 'running', update: { phase: 'idle' }, canManage: false });
+  expect(await (await GET(request())).json()).toEqual({ phase: 'running', update: { phase: 'idle' }, canManage: false, platform: process.platform });
   mocks.status.mockResolvedValue(null);
-  expect(await (await GET(request())).json()).toEqual({ phase: 'unmanaged', canManage: false });
+  expect(await (await GET(request())).json()).toEqual({ phase: 'unmanaged', canManage: false, platform: process.platform });
 });

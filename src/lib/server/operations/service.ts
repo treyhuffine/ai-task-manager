@@ -15,7 +15,7 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: Operat
     ...(status.error ? { error: genericError } : {}),
     ...(status.update?.error ? { update: { ...status.update, error: genericError } } : {}),
   } : status;
-  return reply({ ...(visible ?? { phase: 'unmanaged', update: undefined, version: undefined }), canManage }, { headers: { 'Cache-Control': 'no-store' } });
+  return reply({ ...(visible ?? { phase: 'unmanaged', update: undefined, version: undefined }), canManage, platform: process.platform }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export const GETInput = rpcZ.object({}).strict().default({});

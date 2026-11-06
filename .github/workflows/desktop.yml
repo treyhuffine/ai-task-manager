@@ -6,6 +6,10 @@ on:
         description: Build only the Windows preview
         type: boolean
         default: false
+      installer_run:
+        description: Reuse installers from this Actions run for Windows qualification only
+        type: string
+        default: ''
   pull_request:
     paths:
       - 'desktop/**'
@@ -55,9 +59,10 @@ on:
       - 'pnpm-lock.yaml'
 permissions:
   contents: read
+  actions: read
 jobs:
   build:
-    if: ${{ !inputs.windows_only }}
+    if: ${{ !inputs.windows_only && !inputs.installer_run }}
     name: Runtime ${{ matrix.platform }} / ${{ matrix.arch }}
     strategy:
       fail-fast: false
@@ -323,13 +328,36 @@ jobs:
         run: node -e "const a=require('node:assert/strict'); a.equal(process.platform,'win32'); a.equal(process.arch,'x64')"
       - run: pnpm install --frozen-lockfile
       - name: Build unsigned installer without speech or an update feed
+        if: ${{ !inputs.installer_run }}
         run: pnpm desktop:package --upgrade-test
       - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.installer_run }}
         with:
           name: ri-windows-x64-preview
           path: release/desktop/Ri-Setup-*-x64.exe
           if-no-files-found: error
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.installer_run }}
+        with:
+          name: ri-windows-x64-upgrade-fixture
+          path: release/windows-upgrade-test/Ri-Setup-*-x64.exe
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.installer_run }}
+        with:
+          name: ri-windows-x64-preview
+          path: release/desktop
+          run-id: ${{ inputs.installer_run }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.installer_run }}
+        with:
+          name: ri-windows-x64-upgrade-fixture
+          path: release/windows-upgrade-test
+          run-id: ${{ inputs.installer_run }}
+          github-token: ${{ github.token }}
       - name: Check Windows types and platform contracts
         run: |
           pnpm ts

@@ -232,6 +232,9 @@ export async function connectionSetup(raw: unknown, options: { development?: boo
     return { kind: 'personal', origin: link.homeUrl, name: home.name, hostName: home.host.name };
   }
   if (request.action === 'join-team') return joinTeamWithLink(request.link, request.name, development);
+  if (process.platform === 'win32' && (request.action === 'create-team' || request.action === 'start-team')) {
+    throw new Error('Hosting a team is not available in this Windows preview. Start a personal Ri or join a team hosted on another computer.');
+  }
   if (request.action === 'start-team') {
     return startTeamHere({ repo: process.env.RI_RUNTIME_REPO ?? path.resolve(__dirname, '../..'), node: process.execPath });
   }

@@ -21,6 +21,7 @@ export function HostAvailability() {
     catch (error) { toast.error(apiErrorText(error)); }
     finally { setBusy(false); }
   };
+  if (service.data?.platform === 'win32') return <p className="text-xs text-muted-foreground">Keep Ri open to use it from another device. Keeping Windows awake is not available in this preview.</p>;
   return <section className="space-y-3">
     <h3 className="text-[12px] font-medium">Host availability</h3>
     <div className="space-y-3 rounded-lg border p-3">

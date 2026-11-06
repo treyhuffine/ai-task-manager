@@ -34,6 +34,8 @@ No Scheduled Task or auto-start, self-updates or update feed, bundled speech
 helper, signing, ARM build, or Mac menu bar features. The existing macOS/Linux
 service behavior stays supported. Windows uses native harnesses and PowerShell,
 without WSL. User data must remain outside the installation folder.
+Hosting a team on Windows is also unavailable, since that requires a separate
+background service. Personal Homes are the qualified path for this preview.
 
 ## Verification
 
