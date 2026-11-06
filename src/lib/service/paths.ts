@@ -34,6 +34,8 @@ export function servicePaths() {
 export function getRuntimeBaseDir() {
   const base = process.env.RI_INSTALL_ROOT || (process.platform === 'darwin'
     ? path.join(os.homedir(), 'Library/Application Support', APP_NAME, 'runtime')
+    : process.platform === 'win32'
+    ? path.join(/* turbopackIgnore: true */ process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData/Local'), APP_NAME, 'runtime')
     : path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local/share'), APP_SHORT_ID, 'runtime'));
   return canonical(path.resolve(/* turbopackIgnore: true */ base));
 }

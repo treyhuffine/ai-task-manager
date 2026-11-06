@@ -24,3 +24,10 @@ export function windowsProcessesSync(pids: number[]): ProcessIdentity[] {
   return parse(execFileSync(untraced('powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script(pids)],
     { encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024 }));
 }
+
+/** Force a child and its descendants when graceful IPC shutdown times out. */
+export async function terminateWindowsTree(pid: number): Promise<void> {
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('Invalid process ID');
+  try { await run(untraced('taskkill.exe'), ['/PID', String(pid), '/T', '/F'], { windowsHide: true }); }
+  catch (error) { if (!['128', '255'].includes(String((error as { code?: unknown }).code))) throw error; }
+}

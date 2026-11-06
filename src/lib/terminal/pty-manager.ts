@@ -355,6 +355,11 @@ export function killAllForOwner(ownerId: string): number {
   return n;
 }
 
+/** Desktop-owned Windows server shutdown also closes unobserved terminals. */
+export function killAllTerminals(): void {
+  for (const terminal of [...terminals.values()]) killTerminal(terminal.ownerId, terminal.id);
+}
+
 /**
  * Subscribe to live output. The replay buffer is delivered synchronously
  * before any future chunks land, so a fresh SSE connection sees the

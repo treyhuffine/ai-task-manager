@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { AcceptanceFixture, api, eventually } from './acceptance-fixture';
+import { AcceptanceFixture, api, eventually, nativeNavigate } from './acceptance-fixture';
 import { localPage } from './acceptance-surfaces';
 import { serviceStatus } from '../src/lib/service/client';
 
@@ -17,10 +17,10 @@ const installer = path.join(repository, 'release/desktop', fs.readdirSync(path.j
 assert(fs.existsSync(installer));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-windows-install-'));
 const installation = path.join(temporary, 'Program Files', 'Ri preview é');
-const report: { checks: string[]; error?: string; limitations: string[] } = { checks: [], limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Reinstall uses the same candidate installer'] };
+const report: { checks: string[]; error?: string; limitations: string[] } = { checks: [], limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Higher installer version uses the same server build to isolate installer upgrade behavior'] };
 const pass = (name: string) => { report.checks.push(name); console.info(`[windows] ${name}`); };
-const install = () => {
-  const result = spawnSync(installer, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, timeout: 180_000, stdio: 'pipe' });
+const install = (candidate = installer) => {
+  const result = spawnSync(candidate, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, timeout: 180_000, stdio: 'pipe' });
   if (result.error) throw result.error;
   assert.equal(result.status, 0, result.stderr?.toString());
 };
@@ -64,11 +64,21 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   const auth = await api<{ binary: { installed: boolean }; hasSubscription: boolean }>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
   assert.equal(auth.binary.installed, true); assert.equal(auth.hasSubscription, true);
   pass('Windows npm cmd shim discovery and harness authentication inspection');
+  await page.evaluate(() => window.riDesktop!.setupHarness!({ harness: 'codex', action: 'install' }));
+  const codex = await api<{ binary: { installed: boolean }; hasSubscription: boolean }>(page, '/api/harness/auth', 'POST', { harness: 'codex', fresh: true });
+  assert.equal(codex.binary.installed, true); assert.equal(codex.hasSubscription, false);
+  pass('Install the real Codex CLI using bundled Node/npm, then discover its native Windows binary without a sign-in');
   const note = await api<{ id: string }>(page, '/api/notes', 'POST', { title: 'Windows persistence note', body: 'Synthetic Windows fixture body.' });
   const task = await api<{ id: string }>(page, '/api/tasks', 'POST', { title: 'Windows persistence task' });
   await api(page, `/api/tasks/${task.id}`, 'PATCH', { status: 'done' });
   assert.equal((await api<{ status: string }>(page, `/api/tasks/${task.id}`)).status, 'done');
   pass('Task create and complete, note create and read through the installed server');
+  await nativeNavigate(page, `${fixture.origin}/note/${note.id}`);
+  const noteTitle = page.locator('textarea.note-title');
+  await noteTitle.waitFor();
+  await noteTitle.fill('Windows note edited in the app');
+  await eventually(async () => (await api<{ title: string }>(page, `/api/notes/${note.id}`)).title === 'Windows note edited in the app', 'editor autosave');
+  pass('The installed note editor opens and autosaves a real user edit');
   const chat = await api<{ session: { id: string } }>(page, '/api/orchestrator-chat', 'POST', { providerId: 'claude', model: 'claude-sonnet-4-6' });
   await api(page, `/api/sessions/${chat.session.id}/messages`, 'POST', { content: 'Windows smoke message' });
   await eventually(async () => {
@@ -89,8 +99,17 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   await eventually(async () => await serviceStatus() === null, 'shutdown before reinstall', 75_000);
   install();
   await fixture.launch();
-  assert.equal((await api<{ title: string }>(fixture.page!, `/api/notes/${note.id}`)).title, 'Windows persistence note');
+  assert.equal((await api<{ title: string }>(fixture.page!, `/api/notes/${note.id}`)).title, 'Windows note edited in the app');
   pass('Installing over the existing app preserves authored data');
+  await fixture.quit();
+  await eventually(async () => await serviceStatus() === null, 'shutdown before version upgrade', 75_000);
+  const upgradeDirectory = path.join(repository, 'release/windows-upgrade-test');
+  const upgrade = path.join(upgradeDirectory, fs.readdirSync(upgradeDirectory).find(name => /^Ri-Setup-.*-x64\.exe$/.test(name))!);
+  install(upgrade);
+  await fixture.launch();
+  assert.equal((await api<{ title: string }>(fixture.page!, `/api/notes/${note.id}`)).title, 'Windows note edited in the app');
+  assert.equal((await api<{ status: string }>(fixture.page!, `/api/tasks/${task.id}`)).status, 'done');
+  pass('A higher-version installer upgrades the application and keeps tasks and notes');
   await fixture.quit();
   await eventually(async () => await serviceStatus() === null, 'shutdown before uninstall', 75_000);
   const uninstaller = path.join(installation, fs.readdirSync(installation).find(name => /^Uninstall.*\.exe$/.test(name))!);

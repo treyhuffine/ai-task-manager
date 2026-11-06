@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline';
 import { randomBytes } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import getPort from 'get-port';
+import { terminateWindowsTree } from '@/lib/utils/windows-processes';
 import { acquireServiceOwner } from '@/lib/service/owner';
 import { runtimeJob, initializeRuntimeJobs, stopRuntimeJobs } from '@/lib/service/runtime-job';
 import { serviceEnvironment } from '@/lib/service/environment';
@@ -105,9 +106,12 @@ async function stopBackend() {
   expectedExit = true;
   if (child.exitCode === null && child.signalCode === null) {
     const exited = once(child, 'exit');
-    if (process.platform === 'win32' && child.connected) child.send({ type: 'stop' });
+    if (process.platform === 'win32' && child.connected) child.send({ type: 'ri:stop' });
     else child.kill('SIGTERM');
-    const force = setTimeout(() => child.kill('SIGKILL'), 15_000);
+    const force = setTimeout(() => {
+      if (process.platform === 'win32' && child.pid) void terminateWindowsTree(child.pid).catch(() => child.kill('SIGKILL'));
+      else child.kill('SIGKILL');
+    }, 15_000);
     try { await exited; } finally { clearTimeout(force); }
   }
   next = undefined;
@@ -239,6 +243,7 @@ async function killBackendTree(reason: string) {
   const child = next;
   if (!child?.pid) return;
   exitReason = reason;
+  if (process.platform === 'win32') { await terminateWindowsTree(child.pid); return; }
   const pids = await ownedProcessIds(child.pid).catch(() => [] as number[]);
   for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
   child.kill('SIGKILL');

@@ -1,3 +1,4 @@
+import { signedCliCommand } from '@/lib/utils/signed-cli-command';
 import { getWorkResultCapabilities } from './capabilities';
 import { resolveServerPort } from '@/lib/orchestrator/harness-surface';
 import { readAuthConfig } from '@/lib/auth/config-file';
@@ -5,7 +6,7 @@ import { SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator
 import type { McpServerConfig } from '@agentex/agent';
 
 /** A login shell keeps the server's pinned launcher, connected devices use their own CLI. */
-export function handoffCliCommand(): string { return '"${RI_SESSION_CLI:-ri}"'; }
+export function handoffCliCommand(): string { return signedCliCommand(); }
 
 /** Deliberate reporting, never automatic turn classification or extra work. */
 export function workResultSessionInstructions(cliCommand = handoffCliCommand()): string {

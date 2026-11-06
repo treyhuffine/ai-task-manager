@@ -38,6 +38,12 @@ export function demoEnvironment(repo: string, original: NodeJS.ProcessEnv, mode:
 
 /** Existing harness CLI instructions use POSIX command strings. macOS demo first. */
 export function bundledCliCommand(node: string, repo: string, root: string, locations?: { database: string; config: string; work: string }) {
+  if (process.platform === 'win32') {
+    const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
+    const variables = { RI_DESKTOP: '1', RI_DESKTOP_REPO: repo, [DB_PATH_ENV]: locations?.database ?? '',
+      [CONFIG_DIR_ENV]: locations?.config ?? '', [WORK_DIR_ENV]: locations?.work ?? '', [APP_ROOT_ENV]: root };
+    return `${Object.entries(variables).map(([name, value]) => `$env:${name}=${quote(value)}`).join('; ')}; & ${quote(node)} ${quote(path.join(repo, 'dist/cli/index.mjs'))}`;
+  }
   const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
   return `RI_DESKTOP=1 RI_DESKTOP_REPO=${quote(repo)} ${DB_PATH_ENV}=${quote(locations?.database ?? '')} ${CONFIG_DIR_ENV}=${quote(locations?.config ?? '')} ${WORK_DIR_ENV}=${quote(locations?.work ?? '')} ${APP_SHORT_ID.toUpperCase()}_ROOT=${quote(root)} ${quote(node)} ${quote(path.join(repo, 'dist/cli/index.mjs'))}`;
 }

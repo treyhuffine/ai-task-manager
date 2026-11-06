@@ -146,12 +146,22 @@ async function start() {
     stopping = true;
     stopPerfRecorder();
     server.close();
-    void (async () => { if (localAppsEnabled()) await localApps().dispose(); await globalThis.__riTRPCWebSocket?.close(); await application.close(); })().finally(() => process.exit(0));
+    void (async () => {
+      if (process.platform === 'win32') {
+        (await import('@/lib/terminal/pty-manager')).killAllTerminals();
+        await (await import('@/lib/runner/local-runner')).closeAllSessions();
+      }
+      if (localAppsEnabled()) await localApps().dispose();
+      await globalThis.__riTRPCWebSocket?.close();
+      await application.close();
+    })().finally(() => process.exit(0));
   };
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
-  process.on('message', message => { if ((message as { type?: string }).type === 'stop') stop(); });
-  if (process.connected) process.once('disconnect', stop);
+  if (process.env.RI_DESKTOP_OWNED === '1') {
+    process.on('message', message => { if ((message as { type?: string }).type === 'ri:stop') stop(); });
+    process.once('disconnect', stop);
+  }
   process.send?.({ type: 'listening', port });
   if (!process.send) console.info(`[server] ready on http://${hostname}:${port}`);
 }

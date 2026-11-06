@@ -323,7 +323,7 @@ jobs:
         run: node -e "const a=require('node:assert/strict'); a.equal(process.platform,'win32'); a.equal(process.arch,'x64')"
       - run: pnpm install --frozen-lockfile
       - name: Build unsigned installer without speech or an update feed
-        run: pnpm desktop:package
+        run: pnpm desktop:package --upgrade-test
       - uses: actions/upload-artifact@v4
         with:
           name: ri-windows-x64-preview

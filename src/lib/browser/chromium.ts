@@ -52,7 +52,7 @@ function windowsCandidates(): Candidate[] {
   const pf = process.env.PROGRAMFILES ?? 'C:\\Program Files';
   const pfx86 = process.env['PROGRAMFILES(X86)'] ?? 'C:\\Program Files (x86)';
   const local = process.env.LOCALAPPDATA ?? '';
-  const join = (base: string, rest: string) => (base ? path.join(base, rest) : '');
+  const join = (base: string, rest: string) => (base ? path.join(/* turbopackIgnore: true */ base, rest) : '');
   return [
     {
       flavor: 'chrome',
@@ -87,9 +87,9 @@ function windowsCandidates(): Candidate[] {
 function resolveOnPath(bin: string): string | null {
   const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
   for (const dir of dirs) {
-    const full = path.join(dir, bin);
+    const full = path.join(/* turbopackIgnore: true */ dir, bin);
     try {
-      fs.accessSync(full, fs.constants.X_OK);
+      fs.accessSync(/* turbopackIgnore: true */ full, fs.constants.X_OK);
       return full;
     } catch {
       // not here, keep looking
@@ -100,7 +100,7 @@ function resolveOnPath(bin: string): string | null {
 
 function resolveCandidate(c: Candidate): string | null {
   for (const p of c.paths ?? []) {
-    if (p && fs.existsSync(p)) return p;
+    if (p && fs.existsSync(/* turbopackIgnore: true */ p)) return p;
   }
   for (const bin of c.bins ?? []) {
     const found = resolveOnPath(bin);
@@ -132,7 +132,7 @@ export function detectBrowsers(): DetectedBrowser[] {
  * Chromium download rather than failing silently.
  */
 export function resolveChromium(configuredPath?: string | null): DetectedBrowser | null {
-  if (configuredPath && fs.existsSync(configuredPath)) {
+  if (configuredPath && fs.existsSync(/* turbopackIgnore: true */ configuredPath)) {
     const match = detectBrowsers().find((b) => b.executablePath === configuredPath);
     if (match) return match;
     return { flavor: 'chromium', label: 'Configured browser', executablePath: configuredPath };
