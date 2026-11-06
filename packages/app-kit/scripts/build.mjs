@@ -24,7 +24,7 @@ await build({ entryPoints: ['src/view-host.ts'], outdir: 'dist', bundle: true, f
     // The host and its own subpaths (its CSP module) are inlined together.
     if (path === HOST || path.startsWith(`${HOST}/`)) return undefined;
     // The bridge's own dependency tree comes along with it.
-    if (INLINED.test(path) || importer.includes('/node_modules/')) return undefined;
+    if (INLINED.test(path) || /[\\/]node_modules[\\/]/.test(importer)) return undefined;
     if (dependencies[packageName(path)]) return { path, external: true };
     return { errors: [{ text: `${path} is not a dependency of @ri/app-kit, so the published view host could not load it` }] };
   });
