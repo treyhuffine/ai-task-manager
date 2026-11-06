@@ -20,7 +20,7 @@ on the PC. See [OpenAI's Windows guidance](https://learn.chatgpt.com/docs/window
 - [x] Actions produces an unsigned x64 `.exe` artifact
 - [x] Installer installs on the hosted Windows runner
 - [x] First launch creates a Home and finishes setup
-- [ ] Windows process ownership, control transport and shutdown work
+- [x] Windows process ownership, control transport and shutdown work
 - [ ] Claude Code and Codex discovery, installation, authentication and chat work
 - [x] Tasks and notes work
 - [ ] Closing and reopening preserves data
@@ -85,7 +85,7 @@ Windows. Global shipped skills are copies and skill mirrors use junctions.
 
 The owned agentex library needs Windows npm shim parsing and skill junction
 fixes. Source is on local branch `ri/windows-first-version` in the separate
-`agentex-windows-first-version` worktree, commit `09495b2`. Ri carries those
+`agentex-windows-first-version` worktree, commits `09495b2` and `0c0a78b`. Ri carries those
 fixes in its existing pnpm patch until an approved library release includes
 them. No agentex version was published.
 
@@ -105,7 +105,7 @@ candidate uses the same server commit, so it isolates installer replacement
 and data preservation. The first-run path applies the real database migrations.
 No provider credentials are supplied and no real billed model request runs.
 
-macOS checks so far: desktop suite 578 passed with two skips, including the
+macOS checks so far: desktop suite 581 passed with two skips, including the
 Windows-only OEM code-page test. Focused
 core checks passed, typecheck and desktop compilation passed. The broader
 repository suite has existing failures, including ten message-route tests
@@ -137,6 +137,10 @@ The deployed Next copy of sqlite-vec keeps its native extension beside the
 JavaScript package, and both CommonJS and ESM loads are probed. Windows session
 launchers select UTF-8 before reading paths, including paths with non-ASCII
 characters. Slow controller probes stay within the existing startup deadline.
+The current Claude Code npm package uses a native executable. Shim discovery
+handles that executable as well as JS entry points, and sign-in reads the
+installed package's `bin` entry. The agentex source suite passed 1,771 tests
+with six skips, and its typecheck passed.
 
 ## PC checklist
 
