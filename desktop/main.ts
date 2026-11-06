@@ -115,6 +115,7 @@ try {
   fs.mkdirSync(profile, { recursive: true, mode: 0o700 });
 }
 app.setName(app.isPackaged ? APP_NAME : `${APP_NAME} Demo`);
+if (process.platform === 'win32') app.setAppUserModelId('app.ri.desktop');
 app.setPath('userData', profile);
 let window: BrowserWindow | undefined;
 let backend: ChildProcess | undefined;
