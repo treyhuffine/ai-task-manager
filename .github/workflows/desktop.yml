@@ -322,8 +322,6 @@ jobs:
       - name: Verify Windows x64
         run: node -e "const a=require('node:assert/strict'); a.equal(process.platform,'win32'); a.equal(process.arch,'x64')"
       - run: pnpm install --frozen-lockfile
-      - name: Diagnose Windows file tracing
-        run: node -e "const fs=require('fs'); fs.mkdirSync('trace-probes',{recursive:true}); for(let i=0;i<12000;i++) fs.writeFileSync('trace-probes/probe-'+i+'.json','')"
       - name: Build unsigned installer without speech or an update feed
         run: pnpm desktop:package --upgrade-test
       - uses: actions/upload-artifact@v4
