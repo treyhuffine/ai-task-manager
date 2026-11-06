@@ -10,7 +10,7 @@ import { signedCliCommand } from '../src/lib/utils/signed-cli-command';
 import { bundledCliCommand } from './config';
 import { resolveWindowsCmdShim } from '@agentex/agent/utils/binary';
 import { ensureSkillSymlink } from '@agentex/agent';
-import { npmHarnessCommand } from './windows-harness';
+import { WindowsHarnessSetup } from './windows-harness';
 
 const platform = process.platform;
 afterEach(() => { Object.defineProperty(process, 'platform', { value: platform }); vi.unstubAllEnvs(); });
@@ -46,13 +46,18 @@ it('uses PowerShell syntax for native Windows instructions', () => {
   expect(command).toContain("$env:RI_ROOT='/a person''s home'");
   expect(command).toContain("& '/node with spaces/node.exe'");
 });
-it.each([['claude', 'bin/claude.exe'], ['claude', 'cli.js'], ['codex', 'bin/codex.js']] as const)('uses the installed %s npm entry %s for sign-in', (harness, entry) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ri npm entry '));
+it.runIf(process.platform === 'win32')('runs fixed browser sign-in commands through Windows npm shims', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ri login é '));
   try {
-    fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ bin: { [harness]: entry } }));
-    expect(npmHarnessCommand('/bundled/node.exe', directory, harness)).toEqual(entry.endsWith('.exe')
-      ? { command: path.join(directory, entry), args: [] }
-      : { command: '/bundled/node.exe', args: [path.join(directory, entry)] });
+    vi.stubEnv('APPDATA', directory);
+    const npm = path.join(directory, 'npm'); fs.mkdirSync(npm);
+    const proof = path.join(directory, 'login.json');
+    fs.writeFileSync(path.join(npm, 'probe.cjs'), `require('node:fs').writeFileSync(${JSON.stringify(proof)},JSON.stringify(process.argv.slice(2)))`);
+    for (const harness of ['claude', 'codex'] as const) {
+      fs.writeFileSync(path.join(npm, `${harness}.cmd`), `@echo off\r\n"${process.execPath}" "%~dp0probe.cjs" %*\r\n`);
+      await new WindowsHarnessSetup(process.execPath).run({ harness, action: 'login' });
+      expect(JSON.parse(fs.readFileSync(proof, 'utf8'))).toEqual(harness === 'claude' ? ['auth', 'login'] : ['login']);
+    }
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 it.runIf(process.platform === 'win32')('runs the pinned Unicode CLI from a Windows OEM code page', () => {

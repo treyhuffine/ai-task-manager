@@ -105,8 +105,8 @@ candidate uses the same server commit, so it isolates installer replacement
 and data preservation. The first-run path applies the real database migrations.
 No provider credentials are supplied and no real billed model request runs.
 
-macOS checks so far: desktop suite 581 passed with two skips, including the
-Windows-only OEM code-page test. Focused
+macOS checks so far: desktop suite 578 passed with three skips, including the
+Windows-only OEM code-page and fixed sign-in command tests. Focused
 core checks passed, typecheck and desktop compilation passed. The broader
 repository suite has existing failures, including ten message-route tests
 reproduced unchanged at the starting commit. A new IPC shutdown listener also
@@ -138,8 +138,9 @@ JavaScript package, and both CommonJS and ESM loads are probed. Windows session
 launchers select UTF-8 before reading paths, including paths with non-ASCII
 characters. Slow controller probes stay within the existing startup deadline.
 The current Claude Code npm package uses a native executable. Shim discovery
-handles that executable as well as JS entry points, and sign-in reads the
-installed package's `bin` entry. The agentex source suite passed 1,771 tests
+handles that executable as well as JS entry points. Sign-in uses fixed commands
+through Windows command discovery, supporting npm shims, native installs and
+WinGet. The agentex source suite passed 1,771 tests
 with six skips, and its typecheck passed.
 
 ## PC checklist
