@@ -199,6 +199,10 @@ $acl = Get-Acl -LiteralPath '${fixture.root.replaceAll("'", "''")}'
     return result.some(event => event.role === 'assistant' && event.content.includes('Windows harness reply.'));
   }, 'stand-in chat reply', 90_000);
   pass('Real chat dispatch, Windows process identity, streaming parser and persisted reply with a stand-in CLI');
+  await nativeNavigate(page, `${fixture.origin}/?settings=voice`);
+  await page.getByText('This build does not include the local speech helper. You can configure an external Parakeet service in Runtime setup.', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Install local speech', exact: true }).count(), 0);
+  pass('Voice settings explain the missing speech helper and omit its install action');
   await nativeNavigate(page, `${fixture.origin}/?settings=updates`);
   await page.getByText('Automatic updates and running after you close the app are not available in this preview.', { exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Check for updates', exact: true }).count(), 0);
