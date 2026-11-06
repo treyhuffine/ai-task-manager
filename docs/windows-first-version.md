@@ -14,7 +14,7 @@ Sources: [Electron](https://github.com/electron/electron/blob/v44.4.5/README.md#
 
 ## Completion checklist
 
-- [ ] Actions produces an unsigned x64 `.exe` artifact
+- [x] Actions produces an unsigned x64 `.exe` artifact
 - [ ] Installer installs without a developer environment
 - [ ] First launch creates a Home and finishes setup
 - [ ] Windows process ownership, control transport and shutdown work
@@ -91,7 +91,7 @@ candidate uses the same server commit, so it isolates installer replacement
 and data preservation. The first-run path applies the real database migrations.
 No provider credentials are supplied and no real billed model request runs.
 
-macOS checks so far: desktop suite 573 passed with one existing skip, focused
+macOS checks so far: desktop suite 577 passed with one existing skip, focused
 core checks passed, typecheck and desktop compilation passed. The broader
 repository suite has existing failures, including ten message-route tests
 reproduced unchanged at the starting commit. A new IPC shutdown listener also
