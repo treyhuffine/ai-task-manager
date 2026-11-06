@@ -18,7 +18,10 @@ const installer = path.join(repository, 'release/desktop', fs.readdirSync(path.j
 assert(fs.existsSync(installer));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-windows-install-'));
 const installation = path.join(temporary, 'Program Files', 'Ri preview é');
-const report: { checks: string[]; error?: string; limitations: string[] } = { checks: [], limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Higher installer version uses the same server build to isolate installer upgrade behavior'] };
+const report: { checks: string[]; error?: string; cleanupError?: string; passed?: boolean; startedAt: string; finishedAt?: string; installer: string; limitations: string[] } = {
+  checks: [], startedAt: new Date().toISOString(), installer: path.basename(installer),
+  limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Higher installer version uses the same server build to isolate installer upgrade behavior'],
+};
 const pass = (name: string) => { report.checks.push(name); console.info(`[windows] ${name}`); };
 const install = (candidate = installer) => {
   const result = spawnSync(candidate, ['/S', `/D=${installation}`], { windowsVerbatimArguments: true, timeout: 180_000, stdio: 'pipe' });
@@ -147,8 +150,12 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   report.error = error instanceof Error ? error.stack : String(error);
   throw error;
 } finally {
-  await fixture?.cleanup();
+  try { await fixture?.cleanup(); }
+  catch (error) { report.cleanupError = String(error); process.exitCode = 1; }
+  report.passed = !report.error && !report.cleanupError;
+  report.finishedAt = new Date().toISOString();
   const directory = path.join(repository, 'release/qualification');
   fs.mkdirSync(directory, { recursive: true });
   fs.writeFileSync(path.join(directory, 'windows.json'), JSON.stringify(report, null, 2));
+  console.info(JSON.stringify(report, null, 2));
 }
