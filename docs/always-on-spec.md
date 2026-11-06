@@ -758,6 +758,18 @@ A real turn from a stand-in harness now runs in the qualification, on a real ser
 | With leases holding, a message queued for a device that's away would hold up plain updates for as long as the device stayed away | A turn that isn't running on this computer lets go of its lease. A restart doesn't touch it |
 
 
+**Final qualification, from `f3bcae74`, 2026-11-05,** on a real build under the real launcher, with throwaway Homes:
+
+- Lifecycle smoke, 13 of 13: `kill -9` of the server is back in about 3 s, a frozen server is restarted past the hang limit, and a failed first start keeps retrying.
+- Every crash state recovers, with and without a launcher.
+- Real launchd: `kill -9` of the controller or launcher is back within the OS's 30-second throttle, a switch is down about 5 s, `ri stop` stays stopped, and a simulated login brings the Home back in under 3 s.
+- A real chat turn from a stand-in harness: `ri update` waits with the Home open and nothing hashed, `--now` ends the turn and switches with 4 s down, the new server sends the message again so the chat carries on, and without `--now` it switches by itself when the turn ends.
+- A real browser tab, holding its WebSocket and SSE stream, doesn't hold up an update. An idle terminal doesn't either, and a command in a terminal nobody watches does until it ends.
+- Three switches and more in one launcher session.
+- The owner's two orders: moving the Homes as they run today, and restarting on the merged code first, then the cutover's literal commands.
+
+**Not tested:** a real reboot (section 10.2, step 6), the real tunnel and MCP clients, a real Claude or Codex process rather than the stand-in, and Linux.
+
 One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.
 
 ## 14. Prior art
