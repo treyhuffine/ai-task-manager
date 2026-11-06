@@ -1414,7 +1414,7 @@ This is the original combined Home/team acceptance checklist. It remains uncheck
 | Malicious document, preview or oversized request | Untrusted content cannot execute as Ri or mutate via ambient cookies, bounded resource consumption, useful safe previews/downloads still work |
 | Signed clean installation with normal usage | Real shortcuts/editor/PTY/notifications/dialogs pass, logs contain no credentials, performance budgets and platform support are measured |
 
-The original packaged smoke demonstrated h2, eight SSE streams, certificate rejection, mock PKCE, relocation, native modules, bundled CLI, persistence and owned-process teardown. It did not certify this complete matrix. Linux and Intel Mac remain separate qualification work. Windows is unsupported by the current packager and service adapters. Full high availability or offline personal DB replication remain outside the current architecture.
+The original packaged smoke demonstrated h2, eight SSE streams, certificate rejection, mock PKCE, relocation, native modules, bundled CLI, persistence and owned-process teardown. It did not certify this complete matrix. Linux and Intel Mac remain separate qualification work. The [Windows preview](windows-first-version.md) has its own native installer and app-owned runtime qualification, without an OS service. Full high availability or offline personal DB replication remain outside the current architecture.
 
 ## Landing verification
 

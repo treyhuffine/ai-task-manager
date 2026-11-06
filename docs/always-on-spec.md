@@ -216,7 +216,7 @@ A Mac that must serve before anyone logs in would need a system LaunchDaemon. Th
 
 ### 6.6 Windows supervision (later)
 
-Windows uses a Scheduled Task running as the user, triggered at boot and at logon, that runs the launcher. This is OpenClaw's approach. Because the controller restarts the server itself, the task only has to keep the launcher alive, which avoids Hermes's gap where a crashed gateway stays down on Windows. It also needs Windows release builds (`node-pty`, `better-sqlite3`) and a Windows launcher, which the packager doesn't produce yet.
+Windows uses a Scheduled Task running as the user, triggered at boot and at logon, that runs the launcher. This is OpenClaw's approach. Because the controller restarts the server itself, the task only has to keep the launcher alive, which avoids Hermes's gap where a crashed gateway stays down on Windows. The first desktop preview packages native Windows dependencies, including `node-pty` and `better-sqlite3`. A headless Windows release and launcher remain future work.
 
 The [first native Windows preview](windows-first-version.md) has a narrower
 scope: an unsigned x64 installer and a Home that runs while the desktop app is
