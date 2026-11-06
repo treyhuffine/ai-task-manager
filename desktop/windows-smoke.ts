@@ -207,8 +207,13 @@ $acl = Get-Acl -LiteralPath '${fixture.root.replaceAll("'", "''")}'
   const noteTitle = page.locator('textarea.note-title');
   await noteTitle.waitFor();
   await noteTitle.fill('Windows note edited in the app');
-  await eventually(async () => (await api<{ title: string }>(page, `/api/notes/${note.id}`)).title === 'Windows note edited in the app', 'editor autosave');
-  pass('The installed note editor opens and autosaves a real user edit');
+  const editedBody = 'Written in the Windows note editor, kept across reopen and upgrade.';
+  await page.locator('.rich-editor-body[contenteditable="true"]').fill(editedBody);
+  await eventually(async () => {
+    const saved = await api<{ title: string; body: string }>(page, `/api/notes/${note.id}`);
+    return saved.title === 'Windows note edited in the app' && saved.body.includes(editedBody);
+  }, 'editor title and body autosave');
+  pass('The installed note editor opens and autosaves real title and body edits');
   const chat = await api<{ session: { id: string } }>(page, '/api/orchestrator-chat', 'POST', { providerId: 'claude', model: 'sonnet' });
   await api(page, `/api/sessions/${chat.session.id}/messages`, 'POST', { content: 'Windows smoke message' });
   await eventually(async () => {
@@ -269,7 +274,7 @@ $acl = Get-Acl -LiteralPath '${fixture.root.replaceAll("'", "''")}'
   await eventually(async () => !(await windowsProcesses()).some(child => ownedBirthIds.has(child.birthId)), 'owned server, harness and terminal processes exit', 30_000);
   pass('Quit stops the app-owned controller, server, harnesses and terminal processes');
   await fixture.launch();
-  assert.equal((await api<{ body: string }>(fixture.page!, `/api/notes/${note.id}`)).body, 'Synthetic Windows fixture body.');
+  assert((await api<{ body: string }>(fixture.page!, `/api/notes/${note.id}`)).body.includes(editedBody));
   assert.equal((await api<{ status: string }>(fixture.page!, `/api/tasks/${task.id}`)).status, 'done');
   pass('Reopen retains the same Home, note and completed task');
   // Restart clears the resolver's stand-in path from this test's earlier chat.
@@ -292,7 +297,9 @@ $acl = Get-Acl -LiteralPath '${fixture.root.replaceAll("'", "''")}'
   await install(upgrade);
   await fixture.launch();
   assert.equal(await fixture.app!.evaluate(({ app }) => app.getVersion()), /^Ri-Setup-(.+)-x64\.exe$/.exec(path.basename(upgrade))![1], 'The higher-version application must actually replace the earlier one');
-  assert.equal((await api<{ title: string }>(fixture.page!, `/api/notes/${note.id}`)).title, 'Windows note edited in the app');
+  const upgradedNote = await api<{ title: string; body: string }>(fixture.page!, `/api/notes/${note.id}`);
+  assert.equal(upgradedNote.title, 'Windows note edited in the app');
+  assert(upgradedNote.body.includes(editedBody));
   assert.equal((await api<{ status: string }>(fixture.page!, `/api/tasks/${task.id}`)).status, 'done');
   pass('A higher-version installer upgrades the application and keeps tasks and notes');
   await fixture.quit();
