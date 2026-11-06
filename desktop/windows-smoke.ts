@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { createRequire } from 'node:module';
 import { promisify } from 'node:util';
 import { execFile, execFileSync, spawn, spawnSync } from 'node:child_process';
 import { AcceptanceFixture, api, eventually, nativeNavigate } from './acceptance-fixture';
@@ -90,7 +91,11 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
  if(m.type==='user')reply();});
 `);
   fixture.select();
-  await fixture.launchRaw();
+  // Limit protocol diagnostics to the pre-account launch handshake.
+  const debug = unpacked ? createRequire(path.join(repository, 'package.json'))(path.join(path.dirname(require.resolve('playwright-core/package.json')), 'lib/utilsBundle.js')).debug : undefined;
+  debug?.enable('pw:protocol');
+  try { await fixture.launchRaw(); }
+  finally { debug?.disable(); }
   assert.equal(await fixture.app!.evaluate(() => process.arch), 'x64');
   const setup = await localPage(fixture.app!, 'companion');
   assert(!fs.existsSync(path.join(fixture.root, 'data.db')), 'First launch must wait for the Home choice');
