@@ -110,8 +110,8 @@ try {
     // SDK metadata uses a best-effort five-second probe. Qualify the actual
     // installed command with room for its first Windows/antivirus cold start.
     const { stdout, stderr } = await promisify(execFile)(binary.bin, [...binary.prefixArgs, '--version'], {
-      cwd: server, env: { ...fixture!.env, PATH: [path.dirname(portableNode), npm, fixture!.env.PATH].join(path.delimiter) },
-      windowsHide: true, timeout: 30_000,
+      cwd: server, env: { ...fixture!.env, NODE_ENV: 'production', PATH: [path.dirname(portableNode), npm, fixture!.env.PATH].join(path.delimiter) },
+      windowsHide: true, timeout: 30_000, encoding: 'utf8',
     });
     const version = (stdout || stderr).trim();
     assert.match(version, /\d+\.\d+\.\d+/);
