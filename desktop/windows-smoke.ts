@@ -29,6 +29,7 @@ const install = (candidate = installer) => {
   if (result.error) throw result.error;
   assert.equal(result.status, 0, result.stderr?.toString());
 };
+void (async () => {
 let fixture: AcceptanceFixture | undefined;
 try {
   install();
@@ -172,3 +173,4 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   fs.writeFileSync(path.join(directory, 'windows.json'), JSON.stringify(report, null, 2));
   console.info(JSON.stringify(report, null, 2));
 }
+})().catch(error => { console.error(error); process.exitCode = 1; });
