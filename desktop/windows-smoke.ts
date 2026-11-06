@@ -107,7 +107,8 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   await page.keyboard.press('Enter');
   await eventually(async () => fs.existsSync(proof) && fs.statSync(proof).size > 0, 'PowerShell runs the pinned session CLI', 30_000);
   const paths = JSON.parse(fs.readFileSync(proof, 'utf8').replace(/^\uFEFF/, ''));
-  assert.equal(paths.ok, true); assert.equal(paths.result.appRoot, fixture.root);
+  assert.equal(paths.ok, true);
+  assert.equal(fs.realpathSync.native(paths.result.appRoot), fs.realpathSync.native(fixture.root));
   pass('Browser WebSocket terminal runs native PowerShell and the pinned ri.cmd against this Home');
   fs.rmSync(path.join(npm, 'claude.cmd'));
   await page.evaluate(() => window.riDesktop!.setupHarness!({ harness: 'claude', action: 'install' }));
