@@ -182,8 +182,10 @@ $rules = $acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIden
 @{protected=$acl.AreAccessRulesProtected; allowed=@($rules | Where-Object {$_.AccessControlType -eq 'Allow'} | ForEach-Object {$_.IdentityReference.Value}); user=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value} | ConvertTo-Json -Compress
 `], { encoding: 'utf8', windowsHide: true, timeout: 15_000 }));
   assert.equal(acl.protected, true);
-  assert.deepEqual(new Set(acl.allowed), new Set([acl.user, 'S-1-5-18']));
-  pass('Home NTFS permissions allow only the current Windows account and SYSTEM');
+  assert(acl.allowed.includes(acl.user) && acl.allowed.includes('S-1-5-18'));
+  const trusted = new Set([acl.user, 'S-1-5-18', 'S-1-5-32-544']);
+  assert(acl.allowed.every((sid: string) => trusted.has(sid)), JSON.stringify(acl.allowed));
+  pass('Home NTFS permissions exclude other ordinary Windows accounts');
   const auth = await api<HarnessAuthResponse>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
   assert.equal(auth.binary.installed, true); assert.equal(auth.hasSubscription, true);
   pass('Windows npm cmd shim discovery and harness authentication inspection');

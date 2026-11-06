@@ -8,7 +8,8 @@ export function hasPrivatePermissions(stat: fs.Stats, mask = 0o077): boolean {
   return process.platform === 'win32' || (stat.mode & mask) === 0;
 }
 
-/** Keep credentials and authored data private to this account and SYSTEM.
+/** Remove inherited access and grant this account and SYSTEM full access.
+ * Existing Windows administrator grants remain trusted.
  * Numeric SIDs work on Windows installations in any language. */
 export function protectWindowsDirectories(directories: string[]): void {
   if (process.platform !== 'win32') return;

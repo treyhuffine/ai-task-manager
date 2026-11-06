@@ -72,7 +72,9 @@ selection and profile state also live under the user's AppData folder.
 
 Local control uses a named pipe keyed by the canonical Home identity. Runtime
 metadata uses LocalAppData. Data directories get explicit NTFS access for the
-current account and SYSTEM before secrets are written. POSIX permission bits
+current account and SYSTEM before secrets are written. Local administrators
+remain trusted Windows principals. The new Home excludes other ordinary accounts.
+POSIX permission bits
 are checked only on platforms where they describe real access.
 
 The installer includes portable Node and npm. First-run setup offers fixed
