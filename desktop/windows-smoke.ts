@@ -22,8 +22,8 @@ assert(fs.existsSync(installer));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-windows-install-'));
 const installation = path.join(temporary, 'Program Files', 'Ri preview é');
 const unpacked = process.env.RI_WINDOWS_UNPACKED === '1';
-const report: { checks: string[]; error?: string; cleanupError?: string; passed?: boolean; startedAt: string; finishedAt?: string; installer: string; limitations: string[] } = {
-  checks: [], startedAt: new Date().toISOString(), installer: path.basename(installer),
+const report: { checks: string[]; startupWindows: string[]; error?: string; cleanupError?: string; passed?: boolean; startedAt: string; finishedAt?: string; installer: string; limitations: string[] } = {
+  checks: [], startupWindows: [], startedAt: new Date().toISOString(), installer: path.basename(installer),
   limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Higher installer version uses the same server build to isolate installer upgrade behavior'],
 };
 if (unpacked) report.limitations.push('Current desktop shell over an unpacked retained runtime, exact installer and NSIS installation/upgrade/uninstall not qualified');
@@ -104,8 +104,30 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   // Limit protocol diagnostics to the pre-account launch handshake.
   const debug = unpacked ? createRequire(path.join(repository, 'package.json'))(path.join(path.dirname(require.resolve('playwright-core/package.json')), 'lib/utilsBundle.js')).debug : undefined;
   debug?.enable('pw:protocol');
+  const startupDiagnostics = setInterval(() => {
+    const screenshot = path.join(repository, 'release/qualification/windows-startup.png');
+    fs.mkdirSync(path.dirname(screenshot), { recursive: true });
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `
+Add-Type -AssemblyName UIAutomationClient
+$ids = @(Get-Process -Name Ri -ErrorAction SilentlyContinue | ForEach-Object {$_.Id})
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+@($root.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition) | Where-Object {$ids -contains $_.Current.ProcessId} | ForEach-Object {
+ @{title=$_.Current.Name; text=@($_.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object {$_.Current.Name} | Where-Object {$_} | Select-Object -First 40)}
+}) | ConvertTo-Json -Depth 5 -Compress
+Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+$b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$image = New-Object System.Drawing.Bitmap($b.Width,$b.Height)
+$graphics = [System.Drawing.Graphics]::FromImage($image)
+$graphics.CopyFromScreen($b.X,$b.Y,0,0,$image.Size)
+$image.Save('${screenshot.replaceAll("'", "''")}')
+$graphics.Dispose()
+$image.Dispose()
+`], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
+    report.startupWindows.push(result.stdout?.trim() || result.error?.message || result.stderr?.trim() || 'No Ri windows');
+    console.info('[startup windows]', report.startupWindows.at(-1));
+  }, 30_000);
   try { await fixture.launchRaw(); }
-  finally { debug?.disable(); }
+  finally { clearInterval(startupDiagnostics); debug?.disable(); }
   assert.equal(await fixture.app!.evaluate(() => process.arch), 'x64');
   const setup = await localPage(fixture.app!, 'companion');
   assert(!fs.existsSync(path.join(fixture.root, 'data.db')), 'First launch must wait for the Home choice');

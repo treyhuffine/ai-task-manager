@@ -106,13 +106,18 @@ produced and persisted a reply through the same stand-in Claude protocol used
 by Windows qualification. No real provider account or billed request was used.
 The wider companion
 smoke reaches three first-run checks and then stops on an existing renamed
-pairing-field selector. The acceptance fixture now supplies Playwright's loader
-for explicit executables and creates a document for its initially empty viewer.
+pairing-field selector. The desktop initializes its covered viewer before
+presenting local setup. A viewer that has never loaded a document prevents
+Playwright from attaching to packaged startup. The ordinary launch path now
+passes without an injected test loader. The Mac task, note, chat and reopen
+checks also passed after this fix.
 
 The Windows production web build and trace guard now pass. SQLite/vector,
 canvas, sharp, and native terminal output/exit passed the Windows preflight.
 The pinned node-pty beta kept a pipe worker after natural shell exit. Ri now
 calls its cleanup API at exit, and the packaging probe has a short timeout.
+Windows packaging omits dependency JavaScript, CSS and declaration source maps
+to reduce extraction cost. Ri's own build maps, declarations and licenses stay.
 
 ## PC checklist
 
