@@ -94,3 +94,28 @@ repository suite has existing failures, including ten message-route tests
 reproduced unchanged at the starting commit. A new IPC shutdown listener also
 conflicted with Vitest worker messages. It is now restricted to app-owned
 servers and uses a Ri-specific message, and the HTTP-server checks pass.
+
+A clean macOS worktree also passed the production Next build and trace guard.
+A real Electron session created a fresh Home, created and completed a task,
+edited and autosaved a note, quit, reopened and retained both records. Its
+service stayed running after quitting, as macOS requires. The wider companion
+smoke reaches three first-run checks and then stops on an existing renamed
+pairing-field selector. The acceptance fixture now supplies Playwright's loader
+for explicit executables and creates a document for its initially empty viewer.
+
+## PC checklist
+
+1. In Windows Settings, open System, then About. Confirm 64-bit Windows 10
+   version 1809 or newer, or Windows 11.
+2. Open the supplied Actions run while signed into GitHub. Under Artifacts,
+   download `ri-windows-x64-preview`. Extract the ZIP and open `Ri-Setup-…-x64.exe`.
+3. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
+   The preview is unsigned. Install for your account and open Ri.
+4. Choose **Start a new Ri**. Use **Install Claude Code** or **Install Codex**,
+   then **Sign in**. Complete the browser sign-in and send a short chat message.
+   Try the other tool too if your account supports it.
+5. Create a task, complete it, and write a note. Close Ri, reopen it and check
+   that both records remain. Install the supplied newer test installer only
+   when asked, then check the same records again.
+6. Report the Windows version, which coding tool you tried, and the first step
+   that did not work. A photo of an error is enough. No terminal commands needed.

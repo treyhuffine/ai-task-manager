@@ -69,8 +69,8 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   assert.equal(codex.binary.installed, true); assert.equal(codex.hasSubscription, false);
   pass('Install the real Codex CLI using bundled Node/npm, then discover its native Windows binary without a sign-in');
   const note = await api<{ id: string }>(page, '/api/notes', 'POST', { title: 'Windows persistence note', body: 'Synthetic Windows fixture body.' });
-  const task = await api<{ id: string }>(page, '/api/tasks', 'POST', { title: 'Windows persistence task' });
-  await api(page, `/api/tasks/${task.id}`, 'PATCH', { status: 'done' });
+  const task = await api<{ id: string }>(page, '/api/tasks', 'POST', { title: 'Windows persistence task', rawInput: 'Windows persistence task', status: 'todo' });
+  await api(page, `/api/tasks/${task.id}/complete`, 'POST', {});
   assert.equal((await api<{ status: string }>(page, `/api/tasks/${task.id}`)).status, 'done');
   pass('Task create and complete, note create and read through the installed server');
   await nativeNavigate(page, `${fixture.origin}/note/${note.id}`);
