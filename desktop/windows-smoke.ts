@@ -61,6 +61,7 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
 `);
   fixture.select();
   await fixture.launchRaw();
+  assert.equal(await fixture.app!.evaluate(() => process.arch), 'x64');
   const setup = await localPage(fixture.app!, 'companion');
   assert(!fs.existsSync(path.join(fixture.root, 'data.db')), 'First launch must wait for the Home choice');
   await setup.locator('#create-home').click();
