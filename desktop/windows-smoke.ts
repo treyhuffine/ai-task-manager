@@ -9,6 +9,7 @@ import { AcceptanceFixture, api, eventually, nativeNavigate } from './acceptance
 import { localPage } from './acceptance-surfaces';
 import { serviceStatus } from '../src/lib/service/client';
 import { windowsProcesses } from '../src/lib/utils/windows-processes';
+import type { HarnessAuthResponse } from '../src/lib/server/operations/harness/auth';
 
 assert.equal(process.platform, 'win32');
 assert.equal(process.env.GITHUB_ACTIONS, 'true');
@@ -67,11 +68,11 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   await page.waitForFunction(() => window.riDesktop?.platform === 'win32');
   fixture.origin = new URL(page.url()).origin;
   pass('First-run Home choice, real migrations, HTTPS sign-in and native bridge');
-  const auth = await api<{ binary: { installed: boolean }; hasSubscription: boolean }>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
+  const auth = await api<HarnessAuthResponse>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
   assert.equal(auth.binary.installed, true); assert.equal(auth.hasSubscription, true);
   pass('Windows npm cmd shim discovery and harness authentication inspection');
   await page.evaluate(() => window.riDesktop!.setupHarness!({ harness: 'codex', action: 'install' }));
-  const codex = await api<{ binary: { installed: boolean; version?: string }; hasSubscription: boolean }>(page, '/api/harness/auth', 'POST', { harness: 'codex', fresh: true });
+  const codex = await api<HarnessAuthResponse>(page, '/api/harness/auth', 'POST', { harness: 'codex', fresh: true });
   assert.equal(codex.binary.installed, true); assert.equal(codex.hasSubscription, false);
   assert(codex.binary.version, 'The installed Codex CLI must successfully report its version');
   pass('Install the real Codex CLI using bundled Node/npm, then discover its native Windows binary without a sign-in');
@@ -108,8 +109,9 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   const paths = JSON.parse(fs.readFileSync(proof, 'utf8').replace(/^\uFEFF/, ''));
   assert.equal(paths.ok, true); assert.equal(paths.result.appRoot, fixture.root);
   pass('Browser WebSocket terminal runs native PowerShell and the pinned ri.cmd against this Home');
+  fs.rmSync(path.join(npm, 'claude.cmd'));
   await page.evaluate(() => window.riDesktop!.setupHarness!({ harness: 'claude', action: 'install' }));
-  const installedClaude = await api<{ binary: { installed: boolean; version?: string }; hasSubscription: boolean }>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
+  const installedClaude = await api<HarnessAuthResponse>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
   assert.equal(installedClaude.binary.installed, true); assert.equal(installedClaude.hasSubscription, false);
   assert(installedClaude.binary.version, 'The installed Claude Code CLI must successfully report its version');
   pass('Install the real Claude Code CLI using bundled Node/npm, then inspect its signed-out Windows state');
