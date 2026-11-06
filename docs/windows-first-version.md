@@ -21,12 +21,14 @@ on the PC. See [OpenAI's Windows guidance](https://learn.chatgpt.com/docs/window
 - [x] Installer installs on the hosted Windows runner
 - [x] First launch creates a Home and finishes setup
 - [x] Windows process ownership, control transport and shutdown work
-- [ ] Claude Code and Codex discovery, installation, authentication and chat work
+- [x] Real Claude Code and Codex installation, discovery and native version commands work
+- [x] Windows launching and streamed chat work with a stand-in Claude protocol
+- [ ] Real account sign-in and tool-using chat work on the PC
 - [x] Tasks and notes work
-- [ ] Closing and reopening preserves data
+- [x] Closing and reopening preserves data
 - [ ] Installing a newer installer over the old one preserves data
 - [ ] Uninstall removes software and preserves authored data
-- [ ] Unsupported features are hidden or explained
+- [x] Unsupported features are hidden or explained
 - [ ] Native dependencies and artifact contents are checked
 - [ ] Relevant checks pass on macOS and Windows
 - [ ] Trey receives an artifact link and a short PC checklist
@@ -47,8 +49,12 @@ migrations, opened the HTTPS app, created and completed a task, and edited and
 autosaved a note. A real harness dispatch through Windows npm shim discovery
 and the agentex parser produced and persisted a stand-in Claude reply. The
 browser's WebSocket terminal accepted PowerShell input and ran its pinned
-session CLI. The current runtime qualification reuses an extracted installer
-with the current desktop shell. It does not qualify the final installer.
+session CLI. Quitting stopped the controller, server, harnesses and terminal,
+and reopening retained the completed task and the note's real editor changes.
+The installed commands reported Codex 0.167.0 and Claude Code 2.1.319.
+This [runtime qualification](https://github.com/treyhuffine/ai-task-manager/actions/runs/42313636230)
+passed all 16 checks. It reuses an extracted installer with the current
+desktop shell and agentex resolver. It does not qualify the final installer.
 
 The retained installer is about 319 MiB compressed and 3 GiB installed. Actual
 NSIS installation passed on the hosted runner in about 10.5 minutes. An older
@@ -155,10 +161,11 @@ with six skips, and its typecheck passed.
    The preview is unsigned. Install for your account and open Ri.
    Installation can take 10 minutes or longer. Let it finish.
 4. Choose **Start a new Ri**. Use **Install Claude Code** or **Install Codex**,
-   then **Sign in**. Complete the browser sign-in and send a short chat message.
+   then **Sign in**. Complete the browser sign-in and ask:
+   "Create a task called Windows test and a note called Windows test containing Hello from Windows."
    Try the other tool too if your account supports it.
-5. Create a task, complete it, and write a note. Close Ri, reopen it and check
-   that both records remain. Install the supplied newer test installer only
+5. Open that task and note, and edit the note. Close Ri, reopen it and check
+   that both records remain. Then complete the task. Install the supplied newer test installer only
    when asked, then check the same records again.
 6. Report the Windows version, which coding tool you tried, and the first step
    that did not work. A photo of an error is enough. No terminal commands needed.
