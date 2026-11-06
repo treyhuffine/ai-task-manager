@@ -71,8 +71,9 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   assert.equal(auth.binary.installed, true); assert.equal(auth.hasSubscription, true);
   pass('Windows npm cmd shim discovery and harness authentication inspection');
   await page.evaluate(() => window.riDesktop!.setupHarness!({ harness: 'codex', action: 'install' }));
-  const codex = await api<{ binary: { installed: boolean }; hasSubscription: boolean }>(page, '/api/harness/auth', 'POST', { harness: 'codex', fresh: true });
+  const codex = await api<{ binary: { installed: boolean; version?: string }; hasSubscription: boolean }>(page, '/api/harness/auth', 'POST', { harness: 'codex', fresh: true });
   assert.equal(codex.binary.installed, true); assert.equal(codex.hasSubscription, false);
+  assert(codex.binary.version, 'The installed Codex CLI must successfully report its version');
   pass('Install the real Codex CLI using bundled Node/npm, then discover its native Windows binary without a sign-in');
   const note = await api<{ id: string }>(page, '/api/notes', 'POST', { title: 'Windows persistence note', body: 'Synthetic Windows fixture body.' });
   const task = await api<{ id: string }>(page, '/api/tasks', 'POST', { title: 'Windows persistence task', rawInput: 'Windows persistence task', status: 'todo' });
@@ -108,8 +109,9 @@ createInterface({input:process.stdin}).on('line',line=>{let m;try{m=JSON.parse(l
   assert.equal(paths.ok, true); assert.equal(paths.result.appRoot, fixture.root);
   pass('Browser WebSocket terminal runs native PowerShell and the pinned ri.cmd against this Home');
   await page.evaluate(() => window.riDesktop!.setupHarness!({ harness: 'claude', action: 'install' }));
-  const installedClaude = await api<{ binary: { installed: boolean }; hasSubscription: boolean }>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
+  const installedClaude = await api<{ binary: { installed: boolean; version?: string }; hasSubscription: boolean }>(page, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
   assert.equal(installedClaude.binary.installed, true); assert.equal(installedClaude.hasSubscription, false);
+  assert(installedClaude.binary.version, 'The installed Claude Code CLI must successfully report its version');
   pass('Install the real Claude Code CLI using bundled Node/npm, then inspect its signed-out Windows state');
   fs.mkdirSync(path.join(repository, 'release/qualification'), { recursive: true });
   await page.screenshot({ path: path.join(repository, 'release/qualification/windows-home.png') });
