@@ -333,14 +333,14 @@ jobs:
         if: ${{ !inputs.installer_run }}
         run: pnpm desktop:package --upgrade-test
       - uses: actions/upload-artifact@v4
-        if: ${{ !inputs.installer_run }}
+        if: ${{ !cancelled() && !inputs.installer_run }}
         with:
           name: ri-windows-x64-preview
           path: release/desktop/Ri-Setup-*-x64.exe
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@v4
-        if: ${{ !inputs.installer_run }}
+        if: ${{ !cancelled() && !inputs.installer_run }}
         with:
           name: ri-windows-x64-upgrade-fixture
           path: release/windows-upgrade-test/Ri-Setup-*-x64.exe
