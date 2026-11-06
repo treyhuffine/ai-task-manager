@@ -38,26 +38,39 @@ index 5bcdbfd5cd0a6ee473f7943010469eeece57b9cf..8641fe10cb5b02bcd191237efa51f485
          env: { ...env, OPENCODE_SERVER_PASSWORD: password },
          stdio: ["ignore", "pipe", "pipe"],
 diff --git a/dist/utils/binary.js b/dist/utils/binary.js
-index 34dce49d4f1fea7349aa88f9190cca0e41e77d87..c894cf645264eb875a46da9ce8115e49b8dc4879 100644
+index 34dce49d4f1fea7349aa88f9190cca0e41e77d87..3abe265eeb6410c49fc30df71bd7d0af665c7a40 100644
 --- a/dist/utils/binary.js
 +++ b/dist/utils/binary.js
-@@ -84,7 +84,7 @@ export async function resolveWindowsCmdShim(cmdPath) {
+@@ -83,13 +83,15 @@ function runWhich(name) {
+ export async function resolveWindowsCmdShim(cmdPath) {
      try {
          const content = await fs.readFile(cmdPath, "utf-8");
-         // Match patterns like: "%dp0%\node_modules\...\.js" or "%~dp0\...\entry.js"
+-        // Match patterns like: "%dp0%\node_modules\...\.js" or "%~dp0\...\entry.js"
 -        const match = content.match(/%(?:~dp0|dp0)[\\\/]([^\s"]+\.js)/i);
-+        const match = content.match(/%(?:~dp0|dp0%)[\\\/]?([^"\r\n]+?\.[cm]?js)(?=["\s]|$)/i);
++        // npm shims invoke either a JS entry with Node or a native executable.
++        // Prefer JS so the wrapper's optional local node.exe is never the target.
++        const match = content.match(/%(?:~dp0|dp0%)[\\\/]?([^"\r\n]+?\.[cm]?js)(?=["\s]|$)/i)
++            ?? content.match(/%(?:~dp0|dp0%)[\\\/]?([^"\r\n]+?\.exe)(?=["\s]|$)/i);
          if (match?.[1]) {
              const dir = path.dirname(cmdPath);
-             const jsPath = path.resolve(dir, match[1]);
-@@ -102,6 +102,10 @@ export async function findBinary(name, configOverride) {
+-            const jsPath = path.resolve(dir, match[1]);
+-            if (await fileExists(jsPath)) {
+-                return { bin: "node", prefixArgs: [jsPath] };
++            const entry = path.resolve(dir, match[1]);
++            if (await fileExists(entry)) {
++                return /\.exe$/i.test(entry) ? { bin: entry, prefixArgs: [] } : { bin: "node", prefixArgs: [entry] };
+             }
+         }
+     }
+@@ -102,6 +104,11 @@ export async function findBinary(name, configOverride) {
      // 1. Config override
      if (configOverride) {
          if (await fileExists(configOverride)) {
-+      if (process.platform === "win32" && /\.cmd$/i.test(configOverride)) {
-+        const resolved = await resolveWindowsCmdShim(configOverride);
-+        if (resolved) return resolved;
-+      }
++            if (process.platform === "win32" && /\.cmd$/i.test(configOverride)) {
++                const resolved = await resolveWindowsCmdShim(configOverride);
++                if (resolved)
++                    return resolved;
++            }
              return { bin: configOverride, prefixArgs: [] };
          }
          throw new Error(`Configured binary path "${configOverride}" does not exist. ` +
@@ -132,19 +145,31 @@ index f48defb7f77571debc21a51f0e16cf6d7b618256..80264a90ea2261eaf3f9f07b780280de
        cwd,
        env: { ...env, OPENCODE_SERVER_PASSWORD: password },
 diff --git a/src/utils/binary.ts b/src/utils/binary.ts
-index dcb137e3f97786992510782dbaf2b2aa9aa2c84d..0897478d2265ed16403c4f66856c5c824f866f03 100644
+index dcb137e3f97786992510782dbaf2b2aa9aa2c84d..bf26664360f2870f5c31f54d4e2c24cc2603d2f7 100644
 --- a/src/utils/binary.ts
 +++ b/src/utils/binary.ts
-@@ -94,7 +94,7 @@ export async function resolveWindowsCmdShim(cmdPath: string): Promise<ResolvedBi
+@@ -93,13 +93,15 @@ function runWhich(name: string): Promise<string | null> {
+ export async function resolveWindowsCmdShim(cmdPath: string): Promise<ResolvedBinary | null> {
    try {
      const content = await fs.readFile(cmdPath, "utf-8");
-     // Match patterns like: "%dp0%\node_modules\...\.js" or "%~dp0\...\entry.js"
+-    // Match patterns like: "%dp0%\node_modules\...\.js" or "%~dp0\...\entry.js"
 -    const match = content.match(/%(?:~dp0|dp0)[\\\/]([^\s"]+\.js)/i);
-+    const match = content.match(/%(?:~dp0|dp0%)[\\\/]?([^"\r\n]+?\.[cm]?js)(?=["\s]|$)/i);
++    // npm shims invoke either a JS entry with Node or a native executable.
++    // Prefer JS so the wrapper's optional local node.exe is never the target.
++    const match = content.match(/%(?:~dp0|dp0%)[\\\/]?([^"\r\n]+?\.[cm]?js)(?=["\s]|$)/i)
++      ?? content.match(/%(?:~dp0|dp0%)[\\\/]?([^"\r\n]+?\.exe)(?=["\s]|$)/i);
      if (match?.[1]) {
        const dir = path.dirname(cmdPath);
-       const jsPath = path.resolve(dir, match[1]);
-@@ -112,6 +112,10 @@ export async function findBinary(name: string, configOverride?: string): Promise
+-      const jsPath = path.resolve(dir, match[1]);
+-      if (await fileExists(jsPath)) {
+-        return { bin: "node", prefixArgs: [jsPath] };
++      const entry = path.resolve(dir, match[1]);
++      if (await fileExists(entry)) {
++        return /\.exe$/i.test(entry) ? { bin: entry, prefixArgs: [] } : { bin: "node", prefixArgs: [entry] };
+       }
+     }
+   } catch {
+@@ -112,6 +114,10 @@ export async function findBinary(name: string, configOverride?: string): Promise
    // 1. Config override
    if (configOverride) {
      if (await fileExists(configOverride)) {

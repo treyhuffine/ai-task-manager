@@ -30,7 +30,7 @@ const report: { checks: string[]; startupWindows: string[]; output: string[]; di
   checks: [], startupWindows: [], output: [], startedAt: new Date().toISOString(), installer: path.basename(installer),
   limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Higher installer version uses the same server build to isolate installer upgrade behavior'],
 };
-if (unpacked) report.limitations.push('Current desktop shell over an unpacked retained runtime, exact installer and NSIS installation/upgrade/uninstall not qualified');
+if (unpacked) report.limitations.push('Current desktop shell and agentex resolver over an unpacked retained runtime, exact installer and NSIS installation/upgrade/uninstall not qualified');
 const pass = (name: string) => { report.checks.push(name); console.info(`[windows] ${name}`); };
 const install = async (candidate = installer) => {
   if (unpacked) {
@@ -52,8 +52,13 @@ const install = async (candidate = installer) => {
     await asar.createPackage(shell, `${archive}.new`);
     fs.renameSync(`${archive}.new`, archive);
     fs.cpSync(path.join(repository, 'dist/desktop'), path.join(installation, 'resources/server/dist/desktop'), { recursive: true });
+    const server = path.join(installation, 'resources/server');
+    const sdk = path.join(server, '.next-desktop/node_modules/@agentex');
+    for (const directory of [path.join(server, 'node_modules/@agentex/agent'), ...fs.readdirSync(sdk).filter(name => name.startsWith('agent-')).map(name => path.join(sdk, name))]) {
+      fs.copyFileSync(require.resolve('@agentex/agent/utils/binary'), path.join(directory, 'dist/utils/binary.js'));
+    }
     // Exercise the current packaging layout while reusing the web build.
-    copyNextVectorExtension(path.join(installation, 'resources/server'));
+    copyNextVectorExtension(server);
     await run(path.join(installation, 'resources/node/node.exe'), [path.join(repository, 'desktop/native-probe.mjs')], {
       cwd: path.join(installation, 'resources/server'), windowsHide: true, timeout: 35_000,
     });
@@ -239,7 +244,7 @@ $root = [System.Windows.Automation.AutomationElement]::RootElement
   // Restart clears the resolver's stand-in path from this test's earlier chat.
   const installedClaude = await api<HarnessAuthResponse>(fixture.page!, '/api/harness/auth', 'POST', { harness: 'claude', fresh: true });
   assert.equal(installedClaude.binary.installed, true); assert.equal(installedClaude.hasSubscription, false);
-  assert(installedClaude.binary.version, 'The installed Claude Code CLI must successfully report its version');
+  assert(installedClaude.binary.version, `The installed Claude Code CLI must report its version: ${JSON.stringify(installedClaude.binary)}`);
   pass('The real Claude Code CLI starts after reopening and reports a signed-out Windows state');
   if (!unpacked) {
     await nativeNavigate(fixture.page!, `${fixture.origin}/?settings=models`);

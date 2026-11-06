@@ -10,6 +10,7 @@ import { signedCliCommand } from '../src/lib/utils/signed-cli-command';
 import { bundledCliCommand } from './config';
 import { resolveWindowsCmdShim } from '@agentex/agent/utils/binary';
 import { ensureSkillSymlink } from '@agentex/agent';
+import { npmHarnessCommand } from './windows-harness';
 
 const platform = process.platform;
 afterEach(() => { Object.defineProperty(process, 'platform', { value: platform }); vi.unstubAllEnvs(); });
@@ -44,6 +45,15 @@ it('uses PowerShell syntax for native Windows instructions', () => {
   const command = bundledCliCommand('/node with spaces/node.exe', '/server', "/a person's home");
   expect(command).toContain("$env:RI_ROOT='/a person''s home'");
   expect(command).toContain("& '/node with spaces/node.exe'");
+});
+it.each([['claude', 'bin/claude.exe'], ['claude', 'cli.js'], ['codex', 'bin/codex.js']] as const)('uses the installed %s npm entry %s for sign-in', (harness, entry) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ri npm entry '));
+  try {
+    fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ bin: { [harness]: entry } }));
+    expect(npmHarnessCommand('/bundled/node.exe', directory, harness)).toEqual(entry.endsWith('.exe')
+      ? { command: path.join(directory, entry), args: [] }
+      : { command: '/bundled/node.exe', args: [path.join(directory, entry)] });
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 it.runIf(process.platform === 'win32')('runs the pinned Unicode CLI from a Windows OEM code page', () => {
   const codePage = execFileSync('cmd.exe', ['/d', '/c', 'chcp'], { windowsHide: true, encoding: 'utf8' }).match(/\d+/)![0];
@@ -82,6 +92,10 @@ it('resolves npm cmd shims and creates repeatable skill links on the native file
     fs.writeFileSync(entry, '');
     fs.writeFileSync(shim, '@echo off\r\nnode "%dp0%\\entry with spaces.js" %*\r\n');
     expect(await resolveWindowsCmdShim(shim)).toEqual({ bin: 'node', prefixArgs: [entry] });
+    const executable = path.join(directory, 'claude.exe');
+    fs.writeFileSync(executable, '');
+    fs.writeFileSync(shim, '@echo off\r\n"%dp0%\\claude.exe" %*\r\n');
+    expect(await resolveWindowsCmdShim(shim)).toEqual({ bin: executable, prefixArgs: [] });
     const source = path.join(directory, 'skill');
     const target = path.join(directory, 'linked-skill');
     fs.mkdirSync(source); fs.writeFileSync(path.join(source, 'SKILL.md'), '# Fixture');

@@ -5,6 +5,13 @@ import os from 'node:os';
 
 export type WindowsHarnessRequest = { harness: 'claude' | 'codex'; action: 'install' | 'login' };
 
+/** npm's installed manifest names the entry for both native and JS packages. */
+export function npmHarnessCommand(node: string, directory: string, harness: WindowsHarnessRequest['harness']) {
+  const manifest = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ directory, 'package.json'), 'utf8'));
+  const entry = path.join(/* turbopackIgnore: true */ directory, typeof manifest.bin === 'string' ? manifest.bin : manifest.bin[harness]);
+  return /\.exe$/i.test(entry) ? { command: entry, args: [] as string[] } : { command: node, args: [entry] };
+}
+
 /** Fixed setup commands. No shell or arbitrary command from a page reaches
  * the OS. npm and Node ship with the native Windows installer. */
 export class WindowsHarnessSetup {
@@ -25,7 +32,7 @@ export class WindowsHarnessSetup {
     } else {
       const native = path.join(os.homedir(), '.local/bin', `${request.harness}.exe`);
       if (fs.existsSync(native)) { command = native; args = []; }
-      else args = [path.join(prefix, 'node_modules', packageName, request.harness === 'codex' ? 'bin/codex.js' : 'cli.js')];
+      else ({ command, args } = npmHarnessCommand(this.node, path.join(prefix, 'node_modules', packageName), request.harness!));
       args.push(...(request.harness === 'codex' ? ['login'] : ['auth', 'login']));
     }
     const env: NodeJS.ProcessEnv = { ...process.env, PATH: [path.dirname(this.node), prefix, process.env.PATH ?? process.env.Path ?? ''].join(path.delimiter) };

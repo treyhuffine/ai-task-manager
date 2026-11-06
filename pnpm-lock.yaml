@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@agentex/agent@0.0.48': d962f24c9aee155a6c11968f38dbd5ec13dfaa1c509ee90bb611eb59cc2e04b2
+  '@agentex/agent@0.0.48': f5e6a765ebe68b8c29ea107a5ae6766a377429bc6c717cda7c59f864d893ba94
 
 importers:
 
@@ -13,7 +13,7 @@ importers:
     dependencies:
       '@agentex/agent':
         specifier: ^0.0.48
-        version: 0.0.48(patch_hash=d962f24c9aee155a6c11968f38dbd5ec13dfaa1c509ee90bb611eb59cc2e04b2)(zod@3.25.76)
+        version: 0.0.48(patch_hash=f5e6a765ebe68b8c29ea107a5ae6766a377429bc6c717cda7c59f864d893ba94)(zod@3.25.76)
       '@agentex/github':
         specifier: ^0.0.1
         version: 0.0.1
@@ -7480,6 +7480,7 @@ packages:
   image-size@0.5.5:
     resolution: {integrity: sha512-6TDAlDPZxUFCv+fuOkIoXT/V/f3Qbq8e37p+YOiYrUv3v9cc3/6x78VdfPgFVaB9dZYeLUfKgHRebpkm/oP2VQ==}
     engines: {node: '>=0.10.0'}
+    deprecated: Please migrate to image-size@2.x
     hasBin: true
 
   immediate@3.0.6:
@@ -10746,7 +10747,7 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@agentex/agent@0.0.48(patch_hash=d962f24c9aee155a6c11968f38dbd5ec13dfaa1c509ee90bb611eb59cc2e04b2)(zod@3.25.76)':
+  '@agentex/agent@0.0.48(patch_hash=f5e6a765ebe68b8c29ea107a5ae6766a377429bc6c717cda7c59f864d893ba94)(zod@3.25.76)':
     dependencies:
       '@agentclientprotocol/sdk': 1.8.0(zod@3.25.76)
     transitivePeerDependencies:
