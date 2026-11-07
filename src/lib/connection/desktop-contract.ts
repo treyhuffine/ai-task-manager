@@ -1,6 +1,6 @@
 /** Public presentation only. No credentials, paths or native capabilities. */
 export interface DesktopConnectionIssue {
-  kind: 'network' | 'sign_in' | 'certificate' | 'attention';
+  kind: 'network' | 'sign_in' | 'certificate' | 'attention' | 'app_update';
   message: string;
   detail: string;
   retryable: boolean;

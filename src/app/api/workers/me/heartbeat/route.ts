@@ -17,6 +17,7 @@
  * the same tick as the writes (P2.7 to P2.9 review fixes and re-check).
  */
 
+import { readOrigin } from '@/lib/service/origin';
 import { recordWorkerCompatibility, WorkerJournalReportSchema } from '@/lib/workers/update-compatibility';
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
@@ -25,6 +26,7 @@ import { clearDeviceMirror, replaceDeviceMirror, type WorkerLiveSnapshot } from 
 import type { WorkerHeartbeatReply } from '@/lib/workers/protocol';
 import { readWorkerBody, requireWorker } from '@/lib/workers/route-auth';
 import { publishDeviceUpdated } from '@/lib/realtime/bus';
+import { serviceStatus } from '@/lib/service/client';
 
 const harness = z
   .object({
@@ -79,6 +81,14 @@ function ownLive(deviceId: string, live: z.infer<typeof body>['live'] & object):
   };
 }
 
+/** The release this Home is waiting to move to, if it has one. A Home with no
+ * service behind it has no update waiting. */
+async function pendingHomeUpdate(): Promise<WorkerHeartbeatReply['homeUpdate']> {
+  const update = await serviceStatus().then(status => status?.update, () => undefined);
+  if (!update?.release || !['ready', 'waiting'].includes(update.phase)) return null;
+  return { version: update.release.version, compatibility: update.release.compatibility };
+}
+
 export async function POST(request: NextRequest) {
   const read = await readWorkerBody(request);
   if (read instanceof Response) return read;
@@ -115,5 +125,5 @@ export async function POST(request: NextRequest) {
     release,
     device: { id: device.id, name: device.name },
   };
-  return Response.json(reply);
+  return Response.json({ ...reply, homeUpdate: await pendingHomeUpdate(), homePublished: readOrigin().source === 'published' });
 }

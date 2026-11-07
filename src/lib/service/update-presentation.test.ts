@@ -11,7 +11,11 @@ it('distinguishes byte transfer from verification after the last byte', () => {
   expect(updateProgress({ ...record, bytes: 10 * 1024 ** 2 })?.percent).toBe(100);
 });
 it('retains the waiting reason and identifies maintenance phases while busy', () => {
-  expect(updateStatusText({ ...record, phase: 'waiting', reason: '2 executions', busy: true })).toBe('2 executions');
+  expect(updateStatusText({ ...record, phase: 'waiting', reason: '2 chats', busy: true })).toBe('Waiting for 2 chats to finish');
+  expect(updateStatusText({ ...record, phase: 'waiting', reason: 'a quiet moment' })).toBe('Waiting for a quiet moment');
+  expect(updateStatusText({ ...record, phase: 'waiting', reason: 'Waiting for the maintenance window (UTC)' })).toBe('Waiting for the maintenance window (UTC)');
+  expect(updateStatusText({ ...record, phase: 'waiting', headsUpAt: new Date().toISOString() })).toBe('Ri will update in 1 minute');
+  expect(updateStatusText({ ...record, phase: 'waiting', heldUntil: new Date(Date.now() + 60_000).toISOString() })).toMatch(/^You asked to update later/);
   expect(updateStatusText({ ...record, phase: 'checkpointing', busy: true })).toBe('Backing up your data…');
   expect(updateStatusText({ ...record, phase: 'validating', busy: true })).toMatch(/migrations/);
   expect(updateProgress({ ...record, phase: 'ready' })).toBeNull();

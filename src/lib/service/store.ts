@@ -15,6 +15,7 @@ import { getRuntimeBaseDir, getRuntimeInstallDir, serviceIdentity } from './path
 import { untraced } from '@/lib/utils/untraced';
 import { verifyRuntime, type RuntimeManifest } from './runtime-manifest';
 import { clonesOnMac } from './clone';
+import { compareVersions } from './version-order';
 
 export const RELEASE_ID = /^[a-f0-9]{64}$/;
 const HOME_ID = /^[a-f0-9]{24}$/;
@@ -197,10 +198,24 @@ export function stageRelease(resources: string, base = getRuntimeBaseDir(), opti
         fs.renameSync(/* turbopackIgnore: true */ temporary, destination);
       }
       linkReleaseCache(base, manifest.id, destination);
+      // The first release here brings the publisher it trusts, and that never changes.
+      const policy = path.join(/* turbopackIgnore: true */ resources, 'release-policy.json');
+      const trusted = path.join(/* turbopackIgnore: true */ base, 'release-policy.json');
+      if (fs.existsSync(/* turbopackIgnore: true */ policy) && !fs.existsSync(/* turbopackIgnore: true */ trusted)) atomicWriteFile(trusted, fs.readFileSync(/* turbopackIgnore: true */ policy));
+      // `ri` runs the newest release here, never an older one staged after it.
+      if (!newerThanLatest(store, manifest.version)) return manifest;
       atomicWriteFile(path.join(/* turbopackIgnore: true */ store, 'latest'), `${manifest.id}\n`);
       return manifest;
     }, base);
   } finally { fs.rmSync(/* turbopackIgnore: true */ temporary, { recursive: true, force: true }); }
+}
+
+function newerThanLatest(store: string, version: string) {
+  try {
+    const latest = fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ store, 'latest'), 'utf8').trim();
+    const current = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ store, latest, 'server/package.json'), 'utf8')).version as string;
+    return compareVersions(version, current) >= 0;
+  } catch { return true; }
 }
 
 export interface HomeRecord { version: 1; identity: ReturnType<typeof serviceIdentity> }

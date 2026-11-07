@@ -119,11 +119,11 @@ function render(){
  $('help-link').hidden=help;$('settings-link').hidden=!connecting||!configured;$('refresh').hidden=!settings;
  $('advanced').hidden=connecting||help||starting||recovery||creatingTeam;$('footer').hidden=help||starting||recovery;
  $('status').textContent=recovery?'':failed?(issue?.message||'The Ri connection needs attention.'):reconnecting?(remote?'Connecting to your Ri…':'Starting Ri…'):role==='home'?'Your Ri lives on this computer':homeChosen?'Your Ri starts on this computer':remote?'Connected to '+(state?.home?.name||'your Ri'):state?.reason||'This installation needs attention';
- $('connection-message').textContent=recovery||failed?(issue&&!issue.retryable?'Review the connection details to continue. Your saved connection stays in place.':'Ri is trying to reconnect automatically. Your saved connection stays in place.'):'';
+ $('connection-message').textContent=issue?.kind==='app_update'?'Your saved connection stays in place.':recovery||failed?(issue&&!issue.retryable?'Review the connection details to continue. Your saved connection stays in place.':'Ri is trying to reconnect automatically. Your saved connection stays in place.'):'';
  $('connection-details').hidden=!failed;$('connection-error').textContent=issue?.detail||state?.connectionError||'';
  $('startup-settings').hidden=!recovery;
  $('home-name').textContent=remote&&!failed?'Your data stays on '+(state?.home?.hostName||'your other computer')+'.':'';
- $('open').hidden=!configured;$('open').textContent=recovery?'Try again':reconnecting?'Connecting…':failed?'Try again':'Open Ri';$('reconnect').hidden=recovery?issue?.kind!=='sign_in':!remote&&role!=='retired';$('reconnect').textContent=issue?.kind==='sign_in'?'Sign in again':remote?'Change connection':'Connect to your Ri';
+ $('open').hidden=!configured;$('open').textContent=issue?.kind==='app_update'?'Restart now':recovery?'Try again':reconnecting?'Connecting…':failed?'Try again':'Open Ri';$('reconnect').hidden=recovery?issue?.kind!=='sign_in':!remote&&role!=='retired';$('reconnect').textContent=issue?.kind==='sign_in'?'Sign in again':remote?'Change connection':'Connect to your Ri';
  const info=linkFor($('pairing').value);
  $('link-destination').hidden=!info;$('link-destination').textContent=destination(info);
  $('run-work-label').hidden=remote||info?.kind!=='personal';
@@ -209,7 +209,7 @@ $('create-team-button').onclick=()=>run(async()=>{
 },'Creating your team. Its service starts on this computer…');
 $('resume-team').onclick=()=>run(async()=>{await call('create-team',{resume:true});view='auto';},'Finishing your team…');
 $('cancel-team').onclick=()=>run(()=>call('cancel-team-creation'));
-$('open').onclick=()=>{if(state?.connecting&&!state?.connectionError&&!state?.connection?.showNotice)return;return run(()=>call('open'));};
+$('open').onclick=()=>{if(state?.connection?.issue?.kind==='app_update')return run(()=>call('update-app'));if(state?.connecting&&!state?.connectionError&&!state?.connection?.showNotice)return;return run(()=>call('open'));};
 ['stop-worker','resume-worker','recovery','update-check','update-download','update-apply','update-later','notification-test','enable-worker'].forEach(id=>$(id).onclick=()=>run(()=>call(id)));
 $('login').onchange=()=>run(()=>call('login',{enabled:$('login').checked}));
 $('native-notifications').onchange=()=>run(()=>call($('native-notifications').checked?'notification-enable':'notification-disable'));

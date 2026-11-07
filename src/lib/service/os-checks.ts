@@ -72,6 +72,8 @@ export function commandCheck(resolved: string | null, launcher: string, installe
   const name = 'The ri command';
   const shown = launcher.replace(os.homedir(), '~');
   if (resolved === launcher) return { name, ok: true, detail: shown };
+  // Inside a Ri chat, `ri` is that chat's own, pinned to its server, which is right.
+  if (resolved && /[/\\]\.work[/\\]bin[/\\]ri(?:\.cmd)?$/.test(resolved)) return { name, ok: true, detail: `this chat's own ri. ${shown} is the one a terminal runs` };
   if (!installed) {
     return resolved
       ? { name, ok: true, warn: true, detail: `${resolved} runs, and the launcher isn't installed. \`ri update\` installs it at ${shown}` }

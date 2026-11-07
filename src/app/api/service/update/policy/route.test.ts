@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ owner: vi.fn(), request: vi.fn() }));
 vi.mock('@/lib/service/owner-auth', () => ({ isInstallationOwner: mocks.owner }));
 vi.mock('@/lib/service/client', () => ({ serviceRequest: mocks.request }));
 import { PATCH } from './route';
-beforeEach(() => { vi.clearAllMocks(); mocks.owner.mockReturnValue(true); mocks.request.mockResolvedValue({ policy: { channel: 'stable', automaticDownload: true, metered: true } }); });
+beforeEach(() => { vi.clearAllMocks(); mocks.owner.mockReturnValue(true); mocks.request.mockResolvedValue({ policy: { channel: 'stable', auto: true, metered: true } }); });
 const request = (body: unknown) => new NextRequest('https://localhost/api/service/update/policy', { method: 'PATCH', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
 
 it('refuses paired-device and other non-owner requests before contacting the controller', async () => {
@@ -18,7 +18,7 @@ it('forwards only a validated preference patch to the private owner', async () =
   expect(response.headers.get('cache-control')).toBe('no-store');
   expect(mocks.request).toHaveBeenCalledWith('/update/policy', 'PATCH', 3000, { metered: true });
 });
-it.each([{ automaticDownload: true, feed: 'https://attacker.example' }, { publicKey: 'attacker' }, { channel: 'beta' }, {}, { metered: 'yes' }])('rejects an unauthorized policy shape %j', async body => {
+it.each([{ auto: true, feed: 'https://attacker.example' }, { publicKey: 'attacker' }, { channel: 'beta' }, {}, { metered: 'yes' }])('rejects an unauthorized policy shape %j', async body => {
   expect((await PATCH(request(body))).status).toBe(400);
   expect(mocks.request).not.toHaveBeenCalled();
 });

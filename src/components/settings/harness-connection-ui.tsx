@@ -2,6 +2,7 @@
 
 import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
 
+import { HarnessToolSetup } from '@/components/desktop/harness-tool-setup';
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 import { isDarkBrandMark } from '@/components/integrations/integration-logo';
 import { findProvider, type ProviderId } from '@/lib/harness/options';
@@ -190,6 +191,7 @@ export function ConnectionPanel({
       <code className="block rounded bg-muted/70 px-2 py-1 font-mono text-[11px] text-foreground/90">
         {notInstalled ? provider.installHint : provider.loginCmd}
       </code>
+      <HarnessToolSetup harness={harness} installed={!notInstalled} onComplete={() => recheck.mutate(harness)} />
       <button
         type="button"
         onClick={() => recheck.mutate(harness)}

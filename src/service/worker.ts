@@ -78,6 +78,7 @@ async function main() {
       handlers: (journal, extras) => executionHandlers({ journal, ...extras }),
       requests: journal => executionRequests({ journal, homeId: target.homeId }),
       onStatus: state => send({ type: 'state', state }),
+      onHome: home => send({ type: 'home', home }),
       beforeUnlock: async outcome => {
         paused = true;
         const descendants = await workerDescendants();

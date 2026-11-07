@@ -8,6 +8,7 @@ import {
   Cable,
   Bell,
   MonitorSmartphone,
+  Laptop,
   Globe,
   Chrome,
   ListChecks,
@@ -43,7 +44,8 @@ export type SectionId =
   | 'teams'
   | 'imports'
   | 'remote-preview'
-  | 'updates';
+  | 'updates'
+  | 'this-computer';
 
 export interface SettingsSectionDef {
   /** Stable id — used for nav state, the content router, and the URL param. */
@@ -158,7 +160,8 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     title: 'Remote Preview',
     description: 'How execution previews open on your phone and other devices.',
   },
-  { id: 'updates', label: 'Updates', icon: Download, title: 'Updates', description: 'Background service and application updates.' },
+  { id: 'updates', label: 'Updates', icon: Download, title: 'Updates', description: 'How Ri keeps itself up to date.' },
+  { id: 'this-computer', label: 'This computer', icon: Laptop, title: 'This computer', description: 'Whether Ri is running here, which version, and how it stays running.' },
 ];
 
 export const DEFAULT_SECTION: SectionId = 'profile';

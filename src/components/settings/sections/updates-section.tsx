@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { apiErrorText } from '@/lib/api/client';
 import { documentSaves } from '@/lib/client/document-saves';
 import type { UpdateRecord } from '@/lib/service/update';
-import { maintenanceWindowText, updateProgress, updateStatusText } from '@/lib/service/update-presentation';
+import { describeRollback, maintenanceWindowText, updateProgress, updateStatusText } from '@/lib/service/update-presentation';
 import { MaintenanceWindowSchema, type ReleasePreferences, type UpdateAction, type UpdatePreferences } from '@/lib/service/update-settings';
 import { trpcClient } from '@/lib/trpc/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,7 +20,8 @@ interface Status {
   phase: string;
   version?: string;
   canManage: boolean;
-  update?: UpdateRecord & { configured: boolean; busy: boolean; policy?: ReleasePreferences | null };
+  canUseUpdates: boolean;
+  update?: UpdateRecord & { configured: boolean; busy: boolean; waitingLong: boolean; policy?: ReleasePreferences | null; origin: { source: 'published' | 'checkout'; checkout?: string } };
 }
 
 /** Remount only when the persisted approval changes, so two-second status
@@ -45,7 +46,7 @@ function ActivationSettings({ update, disabled, onAction }: {
     <div className="flex items-center justify-between gap-4">
       <div className="space-y-1">
         <Label htmlFor={`${id}-scheduled`}>Use a maintenance window</Label>
-        <p id={`${id}-schedule-help`} className="text-xs text-muted-foreground">Approve this update for a quiet time. Future updates still need approval.</p>
+        <p id={`${id}-schedule-help`} className="text-xs text-muted-foreground">Update only during these hours, once it&apos;s also quiet.</p>
       </div>
       <Switch id={`${id}-scheduled`} checked={scheduled} onCheckedChange={setScheduled} disabled={disabled} aria-describedby={`${id}-schedule-help`} />
     </div>
@@ -70,13 +71,52 @@ function ActivationSettings({ update, disabled, onAction }: {
         <p className="text-xs text-muted-foreground">The selected time zone stays the same when you travel. If this computer is asleep or busy, Ri waits for another eligible window.</p>
       </div>
     </div>}
-    {update.approved && <p className="text-muted-foreground">{update.window ? `Scheduled ${maintenanceWindowText(update.window)}.` : 'Approved to update as soon as the service is idle.'}</p>}
+    {update.approved && !update.now && update.window && <p className="text-muted-foreground">Scheduled {maintenanceWindowText(update.window)}.</p>}
     <div className="flex flex-wrap gap-2">
       <Button disabled={disabled} onClick={schedule}>{scheduled ? 'Schedule update' : 'Update when idle'}</Button>
-      <Button variant="outline" disabled={disabled} onClick={() => void onAction({ action: 'apply' })}>Restart and update</Button>
-      {update.phase === 'waiting' && <Button variant="ghost" disabled={disabled} onClick={() => void onAction({ action: 'later' })}>Later</Button>}
     </div>
-    <p className="text-xs text-muted-foreground">Restart and update requests the next safe moment without waiting for the scheduled window. Running work is never forcibly stopped.</p>
+  </div>;
+}
+
+function WhatIsWaiting({ update, canUse, disabled, onAction }: {
+  update: NonNullable<Status['update']>;
+  canUse: boolean;
+  disabled: boolean;
+  onAction: (action: UpdateAction) => Promise<void>;
+}) {
+  const waiting = update.phase === 'waiting';
+  // Numbers mean running work, which Update now offers to stop.
+  const running = waiting && /^\d+ /.test(update.reason ?? '');
+  return <div className="space-y-2">
+    {update.waitingLong && <p role="status" className="text-muted-foreground">This update has been waiting for over a day.</p>}
+    {canUse && <div className="flex flex-wrap gap-2">
+      {!running && <Button disabled={disabled} onClick={() => void onAction({ action: 'apply' })}>Update now</Button>}
+      {running && <Button disabled={disabled} variant="outline" onClick={() => void onAction({ action: 'apply-now' })}>Update now and end them</Button>}
+      {waiting && update.automatic && !update.heldUntil && <Button disabled={disabled} variant="ghost" onClick={() => void onAction({ action: 'later' })}>Not now</Button>}
+      {waiting && !update.automatic && <Button disabled={disabled} variant="ghost" onClick={() => void onAction({ action: 'later' })}>Don&apos;t update yet</Button>}
+    </div>}
+  </div>;
+}
+
+function GoBack({ disabled, onConfirm }: { disabled: boolean; onConfirm: () => Promise<void> }) {
+  const [text, setText] = useState('');
+  const [available, setAvailable] = useState(false);
+  const look = async () => {
+    try {
+      const { rollback } = await trpcClient.service.updateRollbackGet.query({});
+      setAvailable(rollback.available);
+      setText(describeRollback('this Home', rollback));
+    } catch (error) { toast.error(apiErrorText(error)); }
+  };
+  return <div className="space-y-2">
+    {!text && <Button variant="outline" disabled={disabled} onClick={() => void look()}>Go back to the previous version…</Button>}
+    {text && <>
+      <p className="whitespace-pre-wrap text-muted-foreground">{text}</p>
+      <div className="flex gap-2">
+        {available && <Button variant="destructive" disabled={disabled} onClick={() => void onConfirm().then(() => setText(''))}>Roll back</Button>}
+        <Button variant="ghost" disabled={disabled} onClick={() => setText('')}>{available ? 'Cancel' : 'Close'}</Button>
+      </div>
+    </>}
   </div>;
 }
 
@@ -90,7 +130,7 @@ export function UpdatesSection() {
   const action = async (input: UpdateAction) => {
     setWorking(true);
     try {
-      if (input.action === 'apply' || input.action === 'when-idle') await documentSaves.flushAll();
+      if (input.action === 'apply' || input.action === 'apply-now' || input.action === 'when-idle') await documentSaves.flushAll();
       await trpcClient.service.updatePost.mutate({body: input});
       await client.invalidateQueries({ queryKey: ['local-service'] });
     } catch (error) { toast.error(apiErrorText(error)); }
@@ -105,45 +145,62 @@ export function UpdatesSection() {
     finally { setWorking(false); }
   };
   if (!data) return <p className="text-sm text-muted-foreground">{status.error ? 'The service is reconnecting. Your drafts remain on this device.' : 'Checking the local service…'}</p>;
-  if (data.phase === 'unmanaged') return <p className="text-sm text-muted-foreground">This server uses a source checkout. Managed updates are available after installing a packaged runtime.</p>;
+  if (data.phase === 'unmanaged') return <p className="text-sm text-muted-foreground">This Ri runs from a source checkout, started by hand. To keep it running and update it safely, run <code>pnpm cli:dev update --from .</code> and then <code>ri start</code>.</p>;
   const disabled = working || !!update?.busy || !!status.error;
   const progress = update ? updateProgress(update) : null;
+  const fromCheckout = update?.origin.source === 'checkout';
+  const inProgress = update && ['ready', 'waiting'].includes(update.phase);
+  // Update now fetches it first, for someone who can't reach Download under Advanced.
+  const canFetch = !!update?.release && !fromCheckout && ['available', 'failed'].includes(update.phase);
 
   return <div className="space-y-5 text-sm">
-    <div><p>Ri {data.version}</p><p className="text-muted-foreground">The background service continues when you close the desktop app.</p></div>
+    <div><p>Ri {data.version}</p></div>
     {status.error && <p role="status" className="text-muted-foreground">Reconnecting to the service. The last known update status is shown below.</p>}
-    {!update?.configured ? <p className="text-muted-foreground">This build has no release publisher configured. Install a signed release to enable updates.</p> : <>
-      <div className="space-y-2">
-        {update.release && <p>Release {update.release.version}</p>}
-        {update.release?.notes && <p className="whitespace-pre-wrap text-muted-foreground">{update.release.notes}</p>}
-        <p role="status" aria-live="polite">{updateStatusText(update)}</p>
-        {progress && <div className="space-y-1">
-          <progress className="h-2 w-full accent-primary" max={100} value={progress.percent} aria-label="Update download" />
-          <p className="text-xs text-muted-foreground">{progress.text}</p>
-        </div>}
-        {update.error && <p role="alert" className="text-destructive">{update.error}</p>}
+    {update && <div className="space-y-2">
+      {update.release && update.phase !== 'committed' && update.phase !== 'idle' && <p>Release {update.release.version}</p>}
+      {update.release?.notes && inProgress && <p className="whitespace-pre-wrap text-muted-foreground">{update.release.notes}</p>}
+      <p role="status" aria-live="polite">{updateStatusText(update)}</p>
+      {progress && <div className="space-y-1">
+        <progress className="h-2 w-full accent-primary" max={100} value={progress.percent} aria-label="Update download" />
+        <p className="text-xs text-muted-foreground">{progress.text}</p>
+      </div>}
+      {update.error && <p role="alert" className="text-destructive">{update.error}</p>}
+    </div>}
+    {update && (inProgress || canFetch) && <WhatIsWaiting update={update} canUse={data.canUseUpdates} disabled={disabled} onAction={action} />}
+    {fromCheckout && <p className="text-muted-foreground">This computer builds Ri from {update?.origin.checkout ?? 'a checkout'} when someone runs <code>ri update</code>. Automatic updates apply to published releases.</p>}
+    {update && !fromCheckout && !update.configured && <p className="text-muted-foreground">This build has no release publisher configured, so it can&apos;t update itself. Install a published release to enable updates.</p>}
+    {update?.configured && !fromCheckout && update.policy && <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+      <div className="space-y-1">
+        <Label htmlFor={`${id}-automatic`}>Automatic updates</Label>
+        <p id={`${id}-automatic-help`} className="text-xs text-muted-foreground">Ri updates itself when it&apos;s quiet, after a 1-minute notice. It never stops running work, and this applies to every Ri on this computer.</p>
       </div>
-      {data.canManage ? <>
-        <div className="flex flex-wrap gap-2">
+      <Switch id={`${id}-automatic`} checked={update.policy.auto} disabled={disabled || !data.canUseUpdates} aria-describedby={`${id}-automatic-help`} onCheckedChange={auto => void savePreferences({ auto })} />
+    </div>}
+    {!data.canUseUpdates && update?.configured && <p className="text-muted-foreground">The owner of this computer manages its updates.</p>}
+    {data.canManage && update && <details className="space-y-4 rounded-lg border p-4">
+      <summary className="cursor-pointer font-medium">Advanced</summary>
+      <div className="mt-4 space-y-4">
+        {update.configured && !fromCheckout && <div className="flex flex-wrap gap-2">
           <Button variant="outline" disabled={disabled || update.phase === 'recovery-required'} onClick={() => void action({ action: 'check' })}>Check for updates</Button>
           {update.release && ['available', 'failed'].includes(update.phase) && <Button disabled={disabled} onClick={() => void action({ action: 'download' })}>{update.phase === 'failed' ? 'Retry download' : 'Download update'}</Button>}
-        </div>
-        {['ready', 'waiting'].includes(update.phase) && <ActivationSettings key={`${update.release?.runtime.id}:${JSON.stringify(update.window)}:${!!update.approved}`} update={update} disabled={disabled} onAction={action} />}
-        {update.policy && <div className="space-y-4 rounded-lg border p-4">
-          <div><p className="font-medium">Download preferences</p><p className="text-xs text-muted-foreground">{update.policy.channel === 'beta' ? 'Beta' : 'Stable'} release channel</p></div>
+        </div>}
+        {update.policy && !fromCheckout && <>
           <div className="flex items-center justify-between gap-4">
-            <div className="space-y-1"><Label htmlFor={`${id}-automatic`}>Download updates automatically</Label><p id={`${id}-automatic-help`} className="text-xs text-muted-foreground">Download verified updates after periodic checks. Installation always requires your approval.</p></div>
-            <Switch id={`${id}-automatic`} checked={update.policy.automaticDownload} disabled={disabled} aria-describedby={`${id}-automatic-help`} onCheckedChange={automaticDownload => void savePreferences({ automaticDownload })} />
+            <div className="space-y-1"><Label htmlFor={`${id}-channel`}>Release channel</Label><p className="text-xs text-muted-foreground">Latest gets every release as it ships.</p></div>
+            <Select value={update.policy.channel} disabled={disabled} onValueChange={channel => void savePreferences({ channel: channel as 'stable' | 'latest' })}>
+              <SelectTrigger id={`${id}-channel`} className="w-32"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="stable">Stable</SelectItem><SelectItem value="latest">Latest</SelectItem></SelectContent>
+            </Select>
           </div>
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-1"><Label htmlFor={`${id}-metered`}>Limit downloads on this connection</Label><p id={`${id}-metered-help`} className="text-xs text-muted-foreground">Pause automatic downloads until you turn this off. Manual downloads are still available. Ri does not detect metered networks automatically.</p></div>
             <Switch id={`${id}-metered`} checked={update.policy.metered} disabled={disabled} aria-describedby={`${id}-metered-help`} onCheckedChange={metered => void savePreferences({ metered })} />
           </div>
-          {update.policy.metered && <p className="text-xs text-muted-foreground">Automatic downloads are paused.</p>}
-        </div>}
-      </> : <p className="text-muted-foreground">Manage software installation from the owner’s desktop or the local CLI.</p>}
-      <p className="text-muted-foreground">Updates wait for running chats and owned processes to finish. Phone and browser connections briefly reconnect. Your data is checked and backed up before migrations run.</p>
-    </>}
+        </>}
+        {inProgress && <ActivationSettings key={`${update.release?.runtime.id}:${JSON.stringify(update.window)}:${!!update.approved}`} update={update} disabled={disabled} onAction={action} />}
+        <GoBack disabled={disabled} onConfirm={() => action({ action: 'rollback' })} />
+      </div>
+    </details>}
     {data.canManage && <RuntimeSetup />}
   </div>;
 }

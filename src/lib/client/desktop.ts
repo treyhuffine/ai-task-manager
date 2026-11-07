@@ -2,6 +2,9 @@ import type { DesktopNotificationAction, DesktopNotificationStatus } from '@/lib
 import type { DesktopSettingsAction, DesktopSettingsStatus } from './desktop-settings';
 import type { DesktopConnectionAction, DesktopConnectionState } from '@/lib/connection/desktop-contract';
 
+export type DesktopComputerAction = { type: 'status' } | { type: 'keep-running'; on: boolean } | { type: 'add-to-terminal' };
+export interface DesktopComputerStatus { appVersion: string; keepRunning: boolean; canKeepRunning: boolean; message?: string }
+
 export interface RiDesktop {
   platform: string;
   openExternal(url: string): Promise<void>;
@@ -12,6 +15,10 @@ export interface RiDesktop {
   connection?(action: DesktopConnectionAction): Promise<DesktopConnectionState>;
   onConnectionChange?(callback: (state: DesktopConnectionState) => void): () => void;
   settings?(action: DesktopSettingsAction): Promise<DesktopSettingsStatus>;
+  /** Settings > This computer, for a Home on this computer. */
+  computer?(action: DesktopComputerAction): Promise<DesktopComputerStatus>;
+  /** Fixed Install and Sign in buttons for a coding tool, for a Home on this computer. */
+  setupHarness?(request: { harness: 'claude' | 'codex'; action: 'install' | 'login' }): Promise<void>;
   /** Read-only status for this computer, including its local consent. */
   notificationStatus?(): Promise<DesktopNotificationStatus>;
   /** Change this computer's notifications. From a connected Home, the desktop asks the person natively before turning them on. */

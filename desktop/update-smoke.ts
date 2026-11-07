@@ -16,6 +16,8 @@ import * as tar from 'tar';
 import { generateCaPair, generateLeafPair } from '../src/lib/config/tls-x509';
 import { getCaCertPath } from '../src/lib/config/tls';
 import { createRuntimeManifest, getRuntimeInstallDir, stageRuntime, installedRuntime } from '../src/lib/service/runtime';
+import { writeOrigin } from '../src/lib/service/origin';
+import { releasePolicyFile } from '../src/lib/service/release-trust';
 import { ensureService, serviceRequest, serviceStatus, stopService, type ServiceSession } from '../src/lib/service/client';
 import { fileDigest, verifyCheckpoint } from '../src/lib/service/checkpoint';
 import type { UpdateRecord } from '../src/lib/service/update';
@@ -53,26 +55,34 @@ async function assertSwitch(page: Page, name: string, checked: boolean) {
   await control.waitFor();
   await waitFor(() => control.getAttribute('aria-checked'), value => value === String(checked), `${name} ${checked ? 'enabled' : 'disabled'}`, 15_000);
 }
+/** The rarer controls fold under Advanced, and a reload folds them again. */
+async function openAdvanced(page: Page) {
+  const advanced = page.locator('details', { has: page.locator('summary', { hasText: 'Advanced' }) });
+  await advanced.waitFor();
+  if (await advanced.getAttribute('open') === null) await advanced.locator('summary').click();
+}
 async function exerciseDownloadPreferences(page: Page) {
   console.info('Checking owner download preferences through the desktop UI');
-  const automatic = 'Download updates automatically';
+  const automatic = 'Automatic updates';
   const metered = 'Limit downloads on this connection';
+  await openAdvanced(page);
   await assertSwitch(page, automatic, false);
   await assertSwitch(page, metered, true);
   // Keep metered mode enabled while testing automatic downloads so this
   // fixture still controls the actual large download explicitly below.
   await page.getByRole('switch', { name: automatic, exact: true }).click();
-  await waitFor(update, value => value.policy?.automaticDownload === true && value.policy.metered === true, 'automatic download enabled');
+  await waitFor(update, value => value.policy?.auto === true && value.policy.metered === true, 'automatic download enabled');
   await assertSwitch(page, automatic, true);
   await page.getByRole('switch', { name: automatic, exact: true }).click();
-  await waitFor(update, value => value.policy?.automaticDownload === false, 'automatic download disabled');
+  await waitFor(update, value => value.policy?.auto === false, 'automatic download disabled');
   await page.getByRole('switch', { name: metered, exact: true }).click();
   await waitFor(update, value => value.policy?.metered === false, 'metered preference disabled');
   await nativeReload(gui!, page, guiNavigation);
+  await openAdvanced(page);
   await assertSwitch(page, automatic, false);
   await assertSwitch(page, metered, false);
   await page.getByRole('switch', { name: metered, exact: true }).click();
-  await waitFor(update, value => value.policy?.metered === true && value.policy.automaticDownload === false, 'metered preference restored');
+  await waitFor(update, value => value.policy?.metered === true && value.policy.auto === false, 'metered preference restored');
   assert.notEqual((await update()).approved, true, 'Preference changes must never approve activation');
 }
 async function exerciseMaintenanceWindow(page: Page) {
@@ -85,6 +95,7 @@ async function exerciseMaintenanceWindow(page: Page) {
   });
   assert(timeZone, 'The fixture needs a time zone outside its activation window');
   const window = { hour: 23, durationHours: 3, timeZone };
+  await openAdvanced(page);
   await assertSwitch(page, 'Use a maintenance window', false);
   await page.getByRole('switch', { name: 'Use a maintenance window', exact: true }).click();
   await page.getByRole('combobox', { name: 'Start time', exact: true }).click();
@@ -101,12 +112,13 @@ async function exerciseMaintenanceWindow(page: Page) {
   const scheduled = await waitFor(update, value => value.phase === 'waiting' && value.approved === true && value.window?.timeZone === timeZone, 'persisted approval and maintenance window');
   assert.deepEqual(scheduled.window, window);
   await nativeReload(gui!, page, guiNavigation);
+  await openAdvanced(page);
   await assertSwitch(page, 'Use a maintenance window', true);
   assert.equal(await page.getByRole('textbox', { name: 'Time zone', exact: true }).inputValue(), timeZone);
   assert.match(await page.getByRole('combobox', { name: 'Start time', exact: true }).innerText(), /23:00/);
   assert.match(await page.getByRole('combobox', { name: 'Window length', exact: true }).innerText(), /3 hours/);
   assert.deepEqual((await update()).window, window);
-  await page.getByRole('button', { name: 'Later', exact: true }).click();
+  await page.getByRole('button', { name: "Don't update yet", exact: true }).click();
   const cancelled = await waitFor(update, value => value.phase === 'ready' && value.approved === false, 'cancelled scheduled activation');
   assert.equal(cancelled.window, undefined);
   await assertSwitch(page, 'Use a maintenance window', false);
@@ -158,7 +170,7 @@ try {
   const leaf = await generateLeafPair({ caCertPem: ca.certPem, caKeyPem: ca.keyPem, sans: [{ type: 'dns', value: 'localhost' }], days: 1, clockSkewMs: 1000 });
   const caFile = path.join(temporary, 'fixture-ca.pem'); fs.writeFileSync(caFile, ca.certPem);
   server = https.createServer({ key: leaf.keyPem, cert: leaf.certPem }, (req, res) => {
-    if (req.url === '/release.json') res.end(JSON.stringify(envelope));
+    if (req.url === `/feed/stable-${process.platform}-${process.arch}.json`) res.end(JSON.stringify(envelope));
     else if (req.url === '/runtime.tar.gz') fs.createReadStream(archive).pipe(res);
     else { res.statusCode = 404; res.end(); }
   });
@@ -168,7 +180,9 @@ try {
   const release = { format: 1, sequence: 1, version: manifest.version, channel: 'stable', publishedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86400000).toISOString(), platform: process.platform, arch: process.arch, minimumUpdater: 1, apiProtocol: 1, configFormat: 1, withdrawn: false, notes: 'Isolated updater smoke', migrationHistory: fileDigest(journalFile), runtime: { id: manifest.id, url: `${origin}/runtime.tar.gz`, sha256: fileDigest(archive), size: fs.statSync(archive).size, unpackedSize: manifest.files.reduce((sum, file) => sum + (file.sha256 ? fs.statSync(path.join(candidate, file.name)).size : 0), 0) + fs.statSync(path.join(candidate, 'runtime-manifest.json')).size } };
   const payload = Buffer.from(JSON.stringify(release));
   envelope = { payload: payload.toString('base64'), signature: sign(null, payload, keys.privateKey).toString('base64') };
-  fs.writeFileSync(path.join(getRuntimeInstallDir(), 'release-policy.json'), JSON.stringify({ format: 1, feed: `${origin}/release.json`, publicKey: keys.publicKey.export({ type: 'spki', format: 'pem' }), channel: 'stable', automaticDownload: false, metered: true }));
+  fs.writeFileSync(releasePolicyFile(), JSON.stringify({ format: 1, feed: `${origin}/feed/`, publicKey: keys.publicKey.export({ type: 'spki', format: 'pem' }) }));
+  // Off and limited, so this fixture controls the actual large download below.
+  writeOrigin({ auto: false, metered: true });
   console.info('Starting the standalone service');
   const initial = await ensureService({ repo: first.repo, node: first.node, env: { ...process.env, NODE_EXTRA_CA_CERTS: caFile } });
   await assertMalformedRequestsRejected(initial);
@@ -191,7 +205,11 @@ try {
   }
   const unpublished = path.join(process.env.RI_ROOT!, 'unpublished.txt'); fs.writeFileSync(unpublished, 'unpublished work');
   console.info('Downloading a publisher-verified release');
-  if (gui) await (await gui.firstWindow()).getByRole('button', { name: 'Check for updates', exact: true }).click();
+  if (gui) {
+    const page = await gui.firstWindow();
+    await openAdvanced(page);
+    await page.getByRole('button', { name: 'Check for updates', exact: true }).click();
+  }
   else await action('check');
   await waitFor(update, v => ['available', 'failed'].includes(v.phase), 'release discovery');
   assert.equal((await update()).phase, 'available');

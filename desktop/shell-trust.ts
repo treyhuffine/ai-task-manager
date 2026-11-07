@@ -16,6 +16,14 @@ export function eligibleShellFile(release: Release, files: { url: string; sha512
   return { url: release.shell.url, sha512: release.shell.sha512, size: release.shell.size };
 }
 
+/** Whether a release brings anything new for the app itself. A Ri update usually
+ * changes only pages and server code, which reach the window through the Home
+ * (docs/always-on-spec.md 4.2). A release that doesn't say counts as changed. */
+export function appPartChanged(release: Release, appVersion: string, installedPart?: string) {
+  if (!release.shell || release.version === appVersion) return false;
+  return !release.shell.id || release.shell.id !== installedPart;
+}
+
 /** A metadata renewal may extend eligibility but cannot substitute another
  * version or executable after the user approved and downloaded this one. */
 export function assertSameShellRelease(approved: Release, current: Release) {

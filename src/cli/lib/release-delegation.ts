@@ -18,8 +18,13 @@ import { runtimeReleaseIdentity } from '@/lib/releases/runtime-identity';
 /** Commands about the installation, or that name their own folder. */
 const INSTALLATION_COMMANDS = new Set(['update', 'doctor', 'start', 'help']);
 
+/** About the release running them, not any Home. The install script runs one from
+ * the release it just downloaded, whatever an older Home here runs. */
+const OWN_RELEASE_COMMANDS = new Set(['install-release', 'compatibility', 'manifest', 'verify', 'add-to-terminal']);
+
 export function isInstallationCommand(command: string, subcommand?: string) {
-  return INSTALLATION_COMMANDS.has(command) || (command === 'team' && subcommand === 'create');
+  return INSTALLATION_COMMANDS.has(command) || (command === 'team' && subcommand === 'create')
+    || (command === 'service' && OWN_RELEASE_COMMANDS.has(subcommand ?? ''));
 }
 
 type Env = Record<string, string | undefined>;

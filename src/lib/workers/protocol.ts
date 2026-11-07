@@ -1,3 +1,4 @@
+import type { RuntimeCompatibility } from '@/lib/releases/compatibility';
 /**
  * The home and worker protocol's constants and messages (docs/homes-build.md,
  * "P2 protocol" and "P2.2 Enrollment and the worker connection"). Plain
@@ -311,6 +312,10 @@ export interface WorkerHeartbeatReply {
   ok: true;
   /** Placements this device reported that the home no longer gives it, each through the generation reported. */
   release: Array<{ executionId: string; generation: number; chatSessionIds: string[] }>;
+  /** The release this Home is waiting to move to, so a computer that couldn't talk to it can move first. */
+  homeUpdate?: { version: string; compatibility?: RuntimeCompatibility } | null;
+  /** False for a Home built from a checkout, whose version isn't on any feed. */
+  homePublished?: boolean;
 }
 
 export type WorkerRequestResult =

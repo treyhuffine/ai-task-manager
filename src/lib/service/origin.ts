@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { atomicWriteFile } from '@/lib/config/atomic-file';
+import { atomicWriteFile } from '@/lib/config/atomic-write';
 import { getRuntimeBaseDir } from './paths';
 
 export const OriginSchema = z.object({
@@ -16,6 +16,8 @@ export const OriginSchema = z.object({
   channel: z.enum(['stable', 'latest']),
   /** Automatic updates. Applies to published releases only. */
   auto: z.boolean(),
+  /** Hold automatic downloads, on a connection someone pays for by the byte. */
+  metered: z.boolean().optional(),
 }).strict();
 export type Origin = z.infer<typeof OriginSchema>;
 

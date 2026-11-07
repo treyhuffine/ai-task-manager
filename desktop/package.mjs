@@ -11,7 +11,7 @@ import { assertDesktopPackagingRuntime, DESKTOP_NODE_VERSION } from './package-p
 assertDesktopPackagingRuntime();
 const { build, Platform, Arch } = await import('electron-builder');
 const tar = await import('tar');
-const { assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks } = await import('./package-files.mjs');
+const { appPartId, assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, pruneDependencySourceMaps, removeUnusedPackageCopy, SHELL_ENTRYPOINTS, rebaseResourceLinks } = await import('./package-files.mjs');
 const { signRuntime } = await import('./sign-runtime.mjs');
 const { stageSpeechHelper } = await import('./speech/package.mjs');
 
@@ -19,6 +19,10 @@ const repo = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
 const headless = process.argv.includes('--headless');
 const releaseBuild = process.argv.includes('--release');
+// A dmg to hand to someone, without a Developer ID (docs/publishing.md). Ad-hoc
+// signed, since Apple silicon won't run an app with no signature at all. macOS warns
+// on first open, and it can't update itself.
+const shareBuild = process.argv.includes('--share') && process.platform === 'darwin';
 // A release built from a checkout for this computer (docs/always-on-spec.md
 // section 8): written straight into this folder, with no distribution copy or
 // archive, since the release store takes its files from here.
@@ -96,6 +100,9 @@ for (const name of ['better-sqlite3', 'node-pty']) {
     fs.cpSync(path.join(source, folder), path.join(target, folder), { recursive: true });
   }
 }
+// Before the checks below, so they run against what ships.
+removeUnusedPackageCopy(server);
+console.info(`Removed ${pruneDependencySourceMaps(path.join(server, 'node_modules')) + pruneDependencySourceMaps(path.join(server, '.next-desktop/server'))} source maps from the release.`);
 const portableNode = path.join(node, 'bin/node');
 run(portableNode, ['-e', "const db = new (require('better-sqlite3'))(':memory:'); require('sqlite-vec').load(db); console.log('SQLite/vector:', db.prepare('select vec_version() version').get()); db.close(); require('node-pty').spawn('/bin/echo', ['PTY ready']).onExit(({exitCode}) => {if (exitCode) process.exitCode=exitCode;});"], server);
 run(portableNode, ['dist/cli/index.mjs', '--help'], server);
@@ -113,7 +120,7 @@ if (callbackUrl) {
   const url = new URL(callbackUrl);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) throw new Error('Callback service must be a plain HTTPS URL');
 }
-fs.writeFileSync(desktopConfig, JSON.stringify({ callbackUrl, relayProviders: process.env.RI_DESKTOP_OAUTH_RELAY_PROVIDERS }));
+fs.writeFileSync(desktopConfig, JSON.stringify({ callbackUrl, relayProviders: process.env.RI_DESKTOP_OAUTH_RELAY_PROVIDERS, appPart: appPartId(path.join(repo, 'dist/desktop'), pkg.devDependencies.electron) }));
 // Finalize resources before signing. Neither an updater nor a running service
 // may modify a signed .app after this step.
 console.info(`Verified ${rebaseResourceLinks(stage, stage)} portable resource links.`);
@@ -142,7 +149,7 @@ if (process.env.RI_RELEASE_FEED || process.env.RI_RELEASE_PUBLIC_KEY_FILE) {
   if (feed.protocol !== 'https:' || feed.username || feed.password) throw new Error('Release feed must use HTTPS');
   const publicKey = fs.readFileSync(process.env.RI_RELEASE_PUBLIC_KEY_FILE, 'utf8');
   if (!publicKey.startsWith('-----BEGIN PUBLIC KEY-----') || createPublicKey(publicKey).asymmetricKeyType !== 'ed25519') throw new Error('Supply an Ed25519 PUBLIC key, never the signing private key');
-  fs.writeFileSync(policy, JSON.stringify({ format: 1, feed: feed.href, publicKey, channel: process.env.RI_RELEASE_CHANNEL ?? 'stable', automaticDownload: true, metered: false }));
+  fs.writeFileSync(policy, JSON.stringify({ format: 1, feed: feed.href, publicKey }));
 }
 if (releaseBuild && !fs.existsSync(policy)) throw new Error('Release builds require a publisher public key and HTTPS feed');
 if (releaseDir) {
@@ -168,7 +175,7 @@ console.info(`Headless runtime: ${runtimeOutput}`);
 console.info(`Update payload: ${runtimeArchive}`);
 if (!headless) {
   const platform = process.platform === 'darwin' ? Platform.MAC : Platform.LINUX;
-  const targets = releaseBuild ? (process.platform === 'darwin' ? ['dmg', 'zip'] : ['AppImage']) : ['dir'];
+  const targets = shareBuild ? ['dmg'] : releaseBuild ? (process.platform === 'darwin' ? ['dmg', 'zip'] : ['AppImage']) : ['dir'];
   const resourcesToCopy = ['server', 'node', 'desktop-config.json', 'runtime-manifest.json', ...(fs.existsSync(policy) ? ['release-policy.json'] : [])];
   const output = await build({ targets: platform.createTarget(targets, process.arch === 'arm64' ? Arch.arm64 : Arch.x64), publish: 'never', config: {
     appId: 'app.ri.desktop', productName: 'Ri', electronVersion: pkg.devDependencies.electron,
@@ -176,7 +183,7 @@ if (!headless) {
     files: [...SHELL_ENTRYPOINTS, 'package.json', '!node_modules/**/*'], asar: true,
     npmRebuild: false, nodeGypRebuild: false, forceCodeSigning: releaseBuild && process.platform === 'darwin',
     protocols: [{ name: 'Ri OAuth callback', schemes: ['ri'] }],
-    mac: { icon: path.join(repo, 'assets/brand/icons/icon.icns'), identity: releaseBuild ? process.env.CSC_NAME : null, signIgnore: ['Contents/Resources/server/', 'Contents/Resources/node/'], hardenedRuntime: true, notarize: releaseBuild,
+    mac: { icon: path.join(repo, 'assets/brand/icons/icon.icns'), identity: releaseBuild ? process.env.CSC_NAME : shareBuild ? '-' : null, signIgnore: ['Contents/Resources/server/', 'Contents/Resources/node/'], hardenedRuntime: true, notarize: releaseBuild,
       extendInfo: { NSMicrophoneUsageDescription: 'Ri uses the microphone when you record a voice message.', NSCameraUsageDescription: 'Ri uses the camera when you scan a pairing code.' } },
     linux: { executableName: 'ri', syncDesktopName: true, icon: path.join(repo, 'assets/brand/icons'), category: 'Office' },
     // The native updater obtains the eligible URL from signed Ri metadata.

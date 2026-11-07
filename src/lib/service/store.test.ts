@@ -85,13 +85,34 @@ it('deletes only releases nothing uses', async () => {
 });
 
 it('keeps the release an activation names until the launcher is done with it', () => {
-  const [kept, candidate, gone] = ['a', 'b', 'c'].map((name, index) => stageRelease(release(name, `0.${index + 1}.0`)).id);
-  stageRelease(release('a', '0.1.0'));
+  const [kept, candidate, gone] = [['a', '0.3.0'], ['b', '0.1.0'], ['c', '0.2.0']].map(([name, version]) => stageRelease(release(name!, version!)).id);
   const install = getRuntimeInstallDir();
   fs.mkdirSync(path.join(install, 'activation'), { recursive: true });
   fs.writeFileSync(path.join(install, 'active-release'), `${kept}\n`);
   fs.writeFileSync(path.join(install, 'activation/candidate'), `${candidate}\n`);
   expect(pruneReleases({ running: () => [] })).toEqual([gone]);
+});
+
+it('never points the ri command at an older release than the store holds', () => {
+  const newer = stageRelease(release('new', '0.3.0')).id;
+  stageRelease(release('old', '0.2.0'));
+  expect(latestRelease()).toBe(newer);
+  const same = stageRelease(release('rebuilt', '0.3.0')).id;
+  expect(latestRelease()).toBe(same);
+});
+
+it('takes the publisher from the first release that names one, and keeps it', () => {
+  const trusted = path.join(getRuntimeBaseDir(), 'release-policy.json');
+  stageRelease(release('checkout', '0.1.0'));
+  expect(fs.existsSync(trusted)).toBe(false);
+  const published = release('published', '0.2.0');
+  fs.writeFileSync(path.join(published, 'release-policy.json'), 'the first publisher');
+  stageRelease(published);
+  expect(fs.readFileSync(trusted, 'utf8')).toBe('the first publisher');
+  const other = release('other', '0.3.0');
+  fs.writeFileSync(path.join(other, 'release-policy.json'), 'someone else');
+  stageRelease(other);
+  expect(fs.readFileSync(trusted, 'utf8')).toBe('the first publisher');
 });
 
 it("stages a release from another store with this store's own cache, and nothing it doesn't list", () => {

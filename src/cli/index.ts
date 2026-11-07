@@ -1,7 +1,14 @@
 #!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+import { getAppRoot } from '@/lib/config/paths';
+import { displayRoot } from '@/lib/service/update-run';
+import { serviceStatus } from '@/lib/service/client';
+import { readNoticeMark, updateNotice, wantsUpdateNotice, writeNoticeMark } from '@/lib/service/update-notice';
 import { applyServiceEnvironment } from '@/lib/service/environment';
 import { beginActivity } from '@/lib/service/maintenance';
 import { Command } from 'commander';
+import { runtimeRepository } from '@/lib/releases/runtime-identity';
 import { registerAcpCommand } from './commands/acp';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { startCommand } from './commands/start';
@@ -38,12 +45,29 @@ import { registerHomeControlCommands } from './commands/home-control';
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
 // Fresh installs need nothing (the ensure* helpers create dirs on demand).
 
+/** One line, once, when an update is waiting or a Home just moved (section 7.1). */
+async function sayUpdateNotice(command: string) {
+  try {
+    if (!wantsUpdateNotice(command, !!process.stderr.isTTY)) return;
+    const update = (await serviceStatus())?.update;
+    const notice = update && updateNotice(update, displayRoot(getAppRoot()), readNoticeMark());
+    if (notice) { console.error(notice.line); writeNoticeMark(notice.mark); }
+  } catch { /* A notice never gets in a command's way. */ }
+}
+
+function cliVersion() {
+  // The package file, not the release's identity: that hashes the whole manifest,
+  // and every `ri` command an agent runs passes through here.
+  try { return JSON.parse(fs.readFileSync(path.join(runtimeRepository(), 'package.json'), 'utf8')).version as string; }
+  catch { return 'unknown'; }
+}
+
 const program = new Command();
 
 program
   .name(APP_SHORT_ID)
   .description(`${APP_NAME}: productivity for humans and agents`)
-  .version('0.0.1');
+  .version(cliVersion());
 
 let releaseCommand: (() => void) | undefined;
 program.hook('preAction', (_program, action) => {
@@ -72,7 +96,12 @@ program.hook('preAction', (_program, action) => {
     releaseCommand = beginActivity();
   }
 });
-program.hook('postAction', () => { releaseCommand?.(); releaseCommand = undefined; });
+program.hook('postAction', async (_program, action) => {
+  releaseCommand?.(); releaseCommand = undefined;
+  let top = action;
+  while (top.parent && top.parent !== program) top = top.parent;
+  await sayUpdateNotice(top.name());
+});
 
 program
   .command('start', { isDefault: true })

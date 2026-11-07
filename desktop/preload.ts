@@ -21,6 +21,8 @@ if (process.isMainFrame) {
     },
     ...(local ? {
       settings: (action: unknown) => ipcRenderer.invoke('desktop:settings', action),
+      computer: (action: unknown) => ipcRenderer.invoke('desktop:computer', action),
+      setupHarness: (request: unknown) => ipcRenderer.invoke('desktop:harness-setup', request),
     } : {}),
     onQuickCapture: (callback: () => void) => {
       const listener = () => callback();

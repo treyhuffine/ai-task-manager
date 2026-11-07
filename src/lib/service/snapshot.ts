@@ -135,6 +135,24 @@ function copyConfig(source: string, destination: string) {
 
 export interface SnapshotOptions { from: string; to: string; identity?: Identity; now?: number; margin?: number }
 
+/** Whether this disk makes instant copies, tried on a small file. */
+function clonesHere(root: string) {
+  const probe = path.join(/* turbopackIgnore: true */ root, `.clone-probe-${randomUUID()}`);
+  fs.writeFileSync(/* turbopackIgnore: true */ probe, 'x');
+  try { return cloneFile(probe, `${probe}-copy`); }
+  finally { for (const file of [probe, `${probe}-copy`]) fs.rmSync(/* turbopackIgnore: true */ file, { force: true }); }
+}
+
+/** Whether there's room for a snapshot, asked while the Home still serves, by the
+ * same measure `createSnapshot` uses once the server has stopped. */
+export function snapshotSpaceProblem(identity = serviceIdentity(), margin = SNAPSHOT_MARGIN_BYTES) {
+  const root = snapshotRoot(identity);
+  fs.mkdirSync(/* turbopackIgnore: true */ root, { recursive: true, mode: 0o700 });
+  const free = freeBytes(root);
+  const needed = clonesHere(root) ? margin : sizeOf(identity.database) + margin;
+  return free < needed ? `Not enough free disk space to update safely. The update needs ${gib(needed)} free and ${gib(free)} is.` : null;
+}
+
 /** Called only with the server stopped and the exclusive access lease held. */
 export async function createSnapshot(options: SnapshotOptions): Promise<string> {
   const identity = options.identity ?? serviceIdentity();

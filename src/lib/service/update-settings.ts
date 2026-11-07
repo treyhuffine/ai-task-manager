@@ -1,11 +1,12 @@
 import { z } from 'zod';
 
 /** Shared by the owner HTTP route and private controller. None of these
- * preferences can change the publisher, signing key, release URL or channel. */
+ * preferences can change the publisher, signing key or release URL. */
 export const UpdatePreferencesSchema = z.object({
-  automaticDownload: z.boolean().optional(),
+  auto: z.boolean().optional(),
   metered: z.boolean().optional(),
-}).strict().refine(value => value.automaticDownload !== undefined || value.metered !== undefined, 'Choose an update preference to change');
+  channel: z.enum(['stable', 'latest']).optional(),
+}).strict().refine(value => value.auto !== undefined || value.metered !== undefined || value.channel !== undefined, 'Choose an update preference to change');
 
 export const MaintenanceWindowSchema = z.object({
   hour: z.number().int().min(0).max(23),
@@ -35,4 +36,4 @@ export const UpdateActionSchema = z.object({
 export type UpdatePreferences = z.infer<typeof UpdatePreferencesSchema>;
 export type MaintenanceWindow = z.infer<typeof MaintenanceWindowSchema>;
 export type UpdateAction = z.infer<typeof UpdateActionSchema>;
-export interface ReleasePreferences { channel: 'stable' | 'beta'; automaticDownload: boolean; metered: boolean }
+export interface ReleasePreferences { channel: 'stable' | 'latest'; auto: boolean; metered: boolean }

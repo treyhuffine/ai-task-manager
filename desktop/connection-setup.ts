@@ -49,6 +49,8 @@ export interface ConnectionSetupStatus {
 }
 /** This credential is for Electron main only. It must never enter setup renderer state or logs. */
 export interface ConnectedViewerSession {
+  /** The app bridge versions this Home's pages can use, when it says. */
+  nativeBridge?: number[];
   homeUrl: string; homeId: string; homeName: string; deviceId: string | null; signInKey: string;
 }
 /** A pairing link's destination, verified, before anything is saved. */
@@ -246,7 +248,9 @@ export async function connectionSetup(raw: unknown, options: { development?: boo
     const localWorker = readWorkerConfig();
     const expectedDeviceId = connection.deviceId ?? (localWorker?.homeId === home.id ? localWorker.deviceId : null);
     if (expectedDeviceId && deviceId !== expectedDeviceId) throw new Error('This sign-in key belongs to a different device. Update the connection to your Ri with a pairing link for this computer before opening it.');
-    return { homeUrl: connection.homeUrl, homeId: home.id, homeName: home.name, deviceId, signInKey: connection.credential };
+    // A Home too old to say has bridge 1, and a slow answer here isn't a reason to refuse it.
+    const version = await jsonAtHome(connection, '/api/version').catch(() => null) as { nativeBridge?: number[] } | null;
+    return { homeUrl: connection.homeUrl, homeId: home.id, homeName: home.name, deviceId, signInKey: connection.credential, nativeBridge: version?.nativeBridge };
   }
   let release: () => void;
   try { release = exclusiveDatabaseAccess(); } catch { throw new Error('This installation is busy. Finish its current setup or stop its Ri before changing its role.'); }

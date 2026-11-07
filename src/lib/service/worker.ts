@@ -27,7 +27,8 @@ interface Snapshot { activity: string[]; state?: ServiceWorkerStatus['state'] }
 interface Reply { type: 'reply'; id: string; activity?: string[]; pending?: ServiceWorkerStatus['pending']; error?: string }
 interface Exit { reason: string; message?: string }
 export type WorkerChildMessage = Reply | { type: 'state'; state: { state: ServiceWorkerStatus['state']; error?: string; retryInMs?: number } }
-  | { type: 'activity'; activity: string[]; pending?: ServiceWorkerStatus['pending'] } | { type: 'exit'; exit: Exit };
+  | { type: 'activity'; activity: string[]; pending?: ServiceWorkerStatus['pending'] } | { type: 'exit'; exit: Exit }
+  | { type: 'home'; home: import('./follow-home').HomeRelease };
 
 function enrollmentIdentity(): string {
   const connection = readConnection();
@@ -59,7 +60,7 @@ export class ServiceWorker {
   private preference = readPreference(this.enrollment);
   private current: ServiceWorkerStatus = { state: this.preference.enabled ? 'starting' : this.preference.reason ? 'blocked' : 'stopped', enabled: this.preference.enabled, activity: [], reason: this.preference.reason, error: this.preference.error };
   private pending = new Map<string, { resolve: (value: Snapshot) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
-  constructor(private options: { repo: string; node: string; env?: NodeJS.ProcessEnv; spawn?: typeof fork; retryMs?: number; stopMs?: number; onChild?: (pid?: number) => void }) {}
+  constructor(private options: { repo: string; node: string; env?: NodeJS.ProcessEnv; spawn?: typeof fork; retryMs?: number; stopMs?: number; onHome?: (home: import('./follow-home').HomeRelease) => void; onChild?: (pid?: number) => void }) {}
 
   matchesEnrollment() { return enrollmentIdentity() === this.enrollment; }
   status(): ServiceWorkerStatus { return { ...this.current, activity: [...this.current.activity] }; }
@@ -84,6 +85,7 @@ export class ServiceWorker {
         this.current = { ...this.current, ...message.state, error: message.state.error, retryInMs: message.state.retryInMs, enabled: this.preference.enabled };
       } else if (message.type === 'activity') { this.current.activity = message.activity; this.current.pending = message.pending; }
       else if (message.type === 'exit') terminal = message.exit;
+      else if (message.type === 'home') this.options.onHome?.(message.home);
       else if (message.type === 'reply') {
         const waiter = this.pending.get(message.id);
         if (!waiter) return;

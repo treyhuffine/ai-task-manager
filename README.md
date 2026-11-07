@@ -33,7 +33,18 @@ The fuller product thinking lives in [`docs/prd.md`](docs/prd.md).
 - **Voice (optional):** Parakeet STT — git submodule at `modules/parakeet-stt`, runs as a Docker sidecar
 - **Package manager:** pnpm (required)
 
-## Quick start
+## Install
+
+On a Mac or Linux computer, once releases are published:
+
+```bash
+curl -fsSL https://github.com/<owner>/<repo>/releases/download/feed/install.sh | sh
+ri start
+```
+
+Or open the Mac app from its dmg and choose "Start a new Ri". Either way Ri keeps running by itself and updates itself when it's quiet. [docs/publishing.md](docs/publishing.md) covers making releases.
+
+## Quick start from source
 
 ```bash
 pnpm install
@@ -127,7 +138,7 @@ Invitations, **Sign in on another device**, and **Connect to My Ri** only displa
 
 For automation, `--no-open` prints the link without opening a browser or changing trust. `--no-start` keeps the provisioning-only operation. `--trust-local` explicitly allows certificate trust installation without the interactive question. The lower-level `service start`, `team setup-link` and `tls trust` commands remain available for administration. A local link opens only on the hosting computer until the team has a reachable HTTPS address.
 
-Closing Terminal and restarting the computer are different: automatic start at login requires a staged packaged runtime and `ri service install`, described in [Desktop and background service](docs/desktop.md). For foreground development or debugging, `RI_ROOT="$HOME/family-team" ri start --port 4300` remains available.
+A Home `ri start` creates keeps running after Terminal closes and comes back after a restart, because the operating system looks after it ([docs/always-on-spec.md](docs/always-on-spec.md)). For foreground development or debugging, `RI_ROOT="$HOME/family-team" ri start --port 4300` remains available.
 
 ## Two ways to run dev
 

@@ -238,7 +238,7 @@ async function superviseHome(opts: StartOptions, service: NonNullable<Awaited<Re
   const origin = readOrigin();
   log.info(pc.dim(origin.source === 'checkout'
     ? `To update, run \`${APP_SHORT_ID} update\`. It builds main from ${origin.checkout}.`
-    : origin.auto ? `Ri updates itself when it's idle. To turn that off: \`${APP_SHORT_ID} update --auto off\`` : `Automatic updates are off. To update: \`${APP_SHORT_ID} update\``));
+    : origin.auto ? `Ri updates itself when it's quiet. To turn that off: \`${APP_SHORT_ID} update --auto off\`` : `Automatic updates are off. To update: \`${APP_SHORT_ID} update\``));
   if (opts.open) await openBrowser(url);
   outro(opts.open ? 'Opened in browser' : `Open: ${url}`);
 }

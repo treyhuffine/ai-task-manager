@@ -62,6 +62,17 @@ it('hands a Home command to the release that Home runs, and keeps installation c
   expect(delegationTarget('agent', 'list_tasks')).toBeNull();
 });
 
+it('keeps what a release says about itself on that release, whatever a Home here runs', () => {
+  homeOn('home', '0.1.0');
+  stageRuntime(path.join(root, 'resources', '0.1.0'));
+  const resources = path.join(root, 'resources', '0.2.0');
+  writeRuntimeFixture(resources, { version: '0.2.0' });
+  const newest = stageRelease(resources);
+  vi.stubEnv('RI_RUNTIME_REPO', path.join(storeDirectory(), newest.id, 'server'));
+  expect(delegationTarget('service', 'status')).not.toBeNull();
+  for (const own of ['install-release', 'compatibility', 'manifest', 'verify', 'add-to-terminal']) expect(delegationTarget('service', own)).toBeNull();
+});
+
 it('never delegates from a checkout', () => {
   homeOn('user/ri', '0.1.0');
   process.env.RI_RUNTIME_REPO = path.join(root, 'checkout');

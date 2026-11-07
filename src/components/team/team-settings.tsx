@@ -20,6 +20,7 @@ import { NewAreaDialog } from './team-areas';
 import { ConnectAiSection } from './connect-ai';
 import { TeamAiSection } from './team-ai-settings';
 import { ConversationsSection } from '@/components/settings/sections/conversations-section';
+import { UpdatesSection } from '@/components/settings/sections/updates-section';
 import { useSpace } from '@/components/spaces/space-root';
 import { useAreas, useUpdateArea } from '@/hooks/use-areas';
 import { TeamAddressSetup } from './team-address-setup';
@@ -65,6 +66,7 @@ export function TeamSettings() {
       case 'ai': return <TeamAiSection />;
       case 'external-ai': return <ConnectAiSection />;
       case 'remote': return <TeamAddressSetup />;
+      case 'updates': return <UpdatesSection />;
     }
   };
 

@@ -29,6 +29,7 @@ import { ConversationsSection } from './sections/conversations-section';
 import { TeamsSection } from './sections/teams-section';
 import { RemotePreviewSection } from './sections/remote-preview-section';
 import { UpdatesSection } from './sections/updates-section';
+import { ThisComputerSection } from './sections/this-computer-section';
 import { ImportsSection } from './sections/imports-section';
 
 function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupChecklist }) {
@@ -57,6 +58,8 @@ function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupCheckli
       return <ImportsSection />;
     case 'updates':
       return <UpdatesSection />;
+    case 'this-computer':
+      return <ThisComputerSection />;
     case 'devices':
       return <DevicesSettingsSection />;
     case 'external-ai':

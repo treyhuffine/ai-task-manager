@@ -1,7 +1,42 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isBuiltin } from 'node:module';
 import ts from 'typescript';
+
+/** Nothing runs with source maps (no --enable-source-maps, and Next reads none in
+ * production), and they were a third of what a release downloaded. */
+export function pruneDependencySourceMaps(directory) {
+  let removed = 0;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) removed += pruneDependencySourceMaps(file);
+    else if (entry.isFile() && /(?:\.[cm]?js|\.css|\.d\.[cm]?ts)\.map$/.test(entry.name)) {
+      fs.unlinkSync(file);
+      removed++;
+    }
+  }
+  return removed;
+}
+
+/** pnpm's deploy leaves a second copy of every package under .pnpm/@, which no link
+ * points at. Refuses if one ever does, so a new pnpm can't quietly break a release. */
+export function removeUnusedPackageCopy(server) {
+  const copy = path.join(server, 'node_modules/.pnpm/@');
+  if (!fs.existsSync(copy)) return false;
+  const check = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory()) { if (file !== copy) check(file); continue; }
+      if (!entry.isSymbolicLink()) continue;
+      const target = path.resolve(directory, fs.readlinkSync(file));
+      if (target === copy || target.startsWith(`${copy}${path.sep}`)) throw new Error(`${path.relative(server, file)} links into node_modules/.pnpm/@, which packaging removes as unused. Check what this pnpm does with that folder.`);
+    }
+  };
+  check(server);
+  fs.rmSync(copy, { recursive: true, force: true });
+  return true;
+}
 
 /** Node's default copy resolves symlinks to the staging directory. Rebase them
  * before removing staging, then reject every link escaping the shipped tree. */
@@ -33,6 +68,15 @@ export function rebaseResourceLinks(root, sourceRoot) {
 }
 
 export const SHELL_ENTRYPOINTS = ['main.cjs', 'preload.cjs', 'maintenance-preload.cjs', 'companion-preload.cjs', 'local-preload.cjs', 'find-preload.cjs', 'team-navigation.cjs'];
+
+/** What the app's own part is: its bundles and its Electron. It leaves out the
+ * version in its package.json, so a release that only changed pages and server
+ * code has the same part, and nobody downloads the app for it. */
+export function appPartId(bundles, electronVersion, entries = SHELL_ENTRYPOINTS) {
+  const hash = createHash('sha256').update(electronVersion);
+  for (const name of entries) hash.update(name).update(fs.readFileSync(path.join(bundles, name)));
+  return hash.digest('hex');
+}
 
 /** New companion releases must contain role setup, supervised worker and the
  * offline appearance assets used before a Home or Next.js can start.

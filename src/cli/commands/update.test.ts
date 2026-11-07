@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock('@/lib/service/client', () => ({ serviceRequest: mocks.request }));
 import { registerUpdateCommand } from './update';
-const policy = { channel: 'stable', automaticDownload: true, metered: false };
+const policy = { channel: 'stable', auto: true, metered: false };
 beforeEach(() => { vi.clearAllMocks(); vi.spyOn(console, 'info').mockImplementation(() => {}); });
 afterEach(() => { vi.restoreAllMocks(); });
 function run(...args: string[]) {
@@ -30,7 +30,7 @@ it('changes only explicitly supplied preferences through the shared owner socket
 it('supports both explicit on and off settings', async () => {
   mocks.request.mockResolvedValue({ policy });
   await run('preferences', '--automatic-download', 'off', '--metered', 'off');
-  expect(mocks.request).toHaveBeenCalledExactlyOnceWith('/update/policy', 'PATCH', 3000, { automaticDownload: false, metered: false });
+  expect(mocks.request).toHaveBeenCalledExactlyOnceWith('/update/policy', 'PATCH', 3000, { auto: false, metered: false });
 });
 it.each([['--metered', 'maybe'], ['--automatic-download', 'false'], ['--feed', 'https://attacker.example']])('rejects invalid or unsupported options %j', async (flag, value) => {
   await expect(run('preferences', flag, value)).rejects.toThrow();

@@ -5,5 +5,5 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export function GET() {
   const peer = runtimePeerRelease();
-  return Response.json({ release: peer.release, apiProtocols: peer.compatibility.apiProtocols }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ release: peer.release, apiProtocols: peer.compatibility.apiProtocols, nativeBridge: peer.compatibility.nativeBridge }, { headers: { 'Cache-Control': 'no-store' } });
 }

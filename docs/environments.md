@@ -1,24 +1,29 @@
 # Environments: production and development
 
-How Ri runs on the Mac Mini as production, how development runs beside it without touching it, and how production's data is protected. Written 2026-10-06.
+How Ri runs on the Mac Mini as production, how development runs beside it without touching it, and how production's data is protected. Written 2026-10-06, production section rewritten 2026-11-07 after the move to releases.
 
 ## In one paragraph
 
-Production runs from this checkout, `~/ai-task-manager`, serving the real home `~/ri` on port 4224, and changes when you rebuild and restart it. Development runs from the same checkout with hot reload, serving its own home `~/ri-dev` on port 42241, full of a fictional person's data and marked **Dev** on every screen. Nothing in development reads or writes `~/ri`. Production's database changes only when production starts, and `~/ri` is backed up every night.
+Production runs a release built from this checkout, `~/ai-task-manager`, serving the real home `~/ri` on port 4224. launchd keeps it running, and it changes when you run `ri update`. Development runs from the same checkout with hot reload, serving its own home `~/ri-dev` on port 42241, full of a fictional person's data and marked **Dev** on every screen. Nothing in development reads or writes `~/ri`. Production's database changes only when production starts, and `~/ri` is backed up every night.
 
 ## Production on the Mac Mini
 
-Production isn't supervised yet: a crash, a hang or a restart leaves it down until someone starts it again. The code to change that is on `main`, and moving this computer to it is [the cutover in always-on-spec.md](always-on-spec.md#102-the-owners-mac-mini). This section describes today until that runs, and is rewritten then.
+launchd keeps all three Homes on this computer running through crashes, hangs and restarts ([always-on-spec.md](always-on-spec.md)). The move happened 2026-11-06, on a release built from `d281d5ad`.
 
 | | |
 | --- | --- |
-| Code | this checkout (`pnpm build` to rebuild the app) |
-| Home | `~/ri` (database, config, attachments, worktrees) |
-| Address | `http://localhost:4224`, and the Beamd tunnel the home is configured with |
-| Start | `pnpm cli:dev start` in a terminal. Ctrl-C stops it. |
-| Pick up changes | `pnpm build`, then restart |
+| Code | a release under `~/Library/Application Support/Ri/runtime/releases/`, built from this checkout |
+| Homes | `~/ri` (personal), `~/ri-team-huffine`, `~/ri-ballcoach` |
+| Addresses | `http://localhost:4224`, `https://localhost:42242`, `https://localhost:62982`, and the Beamd tunnel each is configured with |
+| Start and stop | `ri start` and `ri stop`, with `--root <folder>` for a team. launchd starts them at login |
+| Pick up changes | `ri update`. It builds `main` once and switches every Home, waiting for running chats (`--now` doesn't wait) |
+| Look at it | `ri status`, `ri logs`, `ri doctor` |
 
-Run it from the CLI, not the desktop app. The Mini's job is to be the always-on home, a server that keeps running with no window. The desktop app's own features (menu bar, global Quick Capture, native notifications) are for the computer you sit at. The packaged desktop app and headless runtime (docs/desktop.md) can take over later, once adopting an existing home is productized.
+`ri` here means `~/.local/bin/ri`, the launcher. It has to come before `/usr/bin` on the PATH, because macOS ships Ruby's own `ri` there, and `ri doctor` says which one a terminal finds. `personal/ri-homes.sh` is from before this move. Don't use it.
+
+Automatic updates apply to published releases. A checkout only builds when asked, so nothing on this computer changes by itself until it follows a published feed (`ri update --from published`).
+
+Run it from the CLI, not the desktop app. The Mini's job is to be the always-on home, a server that keeps running with no window. The desktop app's own features (menu bar, global Quick Capture, native notifications) are for the computer you sit at. The packaged desktop app can attach to these Homes if it's ever wanted here, plain HTTP included.
 
 ### The database changes only when production starts
 
@@ -30,7 +35,7 @@ A brand-new database is still set up wherever it's opened (tests, a fresh home, 
 
 The same goes for the rest of the setup (search tables, triggers, backfills): only a starting server does it. Any other process joins the home as its server left it, loading `sqlite-vec` and checking the history read-only, so it never takes the write lock just to open. Before, an agent's `ri` command that opened the database while the server was writing waited about 5 seconds and then failed with "database is locked". Now it opens in a millisecond (measured on a copy of the production database). The CLI also reads migrations from its own install now, not from the shell's working folder, so `ri` works from any folder and never picks up a worktree's draft.
 
-What can still change production before a restart: rebuilding the app (`pnpm build`) replaces the files the running server serves, so pages can misbehave until you restart.
+Rebuilding the checkout (`pnpm build`) no longer touches production at all. A running Home serves its own release's files, and only `ri update` moves it.
 
 Build route types stay with their output folder. The root `tsconfig.json` includes
 only `.next` route types. Desktop and smoke builds use their existing dedicated

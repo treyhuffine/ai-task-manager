@@ -14,7 +14,7 @@ import type { Origin } from './origin';
 import { releaseCommit, type buildRelease, type selectCommit } from './source-build';
 import type { installCommandLauncher } from './runtime';
 import type { ServiceStatus } from './client';
-import type { RollbackStatus, UpdateRecord } from './update';
+import type { UpdateRecord } from './update';
 
 type Identity = NonNullable<InstalledHome['identity']>;
 export type HomeStatus = Omit<ServiceStatus, 'update'> & { update?: UpdateRecord & { configured?: boolean; busy?: boolean } };
@@ -119,12 +119,24 @@ async function publishedTarget(home: InstalledHome & { identity: Identity }, dep
   const status = await client.status();
   if (!status?.update?.configured) return null;
   await client.request('/update', 'POST', 3000, { action: 'check' });
+  // Someone asking gets one more try at what failed before they asked.
+  let retried = false;
+  let moved = -1;
+  // Ten minutes without progress. A slow connection is fine, however long it takes.
   for (let tries = 0; tries < 600; tries++) {
     const update = (await client.status())?.update;
+    if (update && update.bytes !== moved) { moved = update.bytes ?? -1; tries = 0; }
     if (update && !update.busy) {
-      if (update.phase === 'available') { await client.request('/update', 'POST', 3000, { action: 'download' }); continue; }
+      if (update.phase === 'available' || (update.phase === 'failed' && !retried)) {
+        retried = update.phase === 'failed' || retried;
+        await client.request('/update', 'POST', 3000, { action: 'download' });
+        await deps.sleep(1000);
+        continue;
+      }
       if (update.release && ['ready', 'waiting'].includes(update.phase)) return { id: update.release.runtime.id, label: update.release.version };
-      if (update.phase === 'idle') return status.release ? { id: status.release.release.build, label: status.release.release.version } : null;
+      // Not "up to date": the check that was asked for didn't work.
+      if ((update.phase === 'idle' || update.phase === 'committed') && update.error) throw new Error(update.error);
+      if (update.phase === 'idle' || update.phase === 'committed') return status.release ? { id: status.release.release.build, label: status.release.release.version } : null;
       if (update.phase === 'failed') throw new Error(update.error ?? 'The download failed');
     }
     await deps.sleep(1000);
@@ -178,23 +190,4 @@ export async function runUpdate(options: UpdateRunOptions, deps: UpdateRunDeps):
     else if (outcome.result === 'failed') deps.say(`${root}: update failed. ${outcome.reason}`);
   }
   return outcomes;
-}
-
-/** What `ri update --rollback` asks before it goes back one release. */
-export function describeRollback(root: string, state: RollbackStatus) {
-  if (!state.available) return state.reason ?? 'Rollback is not available.';
-  const changes = state.changes;
-  const lost = changes ? [
-    changes.messages && `${changes.messages} chat message${changes.messages === 1 ? '' : 's'}`,
-    changes.chats && `${changes.chats} chat${changes.chats === 1 ? '' : 's'} changed`,
-    changes.tasks && `${changes.tasks} task${changes.tasks === 1 ? '' : 's'} changed`,
-    changes.notes && `${changes.notes} note${changes.notes === 1 ? '' : 's'} changed`,
-  ].filter(Boolean) : [];
-  return [
-    `Roll ${displayRoot(root)} back to the version it ran before the update at ${new Date(state.createdAt!).toLocaleString()}?`,
-    lost.length ? `Everything written since then would be lost: ${lost.join(', ')}.` : 'Nothing has been written since then.',
-    'Work the newer version already did, such as a message it sent, may happen again, because the restored records no longer show it.',
-    'Any chat still running ends when it restarts.',
-    `Rollback is possible until ${new Date(state.expiresAt!).toLocaleString()}.`,
-  ].join('\n');
 }

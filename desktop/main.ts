@@ -5,14 +5,15 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { createInterface } from 'node:readline';
 import { APP_NAME, PAIRING_TOKEN_FRAGMENT_KEY } from '../src/constants/app';
 import { getConfigDir, getProductionAppRoot } from '../src/lib/config/paths';
 import { demoEnvironment, demoRoot, type BackendMessage, type BackendReady } from './config';
 import { agentInstallUrl, certificateDecision, desktopRequestHeaders, externalWebUrl, sameOrigin } from './trust';
-import { installTerminalCommand, removeTerminalCommand, type CliInstallation } from './cli-install';
-import { updateDesktop } from './shell-update';
+import { removeTerminalCommand, type CliInstallation } from './cli-install';
+import { downloadDesktopUpdateInBackground, relaunchWithHome, updateDesktop } from './shell-update';
+import { HarnessToolSetup } from './harness-tools';
+import type { DesktopComputerStatus } from '../src/lib/client/desktop';
 import { parseDeepLink, resultLocation, watchOAuthResults } from './oauth-client';
 import { servicePaths } from '../src/lib/service/paths';
 import { serviceRequest, serviceStatus, type ServiceStatus } from '../src/lib/service/client';
@@ -121,6 +122,8 @@ let startupTimer: ReturnType<typeof setTimeout> | undefined;
 let appOrigin: string | undefined;
 let appToken: string | undefined;
 let localViewer = false;
+// A relaunch into a chosen installation carries this across (switchInstallation).
+let keepNewHomeRunning = process.argv.includes('--ri-keep-running');
 const viewerTransitions = new ViewerTransitions<BackendReady>();
 let localService: ServiceStatus | undefined;
 let installedRuntime: BackendReady['runtime'];
@@ -297,17 +300,24 @@ async function canCoverViewer(): Promise<boolean> {
   } finally { backgroundPending = false; }
 }
 
+function quitForAppUpdate() {
+  quitting = true; finished = true; oauthAbort.abort(); notifications?.stop(); notificationAbort.abort();
+  activity?.stop(); captureShortcut?.stop();
+  tray?.destroy(); tray = undefined;
+  if (backend?.connected) backend.send({ type: 'stop' });
+}
+
 async function checkDesktopUpdate() {
   if (!window || quitting || updatingShell) return;
   updatingShell = true;
   showAppWindow();
   try {
-    await updateDesktop(dialogWindow(), prepareClose, () => {
-      quitting = true; finished = true; oauthAbort.abort(); notifications?.stop(); notificationAbort.abort();
-      activity?.stop(); captureShortcut?.stop();
-      tray?.destroy(); tray = undefined;
-      if (backend?.connected) backend.send({ type: 'stop' });
-    });
+    // The Home's own update shows in its Settings, in this same window.
+    if (localViewer && appOrigin) {
+      await serviceRequest('/update', 'POST', 3000, { action: 'check' }).catch(() => {});
+      void navigateSafely(`${appOrigin}/?settings=updates`);
+    }
+    await updateDesktop(dialogWindow(), prepareClose, quitForAppUpdate);
   } finally { updatingShell = false; }
 }
 
@@ -380,7 +390,7 @@ async function retryConnection() {
   return {};
 }
 
-async function switchInstallation(value?: unknown) {
+async function switchInstallation(value?: unknown, keepRunning = false) {
   const inspected = value === undefined ? undefined : await inspectInstallation(value);
   if (inspected && !inspected.canUse) throw new Error(inspected.reason ?? 'This installation is not ready.');
   const identity = inspected?.identity ?? localInstallation({ root: defaultDesktopRoot });
@@ -393,8 +403,8 @@ async function switchInstallation(value?: unknown) {
     if (inspected && !(await inspectInstallation(inspected.identity)).canUse) throw new Error('The installation changed. Verify it again before switching.');
     if (inspected) saveInstallation(installationFile, identity);
     else fs.rmSync(installationFile, { force: true });
-    const args = process.argv.slice(1).filter(arg => !['--ri-use-saved-installation', '--ri-default-installation'].includes(arg));
-    app.relaunch({ args: [...args, inspected ? '--ri-use-saved-installation' : '--ri-default-installation'] });
+    const args = process.argv.slice(1).filter(arg => !['--ri-use-saved-installation', '--ri-default-installation', '--ri-keep-running'].includes(arg));
+    app.relaunch({ args: [...args, inspected ? '--ri-use-saved-installation' : '--ri-default-installation', ...(keepRunning ? ['--ri-keep-running'] : [])] });
     await quit(true);
   } catch (error) { if (!quitting) window?.webContents.send('desktop:resume'); throw error; }
   return {};
@@ -595,10 +605,12 @@ const companion = companionWindow(async (action, value) => {
     discovery = undefined;
     const detected = await detectedInstallation();
     if (!detected?.canUse) throw new Error(detected?.reason ?? 'The existing Ri is no longer available. Open Advanced settings to choose it.');
-    return switchInstallation({ root: detected.root });
+    return switchInstallation({ root: detected.root }, true);
   }
   if (action === 'create-home') {
     await connectionRequest({ action: 'create-home' });
+    // Creating a Home keeps it running, with no separate step (section 4.2).
+    keepNewHomeRunning = true;
     await refreshRole();
     return {};
   }
@@ -672,6 +684,7 @@ const companion = companionWindow(async (action, value) => {
     return {};
   }
   if (action === 'return-to-app') { if (viewerTransitions.current) showAppWindow(); return {}; }
+  if (action === 'update-app') { await checkDesktopUpdate(); return {}; }
   if (action === 'open') {
     if (connectionNeedsRefresh) { await refreshRole(); return {}; }
     if (connecting) {
@@ -701,28 +714,48 @@ const companion = companionWindow(async (action, value) => {
   throw new Error('Unknown companion action.');
 }, localSurface);
 
-async function manageTerminalCommand(remove = false) {
+/** The `ri-desktop` command an earlier app wrote, which `ri` replaces (section 4.2). */
+function removeOldTerminalCommand() {
   const record = path.join(profile, 'terminal-command.json');
-  try {
-    if (remove) {
-      if (!fs.existsSync(record)) throw new Error('No terminal command was installed by this app.');
-      const installed = JSON.parse(fs.readFileSync(record, 'utf8')) as { target: string; options: CliInstallation };
-      removeTerminalCommand(installed.target, installed.options);
-      fs.unlinkSync(record);
-      await dialog.showMessageBox({ message: 'Terminal command removed', detail: installed.target });
-      return;
-    }
-    const options = cliInstallation();
-    if (fs.existsSync(record)) throw new Error('Remove the existing desktop terminal command before installing another.');
-    const selected = await dialog.showSaveDialog({ title: 'Install Ri terminal command', defaultPath: path.join(os.homedir(), '.local/bin/ri-desktop'), buttonLabel: 'Install command', nameFieldLabel: 'Command name' });
-    if (selected.canceled || !selected.filePath) return;
-    installTerminalCommand(selected.filePath, options);
-    fs.writeFileSync(record, JSON.stringify({ target: selected.filePath, options }), { mode: 0o600 });
-    await dialog.showMessageBox({ message: 'Terminal command installed', detail: `${selected.filePath}\n\nAdd ${path.dirname(selected.filePath)} to your shell PATH if it is not already there.` });
-  } catch (error) { dialog.showErrorBox('Terminal command', error instanceof Error ? error.message : String(error)); }
+  if (!fs.existsSync(record)) return;
+  const installed = JSON.parse(fs.readFileSync(record, 'utf8')) as { target: string; options: CliInstallation };
+  removeTerminalCommand(installed.target, installed.options);
+  fs.unlinkSync(record);
 }
 
-async function serviceCommand(action: 'install' | 'uninstall' | 'start' | 'stop' | 'status') {
+const harnessTools = new HarnessToolSetup(process.env.RI_DESKTOP_NODE ?? process.execPath);
+/** The switch needs a release to supervise, and an OS job to do it with. */
+const canKeepRunning = () => process.platform !== 'win32' && !!installedRuntime?.launcher;
+/** Change login supervision through this installation's own CLI. */
+function runServiceCli(action: 'install' | 'uninstall' | 'start' | 'stop' | 'add-to-terminal') {
+  const options = cliInstallation();
+  if (action === 'install' && !options.launcher) throw new Error('Keeping Ri running needs an installed release.');
+  const command = options.launcher ?? options.node;
+  const args = options.launcher ? ['cli', 'service', action] : [options.cli, 'service', action];
+  return new Promise<string>((resolve, reject) => execFile(command, args, { env, timeout: 240_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => error ? reject(new Error(stderr || error.message)) : resolve(stdout)));
+}
+function computerStatus(message?: string): DesktopComputerStatus {
+  return { appVersion: app.getVersion(), keepRunning: hasLoginSupervision(), canKeepRunning: canKeepRunning(), ...(message ? { message } : {}) };
+}
+async function changeComputer(raw: unknown): Promise<DesktopComputerStatus> {
+  const action = raw as { type?: string; on?: unknown } | null;
+  if (action?.type === 'status') return computerStatus();
+  if (action?.type === 'add-to-terminal') {
+    removeOldTerminalCommand();
+    // In the separate Node runtime: this code reaches the database driver, which the shell can't load.
+    return computerStatus((await runServiceCli('add-to-terminal')).trim());
+  }
+  if (action?.type === 'keep-running' && typeof action.on === 'boolean') {
+    if (!canKeepRunning()) throw new Error('Ri can only keep running on a Mac or Linux computer with a release installed.');
+    if (action.on) await runServiceCli('install');
+    // Turning it off removes the OS job and stops the Home with it, so start it again.
+    else { await runServiceCli('uninstall'); await runServiceCli('start'); }
+    return computerStatus(action.on ? 'Ri now keeps running on this computer, after restarts too.' : 'Ri runs until this computer restarts or it stops. Nothing brings it back by itself.');
+  }
+  throw new Error('Unknown action');
+}
+
+async function serviceCommand(action: 'start' | 'stop' | 'status') {
   if (!window || quitting) return;
   showAppWindow();
   if (action !== 'status' && !(await prepareClose())) return;
@@ -733,12 +766,8 @@ async function serviceCommand(action: 'install' | 'uninstall' | 'start' | 'stop'
       if (result.response === 1) clipboard.writeText(output);
       return;
     }
-    const options = cliInstallation();
-    if (action === 'install' && !options.launcher) throw new Error('Start at login requires an explicitly staged managed runtime. Use this installation’s existing CLI to adopt one first.');
-    const command = options.launcher ?? options.node;
-    const args = options.launcher ? ['cli', 'service', action] : [options.cli, 'service', action];
-    const output = await new Promise<string>((resolve, reject) => execFile(command, args, { env, timeout: 240_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => error ? reject(new Error(stderr || error.message)) : resolve(stdout)));
-    await dialog.showMessageBox(dialogWindow(), { message: action === 'install' ? 'Start at login enabled' : action === 'uninstall' ? 'Start at login disabled' : action === 'start' ? 'Service started' : 'Service stopped', detail: output.trim() });
+    const output = await runServiceCli(action);
+    await dialog.showMessageBox(dialogWindow(), { message: action === 'start' ? 'Service started' : 'Service stopped', detail: output.trim() });
   } catch (error) { dialog.showErrorBox('Ri service', error instanceof Error ? error.message : String(error)); }
   finally { window?.webContents.send('desktop:resume'); }
 }
@@ -901,6 +930,16 @@ function publishViewerIdentity(ready: BackendReady | undefined) {
 }
 
 async function openApp(ready: BackendReady) {
+  // Handing the service to the OS replaces its controller, and the backend then
+  // reports the new one here, so the window loads once, under the OS already.
+  if (keepNewHomeRunning && isLocalViewer(ready)) {
+    keepNewHomeRunning = false;
+    installedRuntime = ready.runtime;
+    if (canKeepRunning() && !hasLoginSupervision()) {
+      try { await runServiceCli('install'); return; }
+      catch (error) { console.warn('[desktop] Could not keep the new Home running:', error instanceof Error ? error.message : 'Failed'); }
+    }
+  }
   let revealViewer = false;
   await viewerTransitions.run(ready, {
     prepare: async previous => {
@@ -1071,6 +1110,11 @@ async function start() {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) throw new Error('Untrusted window');
     return changeDesktopPreferences(raw);
   });
+  const assertLocalFrame = (event: Electron.IpcMainInvokeEvent) => {
+    if (!localViewer || event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) throw new Error('Use Ri on this computer for this.');
+  };
+  ipcMain.handle('desktop:computer', (event, raw: unknown) => { assertLocalFrame(event); return changeComputer(raw); });
+  ipcMain.handle('desktop:harness-setup', (event, raw: unknown) => { assertLocalFrame(event); return harnessTools.run(raw); });
   ipcMain.handle('desktop:connection', async (event, action: unknown) => {
     if (!trustedViewerFrame({ senderId: event.sender.id, windowId: window?.webContents.id,
       mainFrame: event.senderFrame === window?.webContents.mainFrame, url: event.senderFrame?.url ?? '', origin: appOrigin })) throw new Error('Untrusted window');
@@ -1148,7 +1192,7 @@ async function start() {
   refreshApplicationMenu = () => Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: APP_NAME, submenu: [
       ...(process.platform === 'darwin' ? [
-        { role: 'about' as const }, { type: 'separator' as const }, { role: 'services' as const },
+        { role: 'about' as const }, commands.update, { type: 'separator' as const }, { role: 'services' as const },
         { type: 'separator' as const }, { role: 'hide' as const }, { role: 'hideOthers' as const }, { role: 'unhide' as const }, { type: 'separator' as const },
       ] : []),
       { ...commands.quit, accelerator: 'CmdOrCtrl+Q' },
@@ -1168,19 +1212,17 @@ async function start() {
     ] },
     { label: 'Tools', submenu: [
       commands.capture, { id: 'ri-activity-menu', label: 'Activity', submenu: activityMenuItems(activityState, openActivity) }, commands.preferences,
-      commands.notifications, commands.update, commands.status, commands.recovery,
+      commands.notifications, ...(process.platform === 'darwin' ? [] : [commands.update]), commands.status, commands.recovery,
       ...(localService?.role === 'worker' ? [{ label: localService.worker?.enabled === false ? 'Resume Local Execution' : 'Stop Local Execution', click: () => void localWorkerCommand(localService?.worker?.enabled === false ? 'resume' : 'stop').catch(error => dialog.showErrorBox('Local execution', error.message)) }] : []),
-      { label: 'Start at Login…', click: () => void serviceCommand('install') },
-      { label: 'Disable Start at Login…', click: () => void serviceCommand('uninstall') },
       { label: 'Start This Device’s Service', click: () => void serviceCommand('start') },
       { label: 'Stop This Device’s Service', click: () => void serviceCommand('stop') },
-      { type: 'separator' },
-      { label: 'Install Terminal Command…', click: () => void manageTerminalCommand() },
-      { label: 'Remove Terminal Command…', click: () => void manageTerminalCommand(true) },
     ] },
   ]));
   refreshApplicationMenu();
   updateActivity(activityState);
+  const checkAppUpdate = () => { if (!quitting) void downloadDesktopUpdateInBackground(); };
+  const firstAppCheck = setTimeout(checkAppUpdate, 5 * 60_000); firstAppCheck.unref();
+  const appChecks = setInterval(checkAppUpdate, 6 * 60 * 60_000); appChecks.unref();
   if (!backgroundLaunch || !tray || process.platform !== 'darwin') {
     showWindow();
     if (backgroundLaunch && process.platform !== 'darwin') backgroundWindow(window, process.platform, !!tray);
@@ -1219,7 +1261,9 @@ function startConnection() {
     }
     if (message.type === 'status') {
       const changed = JSON.stringify(localService) !== JSON.stringify(message.status);
+      const moved = !!localService && !!message.status && localService.version !== message.status.version;
       localService = message.status;
+      if (moved && localViewer && !updatingShell) void relaunchWithHome(message.status!.version, prepareClose, quitForAppUpdate);
       if (changed) { refreshApplicationMenu?.(); if (tray && !tray.isDestroyed() && menuActions) updateDesktopTray(tray, menuActions, activityState, openActivity, localDeviceMenu(localService, action => void localWorkerCommand(action).catch(error => dialog.showErrorBox('Local execution', error.message)))); }
     }
     if (message.type === 'certificate' && localViewer && window && message.origin === appOrigin) window.webContents.session.setCertificateVerifyProc((request, callback) => callback(certificateDecision(request.hostname, request.certificate.data, message)));

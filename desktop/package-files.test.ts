@@ -2,7 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks } from './package-files.mjs';
+import { appPartId, assertCompanionPackage, assertShellDependencies, pruneDependencySourceMaps, removeUnusedPackageCopy, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks } from './package-files.mjs';
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
@@ -121,4 +121,47 @@ it('refuses malformed, empty or symlinked shell bundles', () => {
 it('ships every real BrowserWindow preload, including Team navigation', () => {
   expect(() => assertWindowPreloadsShipped(path.resolve('desktop'))).not.toThrow();
   expect(() => assertWindowPreloadsShipped(path.resolve('desktop'), SHELL_ENTRYPOINTS.filter(name => name !== 'team-navigation.cjs'))).toThrow('team-window.ts: team-navigation.cjs');
+});
+
+it('names the app part by its bundles and Electron, whatever the version says', () => {
+  const bundles = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-app-part-'));
+  try {
+    const entries = ['main.cjs', 'preload.cjs'];
+    for (const name of entries) fs.writeFileSync(path.join(bundles, name), `// ${name}`);
+    fs.writeFileSync(path.join(bundles, 'package.json'), '{"version":"0.1.0"}');
+    const first = appPartId(bundles, '44.4.5', entries);
+    fs.writeFileSync(path.join(bundles, 'package.json'), '{"version":"0.2.0"}');
+    fs.writeFileSync(path.join(bundles, 'backend.cjs'), 'not part of the app');
+    expect(appPartId(bundles, '44.4.5', entries)).toBe(first);
+    expect(appPartId(bundles, '44.4.6', entries)).not.toBe(first);
+    fs.writeFileSync(path.join(bundles, 'main.cjs'), 'changed');
+    expect(appPartId(bundles, '44.4.5', entries)).not.toBe(first);
+  } finally { fs.rmSync(bundles, { recursive: true, force: true }); }
+});
+
+it('leaves out what no release uses, and refuses if something turns out to use it', () => {
+  const server = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-prune-'));
+  try {
+    const copy = path.join(server, 'node_modules/.pnpm/@/next/1.0.0/node_modules/next');
+    const real = path.join(server, 'node_modules/.pnpm/next@1.0.0/node_modules/next');
+    for (const folder of [copy, real]) { fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(path.join(folder, 'index.js'), ''); }
+    fs.writeFileSync(path.join(real, 'index.js.map'), '{}');
+    fs.writeFileSync(path.join(real, 'types.d.ts.map'), '{}');
+    fs.writeFileSync(path.join(real, 'world.map'), 'a data file, not a source map');
+    fs.symlinkSync('.pnpm/next@1.0.0/node_modules/next', path.join(server, 'node_modules/next'));
+
+    const link = path.join(server, 'node_modules/next-copy');
+    fs.symlinkSync('.pnpm/@/next/1.0.0/node_modules/next', link);
+    expect(() => removeUnusedPackageCopy(server)).toThrow('links into node_modules/.pnpm/@');
+    expect(fs.existsSync(copy)).toBe(true);
+    fs.unlinkSync(link);
+
+    expect(removeUnusedPackageCopy(server)).toBe(true);
+    expect(fs.existsSync(path.join(server, 'node_modules/.pnpm/@'))).toBe(false);
+    expect(fs.existsSync(path.join(server, 'node_modules/next/index.js'))).toBe(true);
+    expect(removeUnusedPackageCopy(server)).toBe(false);
+
+    expect(pruneDependencySourceMaps(path.join(server, 'node_modules'))).toBe(2);
+    expect(fs.readdirSync(real).sort()).toEqual(['index.js', 'world.map']);
+  } finally { fs.rmSync(server, { recursive: true, force: true }); }
 });

@@ -21,6 +21,12 @@ function isTeam(home: RecordedHome) {
   try { return !!readTeamIntent(home.identity.config); } catch { return false; }
 }
 
+/** On a computer that only runs teams, a team's owner can use its updates (7.1). */
+export function isDefaultHomeTeam() {
+  const home = defaultHome();
+  return !!home && isTeam(home);
+}
+
 /** The Home a command about one Home acts on when it isn't told. */
 export function defaultHome(homes: InstalledHome[] = listHomes()): RecordedHome | null {
   const known = present(homes);

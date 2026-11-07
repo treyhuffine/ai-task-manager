@@ -2,14 +2,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRuntimeManifest, stageRuntime, installedRuntime, getRuntimeInstallDir } from './runtime';
 import { readMaintenance, acquireDatabaseAccess, beginActivity } from './maintenance';
 import { createCheckpoint } from './checkpoint';
 import { UpdateCoordinator, type UpdateBackend, type UpdateRecord } from './update';
 import type { Release } from './release';
 const mocked = vi.hoisted(() => ({ check: vi.fn(), policy: vi.fn() }));
-vi.mock('./release', () => ({ checkRelease: mocked.check, releasePolicy: mocked.policy, downloadRelease: vi.fn() }));
+vi.mock('./release', () => ({ checkRelease: mocked.check, checkReleaseVersion: mocked.check, releasePolicy: mocked.policy, downloadRelease: vi.fn() }));
 let directory: string;
 let root: string;
 let prior: string;
@@ -67,8 +67,8 @@ it('lets an explicit immediate request replace a schedule and Later revoke appro
   const updater = coordinator();
   updater.approve({ hour: 3, durationHours: 2, timeZone: 'UTC' });
   updater.approve();
-  expect(coordinator().status()).toMatchObject({ approved: true });
-  expect(coordinator().status().window).toBeUndefined();
+  // Ahead of the window this once. It still applies to the next release.
+  expect(coordinator().status()).toMatchObject({ approved: true, now: true, window: { hour: 3 } });
   updater.later();
   expect(coordinator().status()).toMatchObject({ phase: 'ready', approved: false });
 });
@@ -303,3 +303,100 @@ it('holds the worker journal writer lock through checkpoint and validation and p
   expect(fs.readFileSync(journal, 'utf8')).toBe(pending);
   expect(fs.existsSync(database)).toBe(false);
 });
+
+describe('what a check of the feed leaves alone', () => {
+  const newer = () => ({ ...release, runtime: { ...release.runtime, id: 'f'.repeat(64) }, version: '0.3.0' }) as Release;
+  it('keeps why an update failed readable, and the release it failed on', async () => {
+    save({ phase: 'failed', error: "The update to 0.2.0 didn't start, so Ri went back.", rejected: candidate });
+    mocked.check.mockResolvedValue(release);
+    const updater = coordinator();
+    await updater.check();
+    expect(updater.status()).toMatchObject({ phase: 'failed', error: "The update to 0.2.0 didn't start, so Ri went back.", rejected: candidate });
+    // A newer one is a new chance.
+    mocked.check.mockResolvedValue(newer());
+    await updater.check();
+    expect(updater.status().phase).toBe('available');
+    expect(updater.status().error).toBeUndefined();
+  });
+  it('keeps a finished update on record, so the CLI can say it happened', async () => {
+    save({ phase: 'committed', committedAt: new Date().toISOString() });
+    mocked.check.mockResolvedValue(release);
+    const updater = coordinator();
+    await updater.check();
+    expect(updater.status().phase).toBe('committed');
+  });
+  it('never offers an older release, whatever the channel says', async () => {
+    fs.rmSync(path.join(directory, 'update.json'), { force: true });
+    fs.writeFileSync(path.join(directory, 'active-release'), `${candidate}\n`);
+    mocked.check.mockResolvedValue({ ...release, runtime: { ...release.runtime, id: prior }, version: '0.1.0' } as Release);
+    const updater = coordinator();
+    await updater.check();
+    expect(updater.status().phase).toBe('idle');
+  });
+  it('leaves a rolled back release where it is, and says why it stayed', async () => {
+    save({ phase: 'idle', release: undefined, rejected: candidate, reason: 'Rolled back from 0.2.0.' });
+    fs.writeFileSync(path.join(directory, 'active-release'), `${prior}\n`);
+    mocked.check.mockResolvedValue(release);
+    const updater = coordinator();
+    await updater.check();
+    expect(updater.status()).toMatchObject({ phase: 'available', reason: 'Rolled back from 0.2.0.', rejected: candidate });
+  });
+});
+
+describe('a check that fails', () => {
+  it('stops showing once the next one works', async () => {
+    save({ phase: 'committed', committedAt: new Date().toISOString() });
+    const updater = coordinator();
+    mocked.check.mockRejectedValue(new Error('fetch failed'));
+    await updater.check().catch(() => {});
+    expect(updater.status().error).toBe('fetch failed');
+    mocked.check.mockResolvedValue(release);
+    await updater.check();
+    expect(updater.status().error).toBeUndefined();
+    expect(updater.status().phase).toBe('committed');
+  });
+  it('shows nothing when no one asked', async () => {
+    save({ phase: 'committed', committedAt: new Date().toISOString() });
+    const updater = coordinator();
+    mocked.check.mockRejectedValue(new Error('fetch failed'));
+    await updater.check(true).catch(() => {});
+    expect(updater.status().error).toBeUndefined();
+  });
+});
+
+describe('Update now before the release has downloaded', () => {
+  it('fetches it, then goes ahead', async () => {
+    save({ phase: 'available' });
+    fs.rmSync(path.join(root, 'installed/releases', candidate), { recursive: true, force: true });
+    mocked.check.mockResolvedValue(release);
+    let finish!: () => void;
+    backend.download = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    const updater = coordinator();
+    updater.approve();
+    expect(updater.status()).toMatchObject({ phase: 'available', approved: true, now: true });
+    await vi.waitFor(() => expect(backend.download).toHaveBeenCalled());
+    expect(updater.status().phase).toBe('downloading');
+    finish();
+    await vi.waitFor(() => expect(updater.status().phase).toBe('waiting'));
+    expect(updater.status()).toMatchObject({ approved: true });
+  });
+  it('gives up the approval if the release can\'t even be looked up', async () => {
+    save({ phase: 'failed', error: 'offline' });
+    fs.rmSync(path.join(root, 'installed/releases', candidate), { recursive: true, force: true });
+    mocked.check.mockRejectedValue(new Error('still offline'));
+    const updater = coordinator();
+    updater.approve();
+    await vi.waitFor(() => expect(updater.status()).toMatchObject({ phase: 'failed', approved: false, error: 'still offline' }));
+    expect(updater.status().now).toBeUndefined();
+  });
+  it('gives up the approval if the download fails', async () => {
+    save({ phase: 'failed', error: 'offline' });
+    fs.rmSync(path.join(root, 'installed/releases', candidate), { recursive: true, force: true });
+    mocked.check.mockResolvedValue(release);
+    backend.download = vi.fn(async () => { throw new Error('still offline'); });
+    const updater = coordinator();
+    updater.approve();
+    await vi.waitFor(() => expect(updater.status()).toMatchObject({ phase: 'failed', approved: false, error: 'still offline' }));
+  });
+});
+

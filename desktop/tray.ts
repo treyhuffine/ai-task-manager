@@ -21,7 +21,7 @@ export function desktopMenuCommands(actions: DesktopMenuActions) {
     show: { id: 'ri-show-window', label: `Show ${APP_NAME}`, click: actions.show },
     hide: { id: 'ri-hide-window', label: 'Close Window', click: actions.hide },
     notifications: { id: 'ri-notifications', label: 'Notifications…', click: actions.notifications },
-    update: { id: 'ri-desktop-update', label: 'Check for Desktop Update…', click: actions.update },
+    update: { id: 'ri-desktop-update', label: 'Check for Updates…', click: actions.update },
     status: { id: 'ri-service-status', label: 'Service Status…', click: actions.status },
     recovery: { id: 'ri-recovery', label: 'Local Installation and Recovery…', click: actions.recovery },
     quit: { id: 'ri-quit', label: `Quit ${APP_NAME}`, click: actions.quit },

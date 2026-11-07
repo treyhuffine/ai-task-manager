@@ -1,0 +1,173 @@
+name: Publish a release
+# docs/publishing.md. Pushing a tag like v0.2.0 publishes it to the latest channel.
+# Promote it to stable, withdraw it, or refresh the feed's expiry by running this by hand.
+# Nothing here runs without the signing key in the repository's secrets.
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to do
+        type: choice
+        options: [promote, refresh, withdraw]
+        default: promote
+      version:
+        description: The version, for promote or withdraw
+        type: string
+  schedule:
+    # Release metadata expires after 30 days, so a frozen feed can't hold anyone back.
+    - cron: '17 6 * * 1'
+
+# Installing and building runs other people's packages, so only the jobs that upload can write.
+permissions:
+  contents: read
+
+env:
+  # The address written into every installation. Changing it later means moving them all.
+  RI_RELEASE_FEED: https://github.com/${{ github.repository }}/releases/download/feed/
+
+jobs:
+  build:
+    if: github.event_name == 'push'
+    timeout-minutes: 150
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: macos-15, platform: darwin, arch: arm64 }
+          - { os: macos-15-intel, platform: darwin, arch: x64 }
+          # Native modules run only on systems at least as new as the one that built them.
+          - { os: ubuntu-22.04, platform: linux, arch: x64 }
+          - { os: ubuntu-22.04-arm, platform: linux, arch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/setup@v3
+        with:
+          version: 12.14.0
+          install: false
+          node-version-file: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.5.0'
+      - name: Install Linux native window dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          # squashfs-tools-ng is how the release tool inspects an AppImage, and Node's headers need GCC 12.
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2 squashfs-tools-ng gcc-12 g++-12
+          echo "CC=gcc-12" >> "$GITHUB_ENV"
+          echo "CXX=g++-12" >> "$GITHUB_ENV"
+      - run: pnpm install --frozen-lockfile
+      - name: Check the tag matches the version
+        run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
+      - name: Write the public key
+        env:
+          RI_RELEASE_PUBLIC_KEY: ${{ vars.RI_RELEASE_PUBLIC_KEY }}
+        run: |
+          test -n "$RI_RELEASE_PUBLIC_KEY" || { echo "Run pnpm release:keygen and add the public key. See docs/publishing.md."; exit 1; }
+          printf '%s\n' "$RI_RELEASE_PUBLIC_KEY" > "$RUNNER_TEMP/release-public.pem"
+      - name: Build
+        env:
+          RI_RELEASE_PUBLIC_KEY_FILE: ${{ runner.temp }}/release-public.pem
+          CSC_NAME: ${{ vars.CSC_NAME }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # With no Developer ID yet, a Mac gets an ad-hoc signed dmg, which can't update itself.
+          if [ "$RUNNER_OS" = macOS ] && [ -z "$CSC_NAME" ]; then pnpm desktop:dmg; else pnpm desktop:release; fi
+      - name: Describe this platform's release
+        run: |
+          VERSION_NUMBER="$(node -p "require('./package.json').version")"
+          SHELL_ARG=""
+          for candidate in release/desktop/*.zip release/desktop/*.AppImage; do
+            case "$candidate" in *\**) ;; *) SHELL_ARG="--shell $candidate" ;; esac
+          done
+          node desktop/release-metadata.mjs \
+            --resources "release/ri-runtime-$VERSION_NUMBER-${{ matrix.platform }}-${{ matrix.arch }}" \
+            --runtime "release/ri-runtime-$VERSION_NUMBER-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/v$VERSION_NUMBER/" \
+            --out release/payloads $SHELL_ARG
+          # electron-updater names its file by channel, and these share one folder per release.
+          # An ad-hoc signed Mac build has none, since it can't update itself.
+          for file in release/desktop/latest*.yml; do
+            if [ -e "$file" ]; then mv "$file" "release/desktop/${{ matrix.arch }}${file##*latest}"; fi
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ri-${{ matrix.platform }}-${{ matrix.arch }}
+          retention-days: 7
+          path: |
+            release/ri-runtime-*.tar.gz
+            release/payloads/*.json
+            release/desktop/*.dmg
+            release/desktop/*.zip
+            release/desktop/*.AppImage
+            release/desktop/*.yml
+            release/desktop/*.blockmap
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    # A weekly refresh overlapping a publish would put older feed files back.
+    concurrency:
+      group: release-feed
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.5.0'
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Sign and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RI_RELEASE_SIGNING_KEY: ${{ secrets.RI_RELEASE_SIGNING_KEY }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          mkdir -p payloads feed-now feed-next assets
+          find artifacts -name '*.payload.json' -exec cp {} payloads/ \;
+          find artifacts -type f \( -name 'ri-runtime-*.tar.gz' -o -name '*.dmg' -o -name '*.zip' -o -name '*.AppImage' -o -name '*.yml' -o -name '*.blockmap' \) -exec cp {} assets/ \;
+          gh release view feed >/dev/null 2>&1 || gh release create feed --title "Release feed" --notes "The signed files every installation checks. Not a release to download." --latest=false
+          # A feed with files must download, or publishing would lose its index and its check for a repeat.
+          if [ "$(gh release view feed --json assets --jq '.assets | length')" -gt 0 ]; then gh release download feed --dir feed-now --pattern '*.json'; fi
+          PREVIOUS="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^ 2>/dev/null || true)"
+          git log --no-merges --format='%s' ${PREVIOUS:+"$PREVIOUS"..HEAD} | grep -E '^(feat|fix)(\(|:)' > notes.txt || true
+          node desktop/publish-release.mjs publish --payloads payloads --channel latest --existing feed-now --out feed-next --notes notes.txt --feed "$RI_RELEASE_FEED"
+          gh release create "v$VERSION" assets/* --title "Ri $VERSION" --notes-file notes.txt --verify-tag
+          gh release upload feed feed-next/* --clobber
+
+  maintain:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: release-feed
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.5.0'
+      - name: Sign and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RI_RELEASE_SIGNING_KEY: ${{ secrets.RI_RELEASE_SIGNING_KEY }}
+          ACTION: ${{ inputs.action || 'refresh' }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          # Nothing published yet: nothing to refresh.
+          gh release view feed >/dev/null 2>&1 || { echo "No feed yet."; exit 0; }
+          mkdir -p feed-now feed-next
+          gh release download feed --dir feed-now --pattern '*.json'
+          node desktop/publish-release.mjs "$ACTION" --existing feed-now --out feed-next ${VERSION:+--version "$VERSION"}
+          gh release upload feed feed-next/* --clobber

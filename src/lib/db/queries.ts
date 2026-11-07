@@ -9643,6 +9643,11 @@ export function deletePreviewTarget(id: string): void {
 }
 
 /** Stamp lastViewedAt — used by idle-evict to decide what to reap. */
+/** Previews polled by a window since this time (`src/lib/preview/viewed.ts`). */
+export function countPreviewsViewedSince(since: string): number {
+  return getDb().select({ count: sql<number>`count(*)` }).from(previewTargets).where(gte(previewTargets.lastViewedAt, since)).get()?.count ?? 0;
+}
+
 export function touchPreviewTarget(id: string): void {
   const db = getDb();
   db.update(previewTargets)

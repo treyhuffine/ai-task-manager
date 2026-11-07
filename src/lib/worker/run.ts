@@ -20,6 +20,7 @@
  */
 
 import { compatibilityMessage, legacyCompatibility, negotiateWorker, PeerReleaseSchema } from '@/lib/releases/compatibility';
+import type { HomeRelease } from '@/lib/service/follow-home';
 import { runtimePeerRelease } from '@/lib/releases/runtime-identity';
 import { readMaintenance, MaintenanceError } from '@/lib/service/maintenance-state';
 import { uuidv7 } from 'uuidv7';
@@ -71,6 +72,8 @@ export interface WorkerRunOptions {
   version: string;
   signal?: AbortSignal;
   onStatus?: (status: WorkerStatus) => void;
+  /** What its Home runs and is about to run, so this computer can follow (7.7). */
+  onHome?: (home: HomeRelease) => void;
   /** Local update admission fence. Journals/heartbeats keep flushing while paused. */
   paused?: () => boolean;
   onJournals?: (journals: { commands: CommandJournal; events: EventJournal; requests: () => number }) => void;
@@ -246,6 +249,7 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
     version,
     signal,
     onStatus,
+    onHome,
     describe = describeHarnesses,
     heartbeatMs = WORKER_HEARTBEAT_MS,
     backoffMinMs = 1_000,
@@ -362,6 +366,7 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
       pendingEvents: eventJournal.pending().length, pendingCommands: commandJournal.interrupted().length + commandJournal.unconfirmed().length,
       openTurns: commandJournal.openTurns().length, lastEvent: eventJournal.lastPosition(),
     } });
+    if (reply) onHome?.({ next: reply.homeUpdate ?? undefined, published: reply.homePublished });
     for (const released of reply?.release ?? []) {
       commandJournal.release(released.executionId, released.generation);
       for (const chat of released.chatSessionIds) await closeSession(chat).catch(() => {});
@@ -442,6 +447,8 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
               break;
             }
             const peer = event.peer ? PeerReleaseSchema.parse(event.peer) : undefined;
+            // First: a computer too old to talk to its Home has to know what to move to.
+            onHome?.({ peer });
             const agreement = negotiateWorker(peer?.compatibility ?? legacyCompatibility(event.protocol), runtimePeerRelease().compatibility);
             if (!agreement.compatible) throw new WorkerProtocolError(compatibilityMessage(agreement, target.deviceName, target.homeName), agreement.update);
             if (event.protocol !== agreement.protocol) throw new WorkerProtocolError('The connected Ri selected a worker protocol outside the agreed contract.', 'home');

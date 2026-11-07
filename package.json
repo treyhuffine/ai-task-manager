@@ -66,6 +66,8 @@
     "desktop:package": "node desktop/package.mjs",
     "desktop:relay": "node desktop/relay/server.mjs",
     "desktop:release": "node desktop/package.mjs --release",
+    "desktop:dmg": "node desktop/package.mjs --share",
+    "release:keygen": "node scripts/release-keygen.mjs",
     "runtime:package": "node desktop/package.mjs --headless",
     "speech:build": "node desktop/speech/build.mjs",
     "desktop:recovery-smoke": "pnpm desktop:build && tsx desktop/recovery-smoke.ts",

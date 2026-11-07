@@ -12,25 +12,27 @@ import { installedRuntime } from '../src/lib/service/runtime';
 import { releaseDirectory } from '../src/lib/service/store';
 import { snapshotRoot } from '../src/lib/service/snapshot';
 import { readActivation } from '../src/lib/service/activation';
-import { ReleaseSchema } from '../src/lib/service/release-trust';
-import { MaintenanceWindowSchema } from '../src/lib/service/update-settings';
 import { resolveServiceRole } from '../src/lib/service/role';
 import { pendingDesktopInitialization } from '../src/lib/service/initialization';
 import { serviceOwnerHeld } from '../src/lib/service/owner';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-/** A release built on this computer from a checkout names only its id and
- * version. Its staged manifest is checked below like any other. */
-const localRelease = z.object({ version: z.string().min(1).max(80), runtime: z.object({ id: digest }).strict() }).strict();
+/**
+ * What this preflight reads of a Home's update record, and nothing more. The app
+ * that runs it can be older than the Home for good: its own part updates on its own
+ * schedule, and a copy without an Apple signature never does. So a field added by a
+ * later release is ignored here, never refused.
+ */
+const recordedRelease = z.object({ version: z.string().min(1).max(80), runtime: z.object({ id: digest }).passthrough(), platform: z.string().optional(), arch: z.string().optional(), migrationHistory: z.string().optional() }).passthrough();
 const updateRecord = z.object({
-  format: z.literal(1), phase: z.enum(['idle', 'available', 'downloading', 'ready', 'waiting', 'draining', 'checkpointing', 'validating', 'committed', 'failed', 'recovery-required']),
-  changedAt: z.string().datetime(), release: z.union([ReleaseSchema, localRelease]).optional(), priorId: digest.optional(), checkpoint: z.string().optional(),
+  format: z.literal(1), phase: z.string(),
+  changedAt: z.string().datetime(), release: recordedRelease.optional(), priorId: digest.optional(), checkpoint: z.string().optional(),
   approved: z.boolean().optional(), bytes: z.number().int().nonnegative().optional(), reason: z.string().optional(), error: z.string().optional(),
-  committedAt: z.string().datetime().optional(), window: MaintenanceWindowSchema.optional(),
-  local: z.object({ commit: z.string().regex(/^[a-f0-9]{40}$/).optional(), checkout: z.string().max(4096).optional() }).strict().optional(),
+  committedAt: z.string().datetime().optional(),
+  local: z.object({ commit: z.string().regex(/^[a-f0-9]{40}$/).optional(), checkout: z.string().max(4096).optional() }).optional(),
   force: z.boolean().optional(),
-  rollback: z.object({ to: digest, leaving: digest, snapshot: z.string().max(4096) }).strict().optional(),
-}).strict();
+  rollback: z.object({ to: digest, leaving: digest, snapshot: z.string().max(4096) }).optional(),
+});
 
 function readPrivateJson(file: string, maximumBytes: number): unknown {
   const stat = fs.lstatSync(file);
@@ -49,6 +51,8 @@ function hasRecordedRecovery(active: NonNullable<ReturnType<typeof installedRunt
   // A launcher that put the previous release back leaves the restore to its controller.
   if (readActivation(install).restore) return true;
   if (!['validating', 'committed', 'recovery-required'].includes(record.phase)) return false;
+  // A finished update stays on record. Running what it moved to, there's nothing to recover.
+  if (record.phase === 'committed' && !record.rollback && record.release?.runtime.id === active.id && !readActivation(install).candidate) return false;
   const fail = () => { throw new Error('The saved update recovery record does not match this installation. Inspect the preserved files before starting.'); };
   const release = record.release;
   if (!release || !record.priorId || (!record.committedAt && !record.checkpoint) || (record.phase === 'committed' && !record.committedAt) ||

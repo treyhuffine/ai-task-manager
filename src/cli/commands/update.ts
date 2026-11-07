@@ -9,7 +9,8 @@ import { buildRelease, selectCommit } from '@/lib/service/source-build';
 import { commandLauncherPath, installCommandLauncher } from '@/lib/service/runtime';
 import { commandCheck, resolveCommand } from '@/lib/service/os-checks';
 import { defaultHome, homeAtRoot } from '@/lib/service/home-lookup';
-import { describeRollback, displayRoot, runUpdate, withHomeIdentity, type HomeClient, type HomeStatus } from '@/lib/service/update-run';
+import { describeRollback } from '@/lib/service/update-presentation';
+import { displayRoot, runUpdate, withHomeIdentity, type HomeClient, type HomeStatus } from '@/lib/service/update-run';
 import type { RollbackStatus } from '@/lib/service/update';
 
 interface UpdateOptions { now?: boolean; rollback?: boolean; yes?: boolean; root?: string; from?: string; channel?: 'stable' | 'latest'; auto?: 'on' | 'off' }
@@ -32,7 +33,7 @@ async function rollback(options: UpdateOptions) {
   const homeClient = client(home.identity);
   if (!(await homeClient.status())) throw new Error(`${displayRoot(home.identity.root)} isn't running. Start it with \`ri start\`, then roll back.`);
   const { rollback: state } = await homeClient.request<{ rollback: RollbackStatus }>('/update/rollback');
-  console.info(describeRollback(home.identity.root, state));
+  console.info(describeRollback(displayRoot(home.identity.root), state));
   if (!state.available) { process.exitCode = 1; return; }
   if (!options.yes) {
     if (!process.stdin.isTTY) throw new Error('Run it again with --yes to roll back without being asked.');
@@ -92,7 +93,7 @@ export function registerUpdateCommand(program: Command) {
     .addOption(new Option('--metered <mode>', 'pause automatic downloads while enabled').choices(['on', 'off']))
     .action(async (options: { automaticDownload?: 'on' | 'off'; metered?: 'on' | 'off' }) => {
       const preferences: UpdatePreferences = {
-        ...(options.automaticDownload === undefined ? {} : { automaticDownload: options.automaticDownload === 'on' }),
+        ...(options.automaticDownload === undefined ? {} : { auto: options.automaticDownload === 'on' }),
         ...(options.metered === undefined ? {} : { metered: options.metered === 'on' }),
       };
       if (Object.keys(preferences).length) {

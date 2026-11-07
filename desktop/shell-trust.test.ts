@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { eligibleShellFile } from './shell-trust';
+import { appPartChanged, eligibleShellFile } from './shell-trust';
 import type { Release } from '../src/lib/service/release-trust';
 import { findFile, resolveFiles } from 'electron-updater/out/providers/Provider';
 import { AppUpdater } from 'electron-updater/out/AppUpdater';
@@ -44,4 +44,14 @@ it('pins the updater contract that returned metadata is the downloader retained 
   expect(result.updateInfo).toBe(instance.updateInfoAndProvider.info);
   result.updateInfo.files = [eligibleShellFile(release, result.updateInfo.files)];
   expect(instance.updateInfoAndProvider.info.files).toEqual([release.shell]);
+});
+it('downloads the app only when its own part changed', () => {
+  const next = { version: '0.2.0', shell: { url: 'https://releases.example/Ri.zip', sha512: 'x', size: 1, id: 'a'.repeat(64) } } as Release;
+  expect(appPartChanged(next, '0.1.0', 'a'.repeat(64))).toBe(false);
+  expect(appPartChanged(next, '0.1.0', 'b'.repeat(64))).toBe(true);
+  // A build that doesn't know what it is, or a release that doesn't say, counts as changed.
+  expect(appPartChanged(next, '0.1.0')).toBe(true);
+  expect(appPartChanged({ ...next, shell: { ...next.shell!, id: undefined } }, '0.1.0', 'a'.repeat(64))).toBe(true);
+  expect(appPartChanged(next, '0.2.0', 'b'.repeat(64))).toBe(false);
+  expect(appPartChanged({ version: '0.2.0' } as Release, '0.1.0')).toBe(false);
 });

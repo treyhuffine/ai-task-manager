@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { serviceIdentity } from './paths';
-import { createSnapshot, isHomeSnapshot, listSnapshots, pruneSnapshots, readSnapshot, restoreSnapshot, snapshotChanges, snapshotRoot, SnapshotSpaceError, SNAPSHOT_RETENTION_MS } from './snapshot';
+import { createSnapshot, snapshotSpaceProblem, isHomeSnapshot, listSnapshots, pruneSnapshots, readSnapshot, restoreSnapshot, snapshotChanges, snapshotRoot, SnapshotSpaceError, SNAPSHOT_RETENTION_MS } from './snapshot';
 
 const FROM = 'a'.repeat(64);
 const TO = 'b'.repeat(64);
@@ -149,3 +149,12 @@ it('counts what a rollback would lose', async () => {
   db.close();
   expect(snapshotChanges(readSnapshot(directory), serviceIdentity().database)).toEqual({ messages: 3, chats: 0, tasks: 0, notes: 1 });
 });
+
+it('says there is no room before anything stops, by the same measure the snapshot uses', () => {
+  const identity = serviceIdentity();
+  expect(snapshotSpaceProblem(identity, 0)).toBeNull();
+  expect(snapshotSpaceProblem(identity, Number.MAX_SAFE_INTEGER)).toContain('Not enough free disk space');
+  // The probe it tries cloning with leaves nothing behind.
+  expect(fs.readdirSync(snapshotRoot(identity)).filter(name => name.startsWith('.clone-probe'))).toEqual([]);
+});
+

@@ -9,11 +9,14 @@ import { releaseDirectory } from './store';
 import { clearMaintenance, exclusiveActivity, exclusiveDatabaseAccess, writeMaintenance } from './maintenance';
 import type { MaintenanceGate } from './maintenance-state';
 import { validateDatabase } from './checkpoint';
-import { createSnapshot, listSnapshots, restoreSnapshot, snapshotChanges, SNAPSHOT_RETENTION_MS, type SnapshotChanges } from './snapshot';
+import { createSnapshot, listSnapshots, restoreSnapshot, snapshotChanges, snapshotSpaceProblem, SNAPSHOT_RETENTION_MS, type SnapshotChanges } from './snapshot';
 import { beginActivation, clearActivation, readActivation, type Activation } from './activation';
 import { withStoreLock } from './store';
-import { checkRelease, downloadRelease, releasePolicy, type Release } from './release';
+import { checkRelease, checkReleaseVersion, downloadRelease, releasePolicy, type Release } from './release';
 import { MaintenanceWindowSchema, type MaintenanceWindow } from './update-settings';
+import { readOrigin } from './origin';
+import { nextTimingStep, QUIET_REASON, updateTiming } from './update-timing';
+import { compareVersions } from './version-order';
 
 export type UpdatePhase = 'idle' | 'available' | 'downloading' | 'ready' | 'waiting' | 'draining' | 'checkpointing' | 'validating' | 'committed' | 'failed' | 'recovery-required';
 /** A release built on this computer from a checkout (docs/always-on-spec.md
@@ -29,6 +32,21 @@ export interface UpdateRecord {
   /** A rollback under way, written before it changes anything, so a crash at
    * any step finishes it instead of guessing from what's on disk (7.6). */
   rollback?: { to: string; leaving: string; snapshot: string };
+  /** Approved by the rule in section 7.2, not by a person. */
+  automatic?: boolean;
+  /** Update now: a person asking, which goes ahead of a maintenance window. */
+  now?: boolean;
+  /** The heads-up, while it's showing. */
+  headsUpAt?: string;
+  /** Not now: no heads-up before this. */
+  heldUntil?: string;
+  /** When this wait began, for the 24-hour notice. */
+  waitingSince?: string;
+  /** The last switch the rule made, for the 12-hour spacing. */
+  lastAutomaticAt?: string;
+  /** A release that failed here or that its owner rolled back. Nothing moves to
+   * it by itself again. A newer one, or a person asking, still can. */
+  rejected?: string;
 }
 export interface RuntimeTarget { id: string; repo: string; node: string }
 export interface UpdateBackend {
@@ -40,6 +58,9 @@ export interface UpdateBackend {
   /** Work that rules out a switch before draining starts. Unlike `activity`, it
    * leaves out idle agent processes, which only draining can close. */
   work?(): Promise<string[]>;
+  /** What the rule in section 7.2 reads on a Home. A connected computer has no
+   * such rule, since it follows its Home as soon as its chats finish. */
+  quiet?(): Promise<{ work: string[]; lastUseAt: number }>;
   /** Local formats and unresolved work on peers must remain readable. */
   compatibility?(target: RuntimeTarget): Promise<string[]>;
   verify?(resources: string): Promise<{ id: string }>;
@@ -101,6 +122,7 @@ export function snapshotsInUse(record: Pick<UpdateRecord, 'phase' | 'checkpoint'
 /** One instance in the service owner. Every GUI/CLI action uses its private
  * control socket, so there is no second updater or independent DB migrator. */
 const DRAIN_RETRY_MS = 5 * 60_000;
+const NOT_WAITING = { automatic: undefined, now: undefined, headsUpAt: undefined, heldUntil: undefined, waitingSince: undefined };
 
 export class UpdateCoordinator {
   private busy = false;
@@ -109,6 +131,8 @@ export class UpdateCoordinator {
   /** A drain closes the Home to new work, so after one that couldn't finish the
    * next waits. The 30-second tick would otherwise keep it closed half the time. */
   private drainAfter = 0;
+  /** The quiet stretch starts no earlier than this: the wait began, or work was seen. */
+  private quietFrom = Date.now();
   private record: UpdateRecord;
   private readonly file: string;
   constructor(private backend: UpdateBackend, private directory = getRuntimeInstallDir(), private timing = { drain: 15_000, poll: 500, grace: 2000 }) {
@@ -117,10 +141,16 @@ export class UpdateCoordinator {
     if (this.record.format !== 1 || !['idle', 'available', 'downloading', 'ready', 'waiting', ...transient, 'committed', 'failed', 'recovery-required'].includes(this.record.phase)) throw new Error('Unsupported update record. Recovery is required.');
   }
   status() {
-    const policy = releasePolicy();
+    // A Home with no release can't move, so this computer's feed isn't its business.
+    let ownRelease = false;
+    try { ownRelease = !!installedRuntime(this.directory); } catch { /* An unreadable selection shows as none. */ }
+    const policy = ownRelease ? releasePolicy() : null;
+    const { source, checkout } = readOrigin();
     return { ...this.record, configured: !!policy, busy: this.busy, policy: policy ? {
-      channel: policy.channel, automaticDownload: policy.automaticDownload, metered: policy.metered,
-    } : null };
+      channel: policy.channel, auto: policy.auto, metered: policy.metered,
+    } : null, origin: { source, ...(checkout ? { checkout } : {}) },
+    // If a Home hasn't been able to switch for a day, status says so (section 7.1).
+    waitingLong: this.record.phase === 'waiting' && !!this.record.waitingSince && Date.now() - Date.parse(this.record.waitingSince) >= updateTiming().longWaitMs };
   }
   private save(change: Partial<UpdateRecord>) {
     this.record = { ...this.record, ...change, changedAt: new Date().toISOString() };
@@ -149,40 +179,78 @@ export class UpdateCoordinator {
       atomicWriteFile(path.join(/* turbopackIgnore: true */ this.directory, 'active-release'), `${id}\n`);
     });
   }
-  private async exclusive<T>(action: () => Promise<T>) {
+  /** `background` work failing isn't something to show a person: a laptop waking
+   * before its Wi-Fi shouldn't say anything needs attention. */
+  private async exclusive<T>(action: () => Promise<T>, background = false) {
     if (this.busy) throw new Error('Another update action is in progress');
     this.busy = true;
     try { return await action(); }
-    catch (error) { if (this.record.phase !== 'recovery-required') this.save({ error: message(error) }); throw error; }
+    catch (error) { if (!background && this.record.phase !== 'recovery-required') this.save({ error: message(error) }); throw error; }
     finally { this.busy = false; }
   }
-  async check() {
+  async check(background = false) {
     return this.exclusive(async () => {
       if (transient.has(this.record.phase) || this.record.phase === 'recovery-required') throw new Error('Resolve the current update before checking another release');
       // A release built from a checkout waits for its switch. The feed doesn't replace it.
       if (this.record.local && ['ready', 'waiting'].includes(this.record.phase)) return this.status();
-      const release = await checkRelease();
-      const current = installedRuntime(this.directory);
-      if (this.record.release?.runtime.id === release.runtime.id && ['ready', 'waiting'].includes(this.record.phase)) return this.status();
-      this.save({ release, phase: release.runtime.id === current?.id ? 'idle' : 'available', approved: false, force: false, bytes: 0, error: undefined, reason: undefined, committedAt: undefined, checkpoint: undefined, priorId: undefined, local: undefined });
+      return this.considerRelease(await checkRelease());
+    }, background);
+  }
+  /** A connected computer asks for its Home's version rather than the newest. */
+  async checkVersion(version: string) {
+    return this.exclusive(async () => {
+      if (transient.has(this.record.phase) || this.record.phase === 'recovery-required') throw new Error('Resolve the current update before checking another release');
+      return this.considerRelease(await checkReleaseVersion(version));
+    }, true);
+  }
+  private considerRelease(release: Release) {
+    const current = installedRuntime(this.directory);
+    // Nothing new, so what's recorded about it is still true: where it stands, why
+    // it failed or that it just finished. Those stay readable until something changes.
+    // A check that failed earlier has now worked, so its error is over.
+    const settled = () => {
+      if (this.record.error && !['failed', 'recovery-required'].includes(this.record.phase)) this.save({ error: undefined });
       return this.status();
-    });
+    };
+    if (this.record.release?.runtime.id === release.runtime.id && ['ready', 'waiting', 'failed', 'committed'].includes(this.record.phase)) return settled();
+    // Already on it, or on something newer. Nothing here ever moves backwards by
+    // itself: going back is a rollback, which a person asks for.
+    if (current && (release.runtime.id === current.id || this.isOlder(release, current.repo))) {
+      if (!['idle', 'committed'].includes(this.record.phase)) this.save({ release, phase: 'idle', local: undefined, approved: false, force: false, bytes: 0, error: undefined, reason: undefined, ...NOT_WAITING });
+      return settled();
+    }
+    this.save({ release, phase: 'available', local: undefined, approved: false, force: false, bytes: 0, error: undefined,
+      // Rolled back from this one: the reason it isn't moving stays on show.
+      reason: release.runtime.id === this.record.rejected ? this.record.reason : undefined,
+      committedAt: undefined, checkpoint: undefined, priorId: undefined, ...NOT_WAITING });
+    return this.status();
+  }
+  private isOlder(release: Release, repo: string) {
+    try { return compareVersions(release.version, JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ repo, 'package.json'), 'utf8')).version) < 0; }
+    catch { return false; }
   }
   async download() {
     return this.exclusive(async () => {
       if (!this.record.release || !['available', 'failed'].includes(this.record.phase) || this.record.local) throw new Error('Check for an eligible release first');
-      // Recheck withdrawal/expiry just before downloading, not just discovery.
-      const release = await checkRelease();
-      if (release.runtime.id !== this.record.release.runtime.id) throw new Error('The release changed. Check for updates again.');
-      this.save({ phase: 'downloading', bytes: 0, error: undefined });
+      // Another Home on this computer may have fetched it already (section 3.2).
+      if (fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ releaseDirectory(this.record.release.runtime.id, this.directory), 'runtime-manifest.json'))) {
+        this.save({ phase: this.afterDownload(), bytes: this.record.release.runtime.size, error: undefined });
+        return this.status();
+      }
       try {
+        // Recheck withdrawal/expiry just before downloading, not just discovery.
+        const release = await checkReleaseVersion(this.record.release.version);
+        if (release.runtime.id !== this.record.release.runtime.id) throw new Error('The release changed. Check for updates again.');
+        this.save({ phase: 'downloading', bytes: 0, error: undefined });
         let lastProgress = 0;
         await (this.backend.download ?? downloadRelease)(release, bytes => { if (Date.now() - lastProgress > 1000 || bytes === release.runtime.size) { lastProgress = Date.now(); this.save({ bytes }); } });
-        this.save({ phase: 'ready', bytes: release.runtime.size });
-      } catch (error) { this.save({ phase: 'failed', error: message(error) }); throw error; }
+        this.save({ phase: this.afterDownload(), bytes: release.runtime.size });
+      } catch (error) { this.save({ phase: 'failed', approved: false, force: false, error: message(error), ...NOT_WAITING }); throw error; }
       return this.status();
     });
   }
+  /** Someone pressed Update now before it had downloaded. */
+  private afterDownload(): UpdatePhase { return this.record.approved ? 'waiting' : 'ready'; }
   /** A release staged on this computer, built from a checkout (section 8). */
   async offer(id: string, local: LocalRelease = {}) {
     return this.exclusive(async () => {
@@ -191,33 +259,126 @@ export class UpdateCoordinator {
       if (!installedRuntime(this.directory)) throw new Error("This Home doesn't run a release yet. `ri start` moves it to one.");
       const target = await this.target(id);
       const version = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ target.repo, 'package.json'), 'utf8')).version as string;
-      const reset = { approved: false, force: false, bytes: 0, error: undefined, reason: undefined, committedAt: undefined, checkpoint: undefined, priorId: undefined, window: undefined };
+      const reset = { approved: false, force: false, bytes: 0, error: undefined, reason: undefined, committedAt: undefined, checkpoint: undefined, priorId: undefined, ...NOT_WAITING };
       if (installedRuntime(this.directory)?.id === id) this.save({ ...reset, phase: 'idle', release: undefined, local: undefined });
       else this.save({ ...reset, phase: 'ready', local, release: { version, runtime: { id } } as unknown as Release });
       return this.status();
     });
   }
-  approve(window?: UpdateRecord['window'], force = false) {
-    if (this.busy || !['ready', 'waiting'].includes(this.record.phase)) throw new Error('Download an update before scheduling activation');
+  /** A person asking: Update now in Settings or the heads-up, or `ri update`. It
+   * skips the quiet stretch, and waits for running chats unless told not to.
+   * `now` is false for a scheduled update, which leaves the rule in charge. */
+  approve(window?: UpdateRecord['window'], force = false, now = !window) {
     if (window) window = MaintenanceWindowSchema.parse(window);
+    // Update now also works before the release has downloaded: with automatic
+    // updates off, or on a limited connection, nothing else would fetch it.
+    const fetchFirst = !this.busy && !!this.record.release && !this.record.local && ['available', 'failed'].includes(this.record.phase);
+    if (this.busy || (!fetchFirst && !['ready', 'waiting'].includes(this.record.phase))) {
+      // A window can be chosen before any release exists, and applies to the next one.
+      if (window && !this.busy) { this.save({ window }); return this.status(); }
+      throw new Error('Download an update before scheduling activation');
+    }
     this.drainAfter = 0;
-    this.save({ approved: true, phase: 'waiting', window, force, reason: 'Waiting for the service to be idle' });
+    const waiting = { approved: true, window: now ? this.record.window : window, now, force, reason: 'Waiting for the service to be idle', automatic: false, headsUpAt: undefined, heldUntil: undefined, waitingSince: this.record.waitingSince ?? new Date().toISOString() };
+    if (fetchFirst) {
+      this.save(waiting);
+      void this.download().catch(error => console.warn('[update] Download failed:', message(error)));
+      return this.status();
+    }
+    this.save({ ...waiting, phase: 'waiting' });
     return this.status();
   }
+  /** The rule taking over a downloaded release (section 7.2). Nothing moves by
+   * itself to a release that already failed here or was rolled back. */
+  approveAutomatically() {
+    if (this.busy || this.record.phase !== 'ready' || !this.record.release) return this.status();
+    if (this.record.rejected === this.record.release.runtime.id) return this.status();
+    this.quietFrom = Date.now();
+    this.save({ approved: true, automatic: true, phase: 'waiting', force: false, reason: QUIET_REASON, headsUpAt: undefined, heldUntil: undefined, waitingSince: new Date().toISOString() });
+    return this.status();
+  }
+  /** Not now. The rule asks again after the hold. A wait a person approved goes
+   * back to ready, since they can ask again themselves. */
   later() {
     if (this.busy || transient.has(this.record.phase)) throw new Error('The update is already in progress');
-    if (this.record.phase === 'waiting') this.save({ approved: false, force: false, phase: 'ready', window: undefined, reason: undefined });
+    if (this.record.phase !== 'waiting') return this.status();
+    if (this.record.automatic) this.save({ headsUpAt: undefined, heldUntil: new Date(Date.now() + updateTiming().holdMs).toISOString(), reason: 'you asked to update later' });
+    else this.save({ approved: false, force: false, phase: 'ready', window: undefined, reason: undefined, ...NOT_WAITING });
     return this.status();
   }
   async tick() {
     if (this.busy || !this.record.approved || this.record.phase !== 'waiting') return;
+    // The switch went off after the rule took this release on. Someone can still
+    // press Update now. A connected computer has no switch: it follows its Home.
+    if (this.record.automatic && this.backend.quiet && !readOrigin().auto) { this.save({ approved: false, phase: 'ready', reason: undefined, ...NOT_WAITING }); return; }
     if (!this.record.force && Date.now() < this.drainAfter) return;
-    const window = this.record.window;
+    const window = this.record.now ? undefined : this.record.window;
     if (window) {
-      const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone: window.timeZone }).format());
-      if ((hour - window.hour + 24) % 24 >= window.durationHours) { this.save({ reason: `Waiting for the maintenance window (${window.timeZone})` }); return; }
+      const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone: window.timeZone }).format(new Date()));
+      if ((hour - window.hour + 24) % 24 >= window.durationHours) { this.save({ reason: `Waiting for the maintenance window (${window.timeZone})`, headsUpAt: undefined }); return; }
     }
+    // A window narrows when the rule can run, so a scheduled update follows it too.
+    if ((this.record.automatic || window) && this.backend.quiet && !(await this.quietEnough())) return;
     await this.apply().catch(() => {});
+  }
+  /** One step of the rule in section 7.2. A server that doesn't answer isn't quiet. */
+  private async quietEnough(): Promise<boolean> {
+    let facts: { work: string[]; lastUseAt: number };
+    try { facts = await this.backend.quiet!(); } catch { return false; }
+    // A check may have replaced the release while that was running.
+    if (this.record.phase !== 'waiting' || !this.record.approved) return false;
+    const now = Date.now();
+    if (facts.work.length) this.quietFrom = now;
+    const time = (value?: string) => value ? Date.parse(value) : undefined;
+    const decide = () => nextTimingStep({ now, work: facts.work, lastUseAt: facts.lastUseAt, quietFrom: this.quietFrom,
+      headsUpAt: time(this.record.headsUpAt), heldUntil: time(this.record.heldUntil), lastAutomaticAt: time(this.record.lastAutomaticAt) });
+    let step = decide();
+    if (step.step !== 'wait') {
+      const clear = await this.clearToSwitch();
+      // Checking the release took a while, so the facts it decided on have gone stale.
+      if (clear === 'checked') return this.quietEnough();
+      if (clear === 'blocked') return false;
+      // Someone may have answered while that was running.
+      if (this.record.phase !== 'waiting' || !this.record.approved) return false;
+      step = decide();
+    }
+    if (step.step === 'update') return true;
+    if (step.step === 'heads-up') {
+      const headsUpAt = new Date(step.at).toISOString();
+      if (this.record.headsUpAt !== headsUpAt) this.save({ headsUpAt, heldUntil: undefined, reason: 'the 1-minute notice' });
+      return false;
+    }
+    if (this.record.reason !== step.reason || this.record.headsUpAt) this.save({ reason: step.reason, headsUpAt: undefined });
+    return false;
+  }
+  /** A connected computer keeps no Home data, so it takes no snapshot. */
+  private roomProblem() {
+    if (this.backend.storage === 'worker') return null;
+    try { return snapshotSpaceProblem(); } catch (error) { return message(error); }
+  }
+  /**
+   * What could stop a switch, settled before anyone sees the notice. Hashing a
+   * release takes a while and nothing can be answered during it, so doing it after
+   * the minute would leave Not now doing nothing just when someone presses it.
+   */
+  private async clearToSwitch(): Promise<'clear' | 'checked' | 'blocked'> {
+    const id = this.record.release!.runtime.id;
+    if (this.busy) return 'blocked';
+    if (this.verified !== id) {
+      try { await this.exclusive(() => this.target(id, true)); this.verified = id; return 'checked'; }
+      catch (error) {
+        // Shutting down mid-check says nothing about the release.
+        if (!(error as { stopped?: boolean }).stopped) this.save({ phase: 'failed', approved: false, force: false, error: message(error), ...NOT_WAITING, rejected: id });
+        return 'blocked';
+      }
+    }
+    let blocked: string[];
+    try { blocked = await this.backend.compatibility?.(await this.target(id)) ?? []; }
+    catch (error) { blocked = [message(error)]; }
+    const noRoom = this.roomProblem();
+    if (noRoom) blocked = [...blocked, noRoom];
+    if (blocked.length) { this.save({ reason: blocked.join(', '), headsUpAt: undefined }); return 'blocked'; }
+    return 'clear';
   }
 
   /** Close admission and wait for in-flight requests and, unless forced, for
@@ -271,7 +432,14 @@ export class UpdateCoordinator {
       // free to act.
       if (!force) {
         const running = await this.backend.work?.() ?? [];
-        if (running.length) { this.save({ phase: 'waiting', reason: running.join(', ') }); return this.status(); }
+        if (running.length) { this.save({ phase: 'waiting', reason: running.join(', '), headsUpAt: undefined }); return this.status(); }
+      }
+      // A disk too full for the snapshot means waiting, and costs no downtime (7.4 step 3).
+      const noRoom = this.roomProblem();
+      if (noRoom) {
+        this.drainAfter = Date.now() + DRAIN_RETRY_MS;
+        this.save({ phase: 'waiting', reason: noRoom, headsUpAt: undefined });
+        return this.status();
       }
       // The one full check of the release, while the Home still serves.
       const id = this.record.release.runtime.id;
@@ -279,24 +447,24 @@ export class UpdateCoordinator {
       try { target = await this.target(id, this.verified !== id); }
       catch (error) {
         // Asks again only when someone does: this would rehash on every tick.
-        this.save({ phase: 'failed', approved: false, force: false, error: message(error) });
+        if (!(error as { stopped?: boolean }).stopped) this.save({ phase: 'failed', approved: false, force: false, error: message(error), ...NOT_WAITING, rejected: id });
         throw error;
       }
       this.verified = id;
       if (!this.record.local) {
         try {
-          const eligible = await checkRelease();
+          const eligible = await checkReleaseVersion(this.record.release.version);
           if (eligible.runtime.id !== target.id) throw new Error('This release is no longer eligible. Check for updates again.');
         } catch (error) {
           // Do not repeatedly hash/retry a withdrawn or untrusted release every
           // idle tick. A fresh check and approval are required after failure.
-          this.save({ phase: 'failed', approved: false, error: message(error) });
+          this.save({ phase: 'failed', approved: false, error: message(error), ...NOT_WAITING });
           throw error;
         }
       }
       const compatibility = () => this.backend.compatibility?.(target) ?? Promise.resolve([]);
       const blocked = await compatibility();
-      if (blocked.length) { this.save({ phase: 'waiting', reason: blocked.join(', ') }); return this.status(); }
+      if (blocked.length) { this.save({ phase: 'waiting', reason: blocked.join(', '), headsUpAt: undefined }); return this.status(); }
       const token = randomBytes(32).toString('hex');
       const gate = { phase: 'draining' as const, token, startedAt: new Date().toISOString() };
       this.save({ phase: 'draining', priorId: prior.id, checkpoint: undefined, error: undefined, committedAt: undefined });
@@ -307,7 +475,7 @@ export class UpdateCoordinator {
         const drained = await this.drain(gate, async () => [...(force ? [] : await this.backend.activity()), ...await compatibility()], force);
         if ('reasons' in drained) {
           this.drainAfter = Date.now() + DRAIN_RETRY_MS;
-          clearMaintenance(); this.save({ phase: 'waiting', reason: drained.reasons.join(', ') }); return this.status();
+          clearMaintenance(); this.save({ phase: 'waiting', reason: drained.reasons.join(', '), headsUpAt: undefined }); return this.status();
         }
         activity = drained.lease;
         writeMaintenance({ ...gate, phase: 'offline' });
@@ -336,7 +504,8 @@ export class UpdateCoordinator {
         // The fallback first: committed with no activation record would leave
         // the launcher unable to put the previous release back.
         beginActivation(target.id, prior.id, this.directory);
-        this.save({ phase: 'committed', committedAt: new Date().toISOString(), approved: false, force: false, reason: undefined });
+        const committedAt = new Date().toISOString();
+        this.save({ phase: 'committed', committedAt, approved: false, force: false, reason: undefined, ...NOT_WAITING, rejected: undefined, lastAutomaticAt: this.record.automatic ? committedAt : this.record.lastAutomaticAt });
         await this.select(target.id, prior.id);
         access?.(); access = undefined;
         activity(); activity = undefined;
@@ -369,7 +538,13 @@ export class UpdateCoordinator {
         clearMaintenance();
         access?.(); access = undefined;
         activity?.(); activity = undefined;
-        this.save({ phase: 'failed', approved: false, force: false, error: message(error) });
+        // The disk filled up after the check above. That's no fault of the release.
+        if (/^Not enough free disk space/.test(message(error))) {
+          this.drainAfter = Date.now() + DRAIN_RETRY_MS;
+          this.quietFrom = Date.now();
+          // Update now was about the chats running when it was asked, and it has ended those.
+          this.save({ phase: 'waiting', force: false, reason: message(error), error: undefined, headsUpAt: undefined, checkpoint: undefined, priorId: undefined });
+        } else this.save({ phase: 'failed', approved: false, force: false, error: message(error), ...NOT_WAITING, rejected: this.record.release?.runtime.id });
         if (stopped) {
           try { await this.backend.restart(await this.target(prior.id)); stopped = false; }
           catch (restartError) { this.save({ error: message(restartError) }); throw restartError; }
@@ -461,6 +636,7 @@ export class UpdateCoordinator {
     clearActivation(this.directory);
     const left = this.record.release?.version;
     this.save({ phase: 'idle', approved: false, force: false, committedAt: undefined, checkpoint: undefined, priorId: undefined, release: undefined, local: undefined, error: undefined, rollback: undefined,
+      ...NOT_WAITING, rejected: leaving,
       reason: `Rolled back${left ? ` from ${left}` : ''} at ${new Date().toISOString()}.` });
   }
 
@@ -534,7 +710,7 @@ export class UpdateCoordinator {
       const version = this.record.release?.version;
       // The record first, the evidence last: a crash between them repeats this
       // recovery, which is safe, instead of selecting the rejected release.
-      this.save({ phase: 'failed', approved: false, force: false, committedAt: undefined,
+      this.save({ phase: 'failed', approved: false, force: false, committedAt: undefined, ...NOT_WAITING, rejected: this.record.release?.runtime.id,
         error: `The update${version ? ` to ${version}` : ''} didn't start, so Ri went back to the version it ran before. Nothing it did needed undoing, because it never started work.` });
       clearActivation(this.directory);
       clearMaintenance();

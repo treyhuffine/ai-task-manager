@@ -88,6 +88,20 @@ export function registerServiceCommand(program: Command) {
   });
   service.command('stage <resources>').description('Verify and stage a bundled server/Node runtime outside the application')
     .action((resources: string) => console.info(JSON.stringify(stageRuntime(path.resolve(resources)), null, 2)));
+  service.command('compatibility', { hidden: true }).action(async () => {
+    console.info(JSON.stringify((await import('@/lib/releases/runtime-identity')).runtimePeerRelease().compatibility));
+  });
+  // What the install script runs, from the release it just downloaded (scripts/install.sh).
+  service.command('install-release <resources>', { hidden: true }).requiredOption('--envelope <file>').requiredOption('--public-key <file>').option('--channel <channel>')
+    .action(async (resources: string, options: { envelope: string; publicKey: string; channel?: 'stable' | 'latest' }) => {
+      const { installPublishedRelease } = await import('@/lib/service/install-release');
+      const installed = installPublishedRelease(path.resolve(resources), JSON.parse(fs.readFileSync(options.envelope, 'utf8')), fs.readFileSync(options.publicKey, 'utf8'), options.channel);
+      if (!installed.launcher.installed) console.info(installed.launcher.reason);
+    });
+  // What the desktop app's Add `ri` to Terminal runs, because the app can't load this code itself.
+  service.command('add-to-terminal', { hidden: true }).action(async () => {
+    console.info((await import('@/lib/service/add-to-terminal')).addToTerminal().message);
+  });
   service.command('manifest <resources>', { hidden: true }).action((resources: string) => {
     console.info(`Runtime manifest: ${createRuntimeManifest(path.resolve(resources)).id}`);
   });

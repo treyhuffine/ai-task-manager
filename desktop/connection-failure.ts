@@ -11,6 +11,7 @@ export function connectionFailure(error: unknown, local = false): DesktopConnect
     if (local) return { kind: 'attention', message: 'The local Ri service needs attention.', detail, retryable: false };
     return { kind: 'sign_in', message: 'This computer needs to sign in again.', detail, retryable: false };
   }
+  if (problem === 'app_update') return { kind: 'app_update', message: 'Update the Ri desktop app to keep using this Ri.', detail, retryable: false };
   if (problem === 'untrusted_certificate') {
     return { kind: 'certificate', message: 'Ri could not verify the connection’s certificate.', detail, retryable: false };
   }

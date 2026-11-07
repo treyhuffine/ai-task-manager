@@ -5,7 +5,7 @@ import type { DesktopNotificationAction } from '../src/lib/notifications/desktop
 /** The viewer URL never establishes local privilege. Only a pinned local
  * service session may supply its private native capability. */
 export function isLocalViewer(ready: BackendReady) {
-  return ready.connection !== 'remote' && !!ready.desktopClient && !!ready.certificate;
+  return ready.connection !== 'remote' && !!ready.desktopClient && (!!ready.certificate || isLocalPlainHome(ready.origin));
 }
 
 export function trustedViewerFrame(input: { senderId: number; windowId?: number; mainFrame: boolean; url: string; origin?: string }) {
@@ -29,12 +29,20 @@ export function remoteViewerOrigin(raw: string, development = false) {
 }
 
 
-/** Existing local desktop releases implement bridge 1. New runtimes must
- * explicitly keep that bridge or tell this shell to update before opening it. */
-export function assertLocalBridge(peer?: { compatibility: { nativeBridge: number[] } }) {
-  if (peer && !peer.compatibility.nativeBridge.includes(1)) throw new Error('Update the Ri desktop app on this device before opening this Ri. Its native bridge is incompatible.');
+/** This app implements bridge 1. A Home's pages may need a newer one, local or
+ * elsewhere (docs/always-on-spec.md 4.2). An older Home that doesn't say has bridge 1. */
+export function assertBridge(nativeBridge?: number[]) {
+  if (nativeBridge && !nativeBridge.includes(1)) throw Object.assign(new Error('This Ri needs a newer desktop app than this one.'), { problem: 'app_update' });
 }
 
+/** A Home on this computer serving plain HTTP, kept from a terminal (section 10.3).
+ * Loopback only, so there's nothing for a certificate to protect. */
+export function isLocalPlainHome(origin: string) {
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  } catch { return false; }
+}
 
 /** The Electron viewer uses Ri's main-process notification pipeline, including
  * this device's local presentation consent. Chromium notifications must never

@@ -35,7 +35,7 @@ if (fs.existsSync(speechHelper) || manifest.files?.some(file => file.name?.start
 const sequence = Number(v.sequence);
 const days = Number(v['expires-days']);
 if (!Number.isSafeInteger(sequence) || sequence < 1 || !Number.isInteger(days) || days < 1 || days > 30) throw new Error('Sequence must increase monotonically. Metadata lifetime must be 1-30 days.');
-if (!['stable', 'beta'].includes(v.channel)) throw new Error('Choose stable or beta channel');
+if (!['stable', 'latest'].includes(v.channel)) throw new Error('Choose stable or latest channel');
 function https(value) { const u = new URL(value); if (u.protocol !== 'https:' || u.username || u.password) throw new Error('Artifact URLs must use HTTPS'); return u.href; }
 const migrationHistory = reviewed.expected.get('server/drizzle/meta/_journal.json')?.sha256;
 if (!migrationHistory) throw new Error('Reviewed runtime is missing its migration journal');

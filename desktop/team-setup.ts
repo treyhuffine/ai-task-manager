@@ -167,8 +167,39 @@ export async function createTeamHere(input: { creationId: string; teamName: stri
 
 /** Start (or attach to) the team's own service on this computer. Its origin and pinned certificate, never its host key. */
 export async function startTeamHere(options: { repo: string; node: string }): Promise<{ origin: string; certificate: string }> {
-  const { ensureServiceStatus, serviceRequest } = await import('../src/lib/service/client');
-  const status = await ensureServiceStatus({ repo: options.repo, node: options.node, timeoutMs: 240_000 });
+  const { ensureServiceStatus, serviceRequest, serviceStatus } = await import('../src/lib/service/client');
+  const { installedRuntime, stageRuntime } = await import('../src/lib/service/runtime');
+  // A team made here stays running like any other Home, as `ri team create` does.
+  // A development launch runs its own checkout, so the OS has nothing to keep.
+  const keep = process.platform !== 'win32' && process.env.RI_DESKTOP_MODE !== 'development';
+  // This app's release goes in first: it made the team's database, so the release
+  // the team runs must be at least as new, whatever else this computer holds.
+  let runtime: ReturnType<typeof installedRuntime> = null;
+  if (keep) {
+    try {
+      if (!installedRuntime() && process.env.RI_DESKTOP_RESOURCES) stageRuntime(process.env.RI_DESKTOP_RESOURCES);
+      runtime = installedRuntime();
+    } catch (error) { console.warn("[desktop] Could not give the team a release:", error instanceof Error ? error.message : 'Failed'); }
+  }
+  const start = () => ensureServiceStatus({ repo: runtime?.repo ?? options.repo, node: runtime?.node ?? options.node, timeoutMs: 240_000,
+    ...(runtime ? { env: { ...process.env, RI_RUNTIME_REPO: runtime.repo, RI_DESKTOP_REPO: runtime.repo } } : {}) });
+  let status = await start();
+  if (keep && runtime) {
+    const { keepRunning, portHolder } = await import('../src/lib/service/keep-running');
+    const { installService } = await import('../src/lib/service/install');
+    const { hasLoginSupervision } = await import('../src/lib/service/supervision-state');
+    // Not being kept running yet is no reason to refuse opening a team, as when its
+    // chats hold up the handover. If the handover got as far as stopping it, start it.
+    try {
+      const kept = await keepRunning({ address: 'service' }, { status: serviceStatus, supervised: hasLoginSupervision, install: () => installService(), holder: portHolder,
+        sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: Date.now });
+      if (kept.result === 'running') status = kept.status;
+      else console.warn('[desktop] Could not keep the team running:', kept.result === 'failed' ? kept.reason : 'no release');
+    } catch (error) {
+      console.warn('[desktop] Could not keep the team running:', error instanceof Error ? error.message : 'Failed');
+      status = await start();
+    }
+  }
   if (!status.origin) throw new Error("The team's service started without an address. Check its log and try again.");
   const session = await serviceRequest<{ certificate?: string }>('/session');
   if (!session.certificate) throw new Error("The team's service didn't report its certificate.");

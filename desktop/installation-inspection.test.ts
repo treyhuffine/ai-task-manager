@@ -122,13 +122,12 @@ it('retains postcommit data when cold recovery must advance the active runtime p
   expect(retainedValue()).toBe('accepted after commit');
   expect(installedRuntime()?.id).toBe(targetId);
 });
-it.each(['missing-release', 'wrong-prior', 'unknown-field', 'invalid-commit', 'wrong-checkpoint-root', 'tampered-runtime', 'writable-record'])('does not bypass schema safety with a malformed or unbound recovery record: %s', async kind => {
+it.each(['missing-release', 'wrong-prior', 'invalid-commit', 'wrong-checkpoint-root', 'tampered-runtime', 'writable-record'])('does not bypass schema safety with a malformed or unbound recovery record: %s', async kind => {
   const { record, checkpoint, targetId } = await interruptedUpdate();
   const file = path.join(getRuntimeInstallDir(), 'update.json');
   const invalid: Record<string, unknown> = { ...record };
   if (kind === 'missing-release') delete invalid.release;
   if (kind === 'wrong-prior') invalid.priorId = 'f'.repeat(64);
-  if (kind === 'unknown-field') invalid.surprise = true;
   if (kind === 'invalid-commit') invalid.committedAt = new Date().toISOString();
   if (kind === 'wrong-checkpoint-root') {
     const manifestFile = path.join(checkpoint, 'checkpoint.json');
@@ -146,6 +145,23 @@ it.each(['missing-release', 'wrong-prior', 'unknown-field', 'invalid-commit', 'w
   await expect(inspectExistingInstallation()).rejects.toThrow();
   expect(fs.readFileSync(database)).toEqual(before);
 });
+it('opens a stopped Home after an automatic update, whatever a later release adds to its record', async () => {
+  const repo = stageExistingRuntime();
+  const db = new Database(database); runMigrations(db, path.join(directory, 'drizzle')); db.close();
+  const id = installedRuntime()!.id;
+  // This app can be older than the Home for good, so what it doesn't know, it ignores.
+  fs.writeFileSync(path.join(getRuntimeInstallDir(), 'update.json'), JSON.stringify({
+    format: 1, phase: 'committed', changedAt: new Date().toISOString(), committedAt: new Date().toISOString(), priorId: 'a'.repeat(64),
+    lastAutomaticAt: new Date().toISOString(), rejected: 'b'.repeat(64), somethingFromLater: { nested: true },
+    release: { version: '0.1.0', runtime: { id, somethingElse: 1 }, shell: { id: 'c'.repeat(64) } },
+  }), { mode: 0o600 });
+  expect(repo).toBeTruthy();
+  const inspection = await inspectExistingInstallation();
+  expect(inspection.canUse).toBe(true);
+  // Finished and running what it moved to, so there's nothing to recover.
+  expect(inspection.reason ?? '').not.toContain('recovery');
+});
+
 it('refuses a missing managed database without creating a replacement', async () => {
   stageExistingRuntime();
   await expect(inspectExistingInstallation()).rejects.toThrow();

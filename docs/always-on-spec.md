@@ -1,6 +1,6 @@
 # Always on, always current: installing, running and updating Ri
 
-**Status:** decided 2026-10-27, revised after three passes of an independent review (section 13.3 lists what changed). Phases A and B are on `main`, reviewed, repaired and qualified on a real release 2026-11-05. The owner's cutover in section 10.2 has not run yet. Phases C to E are not built. Every choice phases A and B need is settled, and what stays open belongs to later phases or future work. Section 11 lists what changes in the current code, and section 12 the order to build it in.
+**Status:** decided 2026-10-27, revised after three passes of an independent review (section 13.3 lists what changed). Phases A and B are on `main`, reviewed, repaired and qualified on a real release 2026-11-05. The owner ran the cutover in section 10.2 on 2026-11-06. Phases C, D and E are built (section 12 says what remains, and what only the owner can do). Every choice phases A and B need is settled, and what stays open belongs to later phases or future work. Section 11 lists what changes in the current code, and section 12 the order to build it in.
 
 **Promise:** once Ri is installed and a Home is created, it is running whenever its computer is on. It updates itself, along with everything it installs (its skills included), and a person never has to restart, babysit or rebuild it. An update that won't start puts the old version back by itself, exactly as it was. Once a new version has started working, going back is the owner's call, because undoing it could lose what it wrote. This holds for the desktop app and the CLI, on a laptop, a Mac Mini in a closet, or a Linux server reached only over SSH. The standard case takes no flags.
 
@@ -111,12 +111,12 @@ The `ri service ...` commands stay as the detailed form (`status` as JSON, `awak
 
 ### 4.2 Desktop app
 
-- **First run.** "Use this computer as your Home" creates the Home and keeps it running in one step. "Connect to your Home" pairs, as today. Advanced lets someone choose the folder or create a team. Nobody has to find a separate "Start at Login" choice.
+- **First run.** "Start a new Ri" creates the Home and keeps it running in one step. So does choosing an existing Ri on this computer, or creating a team. "Connect to Ri" pairs, as today. Nobody has to find a separate "Start at Login" choice.
 - **Updates.** A Home on this computer updates by the rule in section 7.2, the same rule as everywhere else: the heads-up shows in the app's window, with **Not now** and **Update now**. A Ri update usually changes only pages and server code, and those reach the window through the Home with no app download. The app's own part (its three screens, menus, Quick Capture, notifications and the bridge between the pages and the Mac) downloads only when its own files changed.
   - **The Home is on this computer.** A changed app part comes with the Home's update, and the window relaunches as part of that same restart.
-  - **The Home is elsewhere.** A changed app part downloads in the background and takes effect the next time the app starts, the way Claude Code does.
-  - **The bridge to the Mac must stay in step, local or remote.** Every Home's pages, including a remote Home's, get the app's bridge, `riDesktop` (`desktop/preload.ts`): opening links, notifications, connection controls and Quick Capture. Only its settings calls are limited to a Home on this computer. The bridge has a version. When a Home's pages need a bridge version this app doesn't have, the window says "Update the Ri desktop app to keep using this Ri", with **Restart now**. Today that check (`assertLocalBridge` in `desktop/viewer-trust.ts`) runs only for a Home on this computer, because `desktop/backend.ts` returns a remote session before reaching it. In this design it runs for a remote Home too. The Home's pages also check what the window's bridge offers before using a feature, so an older app loses only that feature instead of breaking.
-  - The app updating itself on macOS needs a signed app (section 13.2, open question 2). Until then a locally built app is rebuilt by hand, as today.
+  - **The Home is elsewhere.** A changed app part downloads in the background and takes effect the next time the app starts, the way Claude Code does. A release says what its app part is (`shell.id`), so an unchanged one isn't downloaded at all.
+  - **The bridge to the Mac must stay in step, local or remote.** Every Home's pages, including a remote Home's, get the app's bridge, `riDesktop` (`desktop/preload.ts`): opening links, notifications, connection controls and Quick Capture. Only its settings calls are limited to a Home on this computer. The bridge has a version. When a Home's pages need a bridge version this app doesn't have, the window says "Update the Ri desktop app to keep using this Ri", with **Restart now**. That check (`assertBridge` in `desktop/viewer-trust.ts`) runs for a Home on this computer and a remote one alike. The Home's pages also check what the window's bridge offers before using a feature, so an older app loses only that feature instead of breaking.
+  - The app updating itself on macOS needs a signed app (section 13.2, open question 2). A copy without an Apple signature still runs a Home that updates itself, it just can't replace its own part, and Check for Updates… says so. A new copy from a dmg does that.
 - **Settings, This computer.** Shows the same status as `ri status`, including "This app 0.4.2, your Home 0.4.2". A "Keep Ri running on this computer" switch is on for every Home, and turning it off removes supervision. "Add `ri` to Terminal" writes the launcher, adds `~/.local/bin` to the shell's PATH if needed, and says what it changed.
 - **Settings, Updates** (`src/components/settings/sections/updates-section.tsx`). Shows "Up to date", or what a downloaded update is waiting for ("Waiting for 2 chats to finish"), with **Update now**. Also holds the automatic updates switch and, under Advanced, the channel.
   - This section belongs to the Home's own Settings, not to the desktop app. Like every page, it comes from the Home, so it shows the same in a browser, on a phone or in the app.
@@ -222,7 +222,7 @@ Windows uses a Scheduled Task running as the user, triggered at boot and at logo
 
 ### 7.1 Automatic by default, and who can change it
 
-Automatic updates are on for every installation, with an off switch, in two places:
+Automatic updates are on for every installation, with an off switch, in two places. Turning it off also stands down an update already waiting:
 
 - **Settings > Updates**, in any window showing the Home: browser, phone or desktop app.
 - **`ri update --auto off`** (and `--auto on`) in the CLI.
@@ -243,7 +243,7 @@ Setup never asks about automatic updates. Most people can't judge the choice bef
 Once automatic updates are on:
 
 - The installation checks for a new published release when a controller starts and every 6 hours after that, as the updater does today.
-- A new release downloads in the background, along with the desktop app's own part when that changed (section 4.2). Today a downloaded update waits for someone to approve it (`approve` and `tick` in `src/lib/service/update.ts`), and the shell updater doesn't download on its own (`autoDownload = false` in `desktop/shell-update.ts`).
+- A new release downloads in the background, along with the desktop app's own part when that changed (section 4.2).
 - When the new release takes effect depends on what is running (section 7.2).
 - If a Home hasn't been able to switch for 24 hours, `ri status` and Settings say what it is waiting for ("2 chats running") and offer to update now.
 - The CLI prints one line when an update is ready but waiting, and one line after a Home has moved ("Updated ~/ri to 0.4.2"), like Claude Code's update notices. It stays quiet otherwise.
@@ -255,7 +255,8 @@ Automatic updates apply to published releases only. A checkout builds only when 
 Every Home follows one rule, whether it was set up from the desktop app or the CLI, and whether it sits on a laptop or a server nobody watches:
 
 1. **Wait for 10 quiet minutes.** Quiet means all of these:
-   - **Nothing is running that an update would cut off:** no chat turn, no agent background task, no permission waiting on someone, no request in flight, and no terminal or preview a window has open.
+   - **Nothing is running that an update would cut off:** no chat turn, no app task, no agent background task, no permission waiting on someone, and no terminal a window is showing or that's running a command. A request in flight finishes during the restart's drain (section 7.4).
+   - **Nobody is looking at a preview:** a preview a window viewed in the last 10 minutes counts as use, though it never holds up someone pressing Update now.
    - **Nobody has used Ri for the whole 10 minutes:** no typing or clicking in any window, and no calls from agents connected over MCP ("Connect your agent").
 2. **Give a 1-minute heads-up** in every window showing the Home (browser, desktop app, phone): "Ri will update in 1 minute", with **Not now** and **Update now**.
    - If no window is open, as on a server used only through MCP, there is no one to tell and the minute simply passes.
@@ -269,11 +270,11 @@ Every Home follows one rule, whether it was set up from the desktop app or the C
 Around that rule:
 
 - **Not now** holds the update for an hour. After that, the next quiet stretch brings the heads-up back. It asks again, and never gives up or goes ahead silently.
-- **Update now** (in the heads-up, in Settings, or `ri update`) skips the wait. If chats are running, it says which and offers to wait for them or stop them.
+- **Update now** (in the heads-up, in Settings, or `ri update`) skips the wait, and fetches the release first if it hasn't downloaded, as with automatic updates off. If chats are running, it says which and offers to wait for them or stop them.
 - **Automatic updates never stop running work.** A Home that is never quiet for 10 minutes keeps its version, and after 24 hours `ri status` and Settings say what it is waiting for.
 - **At most one automatic update every 12 hours,** so a Home on `latest` doesn't restart for every release. A release that arrives in between is picked up at the next one.
 - **Only people who can change update settings (section 7.1) see the heads-up's buttons.** Everyone else sees the refresh notice afterwards.
-- **A maintenance window** (`ri update when-idle --hour`) still narrows when step 1 can happen.
+- **A maintenance window** (`ri update when-idle --hour`) still narrows when step 1 can happen, and carries to later releases. Update now goes ahead of it.
 
 For everything else:
 
@@ -292,7 +293,7 @@ Published releases come on two channels, matching Claude Code's names, which are
 - **`stable`** is the default.
 - **`latest`** gets every release as it ships.
 
-The existing preference allows `stable` and `beta` (`src/lib/service/update-settings.ts`). `beta` is renamed `latest` while nothing is published.
+The channel is a preference on each computer, not part of a build (`ri update --channel`, or Settings > Updates under Advanced). A channel's pointer can't move backwards on a computer, each channel keeping its own order. Nothing moves to an older version by itself either, so someone who installed from a newer `latest` build and is on `stable` stays put until `stable` catches up.
 
 ### 7.4 Switching a Home to a new release
 
@@ -430,7 +431,7 @@ All three Homes move once phases A and B (section 12) are on main. Every step na
 
 **Migrations at the move.** A Home moving to its first release has no update snapshot behind it. So when its controller finds migrations to apply, it copies the database first and logs where (`startHome` in `src/service/main.ts`). `ri update --rollback` then says that copy exists and that there is nothing older on this computer to go back to. On 2026-11-05 all three Homes had applied all 32 migrations on `main`, so a move then changes nothing in the database. A migration that fails undoes itself, since it runs in one transaction.
 
-After that, picking up `main` is `ri update`, which builds once and switches every Home. [environments.md](environments.md) "Production on the Mac Mini" is rewritten when this ships.
+After that, picking up `main` is `ri update`, which builds once and switches every Home. [environments.md](environments.md) "Production on the Mac Mini" describes the result.
 
 ### 10.3 Keeping a Home's address
 
@@ -546,6 +547,8 @@ Acceptance, against a test feed:
 - From a paired laptop, the personal Home's owner switches automatic updates off and presses Update now. A team member can't, and neither can the laptop change the channel.
 - A connected computer switches right after its Home, waits when it is running chats for it, and moves first to a bridge release when the Home's update needs it.
 
+Built. Section 13.4 says what ran.
+
 **D. Desktop surfaces.**
 - First run that creates and supervises.
 - The heads-up and refresh notice in the app's window.
@@ -554,9 +557,13 @@ Acceptance, against a test feed:
 
 Acceptance: a fresh Mac account goes from first launch to a supervised Home in one click, survives a restart, and updates through the heads-up. The app updating its own part needs the signed app from open question 2, so that check runs once one exists.
 
+Built. Section 13.4 says what ran.
+
 **E. Distribution.** The install script, a published feed with signing, bridge releases kept available, and the CI release matrix (macOS arm64 and x64, Linux arm64 and x64, already declared in CI). Also the Windows Scheduled Task adapter, with a Windows launcher and Windows release builds.
 
 Acceptance: an SSH-only Linux server goes from `curl … | sh` and `ri start` to a paired Home that updates itself.
+
+Built, except Windows, which has its own branch and runs while its window is open for now. Nothing has been published yet, so the workflow and Linux haven't run (section 13.4).
 
 ## 13. Decisions, open questions and review
 
@@ -610,7 +617,7 @@ Acceptance: an SSH-only Linux server goes from `curl … | sh` and `ri start` to
 5. **Windows.** Native first, or WSL first, as OpenClaw supports both?
 6. **Backups.** The nightly backup is an owner-only launchd job (`pnpm backup install`). Whether every Home should get one, kept by the same controller, is a separate decision.
 7. **Before-login Macs.** A system LaunchDaemon for Macs that must serve before anyone logs in. Not planned, and it can't reach the login keychain.
-8. **The desktop app and a plain HTTP Home on the same computer** (phase D). A Home taken over from a terminal keeps `http://localhost:4224` (section 10.3), so its `/session` has no certificate. The desktop app's local window expects one (`isLocalViewer` in `desktop/viewer-trust.ts`), so today it would treat that Home as one elsewhere. Nobody runs the app on the owner's Mini, where both such Homes live. Phase D decides whether the app accepts a local HTTP Home or offers to move it to HTTPS.
+8. **The desktop app and a plain HTTP Home on the same computer.** Decided in phase D: the app accepts one. A Home taken over from a terminal keeps `http://localhost:4224` (section 10.3), so its `/session` has no certificate, and on loopback there's nothing for one to protect (`isLocalPlainHome` in `desktop/viewer-trust.ts`). Moving it to HTTPS would change its address and break the agents connected to it.
 
 ### 13.3 Review, 2026-10-28
 
@@ -771,6 +778,41 @@ A real turn from a stand-in harness now runs in the qualification, on a real ser
 **Not tested:** a real reboot (section 10.2, step 6), the real tunnel and MCP clients, a real Claude or Codex process rather than the stand-in, and Linux.
 
 One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.
+
+### 13.4 Phases C to E, 2026-11-07
+
+Built on the branch `always-on-rest`, then reviewed independently three times, each round on the repair of the one before. Run on real builds against a signed local feed, in throwaway accounts under real launchd.
+
+**What the reviews and the real runs found, that unit tests hadn't:**
+
+- A Home made by the install script had no publisher and never updated, so the publisher moved to one per computer.
+- The `stable` channel could never download a promoted release, because asking for a version by number was held to the channel's order.
+- The workflow couldn't pass its first run.
+- Turning automatic updates off didn't stop a waiting update, and Not now did nothing for the second half of the minute, while the release was being hashed.
+- A dmg from a newer `latest` build could move back to an older `stable`.
+- The desktop app refused to open a stopped Home after one automatic update, because its preflight was strict about fields. An app can lag its Home for good, so it now reads only what it uses.
+- A release was 190,000 files and a 1.13 GB download, past the signing tool's limits, because pnpm leaves an unused second copy of every package and source maps shipped. It's now 100,000 files and 680 MB.
+- The install script failed over an existing Home on an older release, because a release's own commands were being handed to that release.
+- A disk too full for a snapshot stopped the Home first, then rejected the release. It now waits with the Home serving, by the same measure on any disk.
+
+**What ran end to end:**
+
+- `curl | sh` from nothing, a tampered release refused, then `ri start` under launchd.
+- A release published to `latest` and promoted to `stable`, found, downloaded and verified by itself.
+- A real browser tab showing the heads-up, Not now holding it and it asking again, an MCP call cancelling it, the switch going off standing it down, and with nobody answering it going ahead with a refresh notice.
+- A chat turn from a stand-in harness: no heads-up and no closing for its whole length, then the rule ran to a switch with the idle agent process still open.
+- Rollback staying put against a feed still offering the newer release.
+- A paired device: the switch and Update now work, and the channel, metered, rollback, check and download are refused. With automatic updates off, it fetched the release and moved.
+- The dmg, copied to Applications under a new account: one click to a Home the OS keeps running, Settings > This computer, Add `ri` to Terminal, the Keep running switch both ways, the heads-up and Update now in the app's window, a team made in the app kept running too, the OS bringing the Home back with no window open, and the app attaching to it again.
+- A real connected computer, enrolled through `ri connect` and `ri worker enroll`, following its Home to the new version by itself.
+
+**Not run, and why:**
+
+- The workflow itself and any Linux build. They need a push and a first tag, which is the owner's call. Its logic was read closely, but expect to fix something on the first run.
+- The app updating its own part. That needs a Developer ID on macOS. The code is unit tested only.
+- A dmg downloaded through a browser, opened on another Mac. Gatekeeper needs a person to allow it in System Settings. A quarantined copy of Ri's Node and native addon both loaded fine here.
+- A real reboot, because this computer runs production.
+- A connected computer waiting for its own chats, and moving first to a bridge release. Unit tested, since it takes a second release with a different protocol.
 
 ## 14. Prior art
 

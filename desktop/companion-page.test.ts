@@ -220,6 +220,17 @@ describe('desktop welcome and connection flow', () => {
 });
 
 describe('configured desktop settings', () => {
+  it('offers Restart now when a Ri needs a newer app, instead of a retry that can\'t work', async () => {
+    const issue = { kind: 'app_update', message: 'Update the Ri desktop app to keep using this Ri.', detail: 'This Ri needs a newer desktop app than this one.', retryable: false };
+    const { document, request } = await renderPage({ ...viewer, connectionError: issue.detail, connection: { phase: 'failed', issue, showNotice: true } });
+    const open = document.getElementById('open')!;
+    expect(open.textContent).toBe('Restart now');
+    expect(document.getElementById('heading')!.textContent).toBe('Update the Ri desktop app to keep using this Ri.');
+    open.onclick!({} as never);
+    await flush();
+    expect(request).toHaveBeenCalledWith('update-app', undefined);
+  });
+
   it('opens notification controls directly without changing consent and keeps test disabled until enabled', async () => {
     const ui = await renderPage({ ...viewer, notifications: { supported: true, enabled: false } }, { view: 'notifications' });
     expect(ui.visible('settings')).toBe(true);

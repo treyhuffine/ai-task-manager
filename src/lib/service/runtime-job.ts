@@ -32,7 +32,7 @@ export async function stopRuntimeJobs(graceMs = 5000) {
 /** Heavy filesystem/hash work must never freeze the controller's status and
  * ownership surface. The helper uses the controller's trusted runtime/ABI. */
 export function runtimeJob<T>(repo: string, action: 'verify' | 'download' | 'checkpoint' | 'restore' | 'validate-database' | 'worker-checkpoint' | 'worker-checkpoint-verify', value: unknown, progress?: (bytes: number) => void, node = process.execPath): Promise<T> {
-  if (!owner || stopping) return Promise.reject(new Error('Runtime jobs are unavailable while the service is starting or stopping'));
+  if (!owner || stopping) return Promise.reject(Object.assign(new Error('Runtime jobs are unavailable while the service is starting or stopping'), { stopped: true }));
   return new Promise((resolve, reject) => {
     const child = fork(path.join(repo, 'dist/service/runtime-job.cjs'), [], { execPath: node, execArgv: [], cwd: repo, env: process.env, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
     let outcome: { error?: Error; value?: T } | undefined;
@@ -44,7 +44,7 @@ export function runtimeJob<T>(repo: string, action: 'verify' | 'download' | 'che
       force ??= setTimeout(() => child.kill('SIGKILL'), graceMs);
     };
     const job = {
-      stop: (graceMs: number) => stop(new Error('The service stopped this runtime job'), graceMs),
+      stop: (graceMs: number) => stop(Object.assign(new Error('The service stopped this runtime job'), { stopped: true }), graceMs),
       closed: new Promise<void>(resolve => { reaped = resolve; }),
     };
     active.add(job);

@@ -5,6 +5,7 @@
  * Kept free of I/O, so the wording is tested as people read it.
  */
 import type { ServiceStatus } from './client';
+import { updateWaitingText } from './update-presentation';
 
 export interface HomeStatusFacts {
   status: ServiceStatus | null;
@@ -83,7 +84,7 @@ export function describeHomeStatus(facts: HomeStatusFacts): [string, string][] {
   const update = status?.update;
   if (update) {
     const target = update.release?.version;
-    const said = update.phase === 'waiting' ? `waiting: ${update.reason ?? 'for the Home to be idle'}`
+    const said = update.phase === 'waiting' ? `${updateWaitingText(update)}${update.waitingLong ? `, for over a day. To update now and end them: \`ri update --now\`` : ''}`
       : update.phase === 'ready' ? `${target ?? 'an update'} is ready`
       : update.phase === 'failed' || update.phase === 'recovery-required' ? `${update.phase === 'failed' ? 'failed' : 'needs recovery'}: ${update.error ?? 'see `ri logs`'}`
       : update.phase === 'idle' || update.phase === 'committed' ? 'up to date' : update.phase;

@@ -4,7 +4,7 @@ import { POST } from './route';
 const mocks = vi.hoisted(() => ({ owner: vi.fn(), request: vi.fn() }));
 vi.mock('@/lib/service/owner-auth', () => ({ isInstallationOwner: mocks.owner }));
 vi.mock('@/lib/service/client', () => ({ serviceRequest: mocks.request }));
-beforeEach(() => { vi.clearAllMocks(); mocks.owner.mockReturnValue(true); mocks.request.mockResolvedValue({ update: { format: 1, phase: 'waiting', changedAt: '2026-10-03', configured: true, busy: false, policy: null } }); });
+beforeEach(() => { vi.clearAllMocks(); mocks.owner.mockReturnValue(true); mocks.request.mockResolvedValue({ update: { format: 1, phase: 'waiting', changedAt: '2026-10-03', origin: { source: 'published' }, waitingLong: false, configured: true, busy: false, policy: null } }); });
 const request = (body: unknown) => new NextRequest('https://localhost/api/service/update', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
 it('requires the owner credential for activation', async () => {
   mocks.owner.mockReturnValue(false);

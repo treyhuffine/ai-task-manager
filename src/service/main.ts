@@ -28,7 +28,10 @@ import { emptyTrash, pruneReleases, writeHomeRecord } from '@/lib/service/store'
 import { activationPending, clearActivation, readActivation } from '@/lib/service/activation';
 import { isHomeSnapshot, pruneSnapshots } from '@/lib/service/snapshot';
 import { writeMaintenance, clearMaintenance, exclusiveActivity } from '@/lib/service/maintenance';
-import { releasePolicy } from '@/lib/service/release';
+import { checkReleaseIndex, releasePolicy } from '@/lib/service/release';
+import { followTarget, type HomeRelease } from '@/lib/service/follow-home';
+import { negotiateWorker } from '@/lib/releases/compatibility';
+import { readOrigin } from '@/lib/service/origin';
 import { updateReleasePreferences } from '@/lib/service/release-trust';
 import { ServiceControlCoordination } from '@/lib/service/control-coordination';
 import { consumeDesktopInitialization } from '@/lib/service/initialization';
@@ -324,13 +327,22 @@ async function probeBackend() {
 /** What a restart would cut off (docs/always-on-spec.md 7.2). Not every process
  * under the server: an idle agent resumes when its chat continues, and the agent
  * browser is meant to outlive the server. */
+const count = (total: number, one: string) => total ? `${total} ${one}${total === 1 ? '' : 's'}` : '';
+interface ServerActivity { executions: number; apps: number; background: number; permissions: number; terminals: number; previews: number; lastUseAt: number }
+const serverActivity = () => backendRequest<ServerActivity>('/__ri_activity');
+const workOf = (state: ServerActivity) => [count(state.executions, 'chat'), count(state.apps, 'app task'), count(state.background, 'background task'),
+  count(state.permissions, 'pending permission'), count(state.terminals, 'busy terminal')].filter(Boolean);
 async function activity() {
   if (!servesHome(role)) return worker ? worker.activity() : [];
   if (!next?.pid) return ['the server to come back'];
-  const state = await backendRequest<{ executions: number; apps: number; background: number; permissions: number; terminals: number }>('/__ri_activity');
-  const count = (total: number, one: string) => total ? `${total} ${one}${total === 1 ? '' : 's'}` : '';
-  return [count(state.executions, 'chat'), count(state.apps, 'app task'), count(state.background, 'background task'),
-    count(state.permissions, 'pending permission'), count(state.terminals, 'busy terminal')].filter(Boolean);
+  return workOf(await serverActivity());
+}
+/** What the update rule reads (7.2). A person asking with `ri update` isn't held
+ * up by a preview left open, but a Home updating by itself is. */
+async function quiet() {
+  if (!next?.pid) throw new Error('The server is not running');
+  const state = await serverActivity();
+  return { work: [...workOf(state), count(state.previews, 'open preview')].filter(Boolean), lastUseAt: state.lastUseAt };
 }
 
 const control = http.createServer(async (request, response) => {
@@ -370,7 +382,10 @@ const control = http.createServer(async (request, response) => {
       let bytes = 0; const chunks: Buffer[] = [];
       for await (const chunk of request) { bytes += chunk.length; if (bytes > 4096) throw new Error('Control request too large'); chunks.push(chunk); }
       if (coordination.handingOff || updater.status().busy) throw new Error('Wait for the current service action before changing update preferences.');
-      return reply({ policy: updateReleasePreferences(JSON.parse(Buffer.concat(chunks).toString())) });
+      const policy = updateReleasePreferences(JSON.parse(Buffer.concat(chunks).toString()));
+      // Turned on, or the limit lifted: a release that was waiting needn't wait for the next check.
+      if (policy.auto && !policy.metered) setImmediate(() => void checkForRelease());
+      return reply({ policy });
     }
     if (request.method === 'POST' && request.url === '/update') {
       if (roleChange || ['first-run', 'retired', 'conflict'].includes(role.role)) throw new Error('Complete device setup before updating this installation.');
@@ -379,7 +394,7 @@ const control = http.createServer(async (request, response) => {
           const promise = body.action === 'check' ? updater.check() : updater.download();
           void promise.catch(error => console.error('[update]', error instanceof Error ? error.message : 'Failed'));
         } else if (body.action === 'apply' || body.action === 'when-idle' || body.action === 'apply-now') {
-          updater.approve(body.window, body.action === 'apply-now');
+          updater.approve(body.window, body.action === 'apply-now', body.action !== 'when-idle');
           if (body.action !== 'when-idle') setImmediate(() => void updateTick());
         } else if (body.action === 'later') updater.later();
         else if (body.action === 'offer') return updater.offer(body.release!, body.local).then(update => reply({ update }));
@@ -499,6 +514,7 @@ async function start() {
   }
   updater = new UpdateCoordinator({ activity,
     work: async () => servesHome(role) ? activity() : await worker?.work() ?? [],
+    get quiet() { return servesHome(role) ? quiet : undefined; },
     get storage() { return homeStorage() ? 'home' as const : 'worker' as const; },
     exclusiveStorage: async () => (await acquireWorkerLock()).release,
     assertNoLegacyWriters: () => homeStorage() ? assertNoLegacyWriters() : Promise.resolve(assertWorkerStorage()),
@@ -564,6 +580,37 @@ async function start() {
   startTimers();
 }
 
+/** A connected computer follows its Home's version (docs/always-on-spec.md 7.7),
+ * whatever the automatic updates switch says, as soon as its own chats finish. */
+let workerHome: HomeRelease = {};
+let following = false;
+/** After a failure, heartbeats keep coming every 20 seconds. Not a retry every 20 seconds. */
+let followAfter = 0;
+async function followHome() {
+  if (following || Date.now() < followAfter || role.role !== 'worker' || starting || roleChange || coordination.handingOff || updater.status().busy) return;
+  if (readOrigin().source !== 'published' || !releasePolicy()) return;
+  const own = runtimePeerRelease(controllerRepo);
+  following = true;
+  try {
+    const next = workerHome.next?.compatibility;
+    const index = next && !negotiateWorker(next, own.compatibility).compatible ? await checkReleaseIndex() : [];
+    const target = followTarget({ own, home: workerHome, index });
+    if (!target) return;
+    if (updater.status().release?.version !== target.version || updater.status().phase === 'idle') await updater.checkVersion(target.version);
+    if (updater.status().rejected === updater.status().release?.runtime.id) return;
+    if (['available', 'failed'].includes(updater.status().phase)) {
+      // It may fail again further on, without throwing here. Not every 20 seconds.
+      if (updater.status().phase === 'failed') followAfter = Date.now() + 5 * 60_000;
+      await updater.download();
+    }
+    if (updater.status().phase === 'ready') { updater.approveAutomatically(); void updateTick(); }
+  } catch (error) {
+    followAfter = Date.now() + 5 * 60_000;
+    console.warn('[update] Following the Home failed:', error instanceof Error ? error.message : 'Failed');
+  }
+  finally { following = false; }
+}
+
 async function refreshRole(force = false) {
   const selected = resolveServiceRole();
   if (!force && worker && selected.role === 'worker' && worker.matchesEnrollment()) {
@@ -586,7 +633,7 @@ async function refreshRole(force = false) {
     delete status.origin;
     clearActivation();
     if (role.role === 'worker') {
-      worker = new ServiceWorker({ repo, node, onChild: pid => {
+      worker = new ServiceWorker({ repo, node, onHome: home => { workerHome = { ...workerHome, ...home }; void followHome(); }, onChild: pid => {
         if (pid) atomicWriteFile(childRecord, JSON.stringify({ pid, runId: status.runId, role: 'worker' }));
         else fs.rmSync(childRecord, { force: true });
       } });
@@ -706,17 +753,26 @@ function startTimers() {
     try { superviseServer(); } catch (error) { console.warn('[service] Supervision check failed:', error instanceof Error ? error.message : 'Failed'); }
     void probeBackend().catch(error => console.warn('[service] Probe failed:', error instanceof Error ? error.message : 'Failed'));
   }, Number(process.env.RI_SERVICE_PROBE_MS) || PROBE_INTERVAL_MS); probe.unref();
-  // Checking/downloading never approves activation. Metered mode suppresses
-  // automatic downloads, while an explicit Download remains available.
-  const check = async () => {
-    const policy = releasePolicy(); if (!policy || updater.status().busy || coordination.handingOff || roleChange || ['first-run', 'retired', 'conflict'].includes(role.role)) return;
-    try {
-      await updater.check();
-      if (!coordination.handingOff && policy.automaticDownload && !policy.metered && updater.status().phase === 'available') await updater.download();
-    } catch (error) { console.warn('[update] Automatic check unavailable:', error instanceof Error ? error.message : 'Offline'); }
-  };
-  const initial = setTimeout(() => void check(), 60_000 + Math.random() * 60_000); initial.unref();
-  const checks = setInterval(() => void check(), (6 + Math.random()) * 60 * 60_000); checks.unref();
+  // Automatic updates (docs/always-on-spec.md 7.1 and 7.2). A release downloads
+  // in the background, then the rule decides when it takes effect. Metered mode
+  // holds the download, and an explicit Download stays available.
+  const firstCheckMs = Number(process.env.RI_UPDATE_FIRST_CHECK_MS) || 60_000 + Math.random() * 60_000;
+  const initial = setTimeout(() => void checkForRelease(), firstCheckMs); initial.unref();
+  const checks = setInterval(() => void checkForRelease(), Number(process.env.RI_UPDATE_CHECK_MS) || (6 + Math.random()) * 60 * 60_000); checks.unref();
+}
+
+async function checkForRelease() {
+  if (role.role === 'worker') { await followHome(); return; }
+  const policy = releasePolicy();
+  // A Home with no release to move from is a source checkout under development.
+  if (!policy || !installedRuntime() || readOrigin().source !== 'published' || updater.status().busy || coordination.handingOff || roleChange || ['first-run', 'retired', 'conflict'].includes(role.role)) return;
+  try {
+    await updater.check(true);
+    const held = () => coordination.handingOff || !policy.auto || updater.status().rejected === updater.status().release?.runtime.id;
+    // A download that failed gets another go. A release that failed here doesn't.
+    if (!held() && !policy.metered && ['available', 'failed'].includes(updater.status().phase)) await updater.download();
+    if (!held() && updater.status().phase === 'ready') { updater.approveAutomatically(); void updateTick(); }
+  } catch (error) { console.warn('[update] Automatic check unavailable:', error instanceof Error ? error.message : 'Offline'); }
 }
 process.once('SIGTERM', () => void shutdown()); process.once('SIGINT', () => void shutdown());
 void start().catch(async error => {

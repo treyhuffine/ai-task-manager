@@ -10,6 +10,8 @@ import { isTrpcDrainSave } from '@/lib/trpc/admission';
 import { listRunningSessions, listBackgroundTaskSessions, listSessionsWithPending } from '@/lib/executor/status-snapshot';
 import { isWebSocketPath } from '@/lib/trpc/ws-runtime';
 import { terminalsInUse } from '@/lib/terminal/in-use';
+import { isAgentCall, lastUseAt, noteUse } from '@/lib/service/last-use';
+import { viewedPreviews } from '@/lib/preview/viewed';
 import { DEFAULT_PORT } from '@/lib/auth/port';
 import { beginPerfScope, stopPerfRecorder } from '@/lib/perf/recorder';
 import { startServerPerfLog } from '@/lib/perf/server';
@@ -75,7 +77,7 @@ async function start() {
       }
       if (pathname === '/__ri_activity') {
         response.setHeader('content-type', 'application/json');
-        response.end(JSON.stringify({ executions: listRunningSessions().length, apps: localAppsEnabled() ? localApps().activeCount() : 0, background: listBackgroundTaskSessions().length, permissions: listSessionsWithPending().length, terminals: terminalsInUse() }));
+        response.end(JSON.stringify({ executions: listRunningSessions().length, apps: localAppsEnabled() ? localApps().activeCount() : 0, background: listBackgroundTaskSessions().length, permissions: listSessionsWithPending().length, terminals: terminalsInUse(), previews: viewedPreviews(), lastUseAt: lastUseAt() }));
         return;
       }
       response.setHeader('content-type', 'application/json');
@@ -89,6 +91,7 @@ async function start() {
     const workerCompletion = request.method === 'POST' && /^\/api\/workers\/me\/(?:heartbeat|events|commands\/[^/]+\/ack|requests\/[^/]+\/result)$/.test(pathname);
     const saving = workerCompletion || isTrpcDrainSave(request.method, pathname) || request.method === 'PATCH' && /^\/api\/(tasks|notes|areas)\/[^/]+$/.test(pathname);
     const safeRead = request.method === 'GET' || request.method === 'HEAD';
+    if (isAgentCall(request.method, pathname)) noteUse();
     if (process.env.RI_SERVICE_VALIDATING === '1' || gate?.phase === 'offline' || (gate && !saving && !safeRead)) {
       response.writeHead(503, { 'Retry-After': '5', 'Cache-Control': 'no-store', 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ error: 'maintenance', message: 'Ri is preparing an update. Please retry shortly.' }));

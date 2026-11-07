@@ -1,5 +1,6 @@
+import { connectionFailure } from './connection-failure';
 import { expect, it } from 'vitest';
-import { assertLocalBridge, isLocalViewer, isViewerReload, remoteViewerOrigin, trustedViewerFrame, viewerPermission, viewerNotificationAction } from './viewer-trust';
+import { assertBridge, isLocalViewer, isViewerReload, remoteViewerOrigin, trustedViewerFrame, viewerPermission, viewerNotificationAction } from './viewer-trust';
 import { desktopRequestHeaders } from './trust';
 import type { BackendReady } from './config';
 
@@ -33,9 +34,12 @@ it('requires standard HTTPS and origin-only addresses, with an explicit local de
 
 
 it('accepts legacy bridge 1 and compatible rolling runtime releases, rejecting an unsupported native bridge', () => {
-  expect(() => assertLocalBridge()).not.toThrow();
-  expect(() => assertLocalBridge({ compatibility: { nativeBridge: [1, 2] } })).not.toThrow();
-  expect(() => assertLocalBridge({ compatibility: { nativeBridge: [2] } })).toThrow('Update the Ri desktop app');
+  expect(() => assertBridge()).not.toThrow();
+  expect(() => assertBridge([1, 2])).not.toThrow();
+  expect(() => assertBridge([2])).toThrow('newer desktop app');
+  try { assertBridge([2]); } catch (error) {
+    expect(connectionFailure(error)).toMatchObject({ kind: 'app_update', message: 'Update the Ri desktop app to keep using this Ri.', retryable: false });
+  }
 });
 
 
@@ -76,4 +80,14 @@ it('leaves only exact trusted-document reloads to the existing beforeunload guar
     if (!target.startsWith(`${origin}/`)) expect(isViewerReload(target, target, origin)).toBe(false);
   }
   expect(isViewerReload(current, `${origin}/note/two`, origin)).toBe(false);
+});
+
+it('treats a plain HTTP Home on this computer as local, and only that', () => {
+  const home = { type: 'ready', connection: 'home', serviceRunId: 'run', desktopClient: 'secret', token: 'token', certificate: '' } as const;
+  expect(isLocalViewer({ ...home, origin: 'http://localhost:4224' })).toBe(true);
+  expect(isLocalViewer({ ...home, origin: 'http://127.0.0.1:4224' })).toBe(true);
+  expect(isLocalViewer({ ...home, origin: 'http://mini.example:4224' })).toBe(false);
+  expect(isLocalViewer({ ...home, origin: 'https://localhost:4224' })).toBe(false);
+  expect(isLocalViewer({ ...home, origin: 'https://localhost:4224', certificate: 'pinned' })).toBe(true);
+  expect(isLocalViewer({ ...home, connection: 'remote', origin: 'http://localhost:4224' } as never)).toBe(false);
 });

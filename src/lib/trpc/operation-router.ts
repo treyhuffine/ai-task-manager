@@ -126,6 +126,9 @@ import * as operation112 from "@/lib/server/operations/service/environment";
 import * as operation113 from "@/lib/server/operations/service/speech";
 import * as operation114 from "@/lib/server/operations/service/update";
 import * as operation115 from "@/lib/server/operations/service/update/policy";
+import * as operationServiceTouch from "@/lib/server/operations/service/touch";
+import * as operationServiceComputer from "@/lib/server/operations/service/computer";
+import * as operationServiceRollback from "@/lib/server/operations/service/update/rollback";
 import * as operation116 from "@/lib/server/operations/sessions/[id]";
 import * as operation117 from "@/lib/server/operations/sessions/[id]/archive";
 import * as operation118 from "@/lib/server/operations/sessions/[id]/auto-merge";
@@ -472,15 +475,18 @@ export const internalRouters = {
     list: sp.input(operation109.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation109.GET(input, operationContext(ctx.request, input, "/search")))),
   }),
   service: router({
-    list: p.input(operation110.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation110.GET(input, operationContext(ctx.request, input, "/service")))),
+    list: sp.input(operation110.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation110.GET(input, operationContext(ctx.request, input, "/service")))),
     awakeGet: p.input(operation111.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation111.GET(input, operationContext(ctx.request, input, "/service/awake")))),
     awakePatch: p.input(operation111.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation111.PATCH(input, operationContext(ctx.request, input, "/service/awake")))),
     environmentGet: p.input(operation112.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation112.GET(input, operationContext(ctx.request, input, "/service/environment")))),
     environmentPatch: p.input(operation112.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation112.PATCH(input, operationContext(ctx.request, input, "/service/environment")))),
     speechGet: p.input(operation113.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation113.GET(input, operationContext(ctx.request, input, "/service/speech")))),
     speechPost: p.input(operation113.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation113.POST(input, operationContext(ctx.request, input, "/service/speech")))),
-    updatePost: p.input(operation114.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation114.POST(input, operationContext(ctx.request, input, "/service/update")))),
-    updatePolicyPatch: p.input(operation115.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation115.PATCH(input, operationContext(ctx.request, input, "/service/update/policy")))),
+    updatePost: sp.input(operation114.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation114.POST(input, operationContext(ctx.request, input, "/service/update")))),
+    updatePolicyPatch: sp.input(operation115.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation115.PATCH(input, operationContext(ctx.request, input, "/service/update/policy")))),
+    computerGet: p.input(operationServiceComputer.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operationServiceComputer.GET(input, operationContext(ctx.request, input, "/service/computer")))),
+    touchPost: sp.input(operationServiceTouch.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operationServiceTouch.POST(input, operationContext(ctx.request, input, "/service/touch")))),
+    updateRollbackGet: p.input(operationServiceRollback.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operationServiceRollback.GET(input, operationContext(ctx.request, input, "/service/update/rollback")))),
   }),
   sessions: router({
     get: sp.input(operation116.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation116.GET(input, operationContext(ctx.request, input, "/sessions/[id]")))),

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { atomicWriteFile, withFileLock } from '@/lib/config/atomic-file';
 import { getRuntimeBaseDir, getRuntimeInstallDir } from './paths';
-import { releaseDirectory, stageRelease, storeDirectory, writeHomeRecord } from './store';
+import { latestRelease, releaseDirectory, stageRelease, storeDirectory, writeHomeRecord } from './store';
 
 export { getRuntimeInstallDir } from './paths';
 export { createRuntimeManifest, verifyRuntime, validateRuntimeLink, type RuntimeManifest, type RuntimeFile } from './runtime-manifest';
@@ -124,7 +124,9 @@ export function writeRuntimeLauncher(install = getRuntimeInstallDir(), base = ge
  * step. Staging never replaces an already selected running runtime. */
 export function stageRuntime(resources: string) {
   const manifest = stageRelease(resources);
-  return adoptRelease(manifest.id, resources);
+  // An app never downgrades an installation (section 5): the store may hold newer.
+  const newest = latestRelease();
+  return adoptRelease(newest && newest !== manifest.id ? newest : manifest.id);
 }
 
 /**
@@ -132,13 +134,10 @@ export function stageRuntime(resources: string) {
  * launcher and record. A Home that already runs a release keeps it: moving to
  * another is an update (docs/always-on-spec.md section 7.4).
  */
-export function adoptRelease(id: string, resources = releaseDirectory(id)) {
+export function adoptRelease(id: string) {
   const install = getRuntimeInstallDir();
   fs.mkdirSync(/* turbopackIgnore: true */ install, { recursive: true, mode: 0o700 });
   return withFileLock(path.join(/* turbopackIgnore: true */ install, 'stage'), () => {
-    const policy = path.join(/* turbopackIgnore: true */ resources, 'release-policy.json');
-    const installedPolicy = path.join(/* turbopackIgnore: true */ install, 'release-policy.json');
-    if (fs.existsSync(/* turbopackIgnore: true */ policy) && !fs.existsSync(/* turbopackIgnore: true */ installedPolicy)) atomicWriteFile(installedPolicy, fs.readFileSync(/* turbopackIgnore: true */ policy));
     if (!installedRuntime()) atomicWriteFile(path.join(/* turbopackIgnore: true */ install, 'active-release'), `${id}\n`);
     writeRuntimeLauncher(install);
     writeHomeRecord(install);

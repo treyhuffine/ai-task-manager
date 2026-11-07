@@ -10,11 +10,29 @@ import type { InstallationInspection } from './installation';
 import { ensureServiceStatus, serviceStatus, serviceRequest, type ServiceSession, type ServiceStatus } from '../src/lib/service/client';
 import { attachExistingOwner, runtimeForOwner } from './backend-selection';
 import { installedRuntime } from '../src/lib/service/runtime';
+import { latestRelease, releaseDirectory, stageRelease } from '../src/lib/service/store';
+import { releasePolicyFile } from '../src/lib/service/release-trust';
+import { compareVersions } from '../src/lib/service/version-order';
 import { stageFirstDesktopRuntime } from '../src/lib/service/initialization';
 import { connectionSetup, type ConnectionSetupStatus, type ConnectedViewerSession } from './connection-setup';
-import { assertLocalBridge, remoteViewerOrigin } from './viewer-trust';
+import { assertBridge, remoteViewerOrigin } from './viewer-trust';
 import { connectionFailure } from './connection-failure';
 import { DesktopSessionError } from './session-auth';
+
+/**
+ * The app carries a release, and hands it to this computer's store unless that
+ * already holds a newer one (docs/always-on-spec.md section 5). A Home that was here
+ * first gets its publisher this way too. Costs a full check, so only when it's needed.
+ */
+function offerOwnRelease() {
+  const resources = process.env.RI_DESKTOP_RESOURCES;
+  if (!resources) return;
+  const version = (folder: string) => JSON.parse(fs.readFileSync(path.join(folder, 'server/package.json'), 'utf8')).version as string;
+  const latest = latestRelease();
+  const needsPublisher = !fs.existsSync(releasePolicyFile()) && fs.existsSync(path.join(resources, 'release-policy.json'));
+  if (!needsPublisher && latest && compareVersions(version(resources), version(releaseDirectory(latest))) <= 0) return;
+  stageRelease(resources);
+}
 
 const repo = process.env.RI_DESKTOP_REPO!;
 const mode = process.env.RI_DESKTOP_MODE === 'development' ? 'development' : 'production';
@@ -78,11 +96,12 @@ void (async () => {
     if (runtime) process.env.RI_CLI_COMMAND = bundledCliCommand(runtime.node, runtime.repo, getAppRoot(), serviceIdentity());
     if (owner.role === 'worker' || owner.role === 'viewer') {
       const connected = await connectionSetup({ action: 'session' }, { development: mode === 'development' }) as ConnectedViewerSession;
+      assertBridge(connected.nativeBridge);
       return { type: 'ready', connection: 'remote', serviceRunId: owner.runId, runtime,
         origin: remoteViewerOrigin(connected.homeUrl, mode === 'development'), certificate: '', token: connected.signInKey,
         homeId: connected.homeId, homeName: connected.homeName, deviceId: connected.deviceId };
     }
-    assertLocalBridge(owner.release);
+    assertBridge(owner.release?.compatibility.nativeBridge);
     const local = await serviceRequest<ServiceSession>('/session');
     return { type: 'ready', connection: 'home', serviceRunId: local.runId, desktopClient: local.desktopClient, runtime,
       origin: local.origin, certificate: local.certificate, token: local.token };
@@ -101,6 +120,8 @@ void (async () => {
   // verified connection while retaining the existing renderer and its drafts.
   try { await connect(status); }
   catch (error) { const issue = connectionFailure(error); reportedFailure = issue.detail; send({ type: 'error', message: reportedFailure, issue }); }
+  // Once the window is up: it's minutes of hashing when there's anything to do, and nothing waits on it.
+  setTimeout(() => { try { offerOwnRelease(); } catch (error) { console.warn('[desktop] Could not store this app\'s release:', error instanceof Error ? error.message : 'Failed'); } }, 60_000).unref();
   const monitor = setInterval(async () => {
     if (checking) return;
     checking = true;

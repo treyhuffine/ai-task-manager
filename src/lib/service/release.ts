@@ -7,7 +7,7 @@ import * as tar from 'tar';
 import { getRuntimeInstallDir, stageRuntime, validateRuntimeLink, verifyRuntime } from './runtime';
 import { requireDiskSpace } from './checkpoint';
 import { secureFetch, type Release } from './release-trust';
-export { ReleaseSchema, releasePolicy, verifyRelease, checkRelease, type Release, type ReleasePolicy } from './release-trust';
+export { ReleaseSchema, releasePolicy, verifyRelease, checkRelease, checkReleaseVersion, checkReleaseIndex, type Release, type ReleasePolicy } from './release-trust';
 
 export async function downloadRelease(release: Release, progress: (bytes: number) => void = () => {}) {
   const install = getRuntimeInstallDir();

@@ -8,17 +8,20 @@ const mocks = await vi.hoisted(async () => {
     updater: Object.assign(new EventEmitter(), { setFeedURL: vi.fn(), checkForUpdates: vi.fn(), downloadUpdate: vi.fn(), quitAndInstall: vi.fn() }),
     dialog: { showMessageBox: vi.fn(), showErrorBox: vi.fn() },
     checkRelease: vi.fn(),
+    appleSigned: vi.fn(async () => true),
   };
 });
-vi.mock('electron', () => ({ app: { isPackaged: true, getVersion: () => '1.0.0' }, autoUpdater: mocks.native, dialog: mocks.dialog }));
+vi.mock('electron', () => ({ app: { isPackaged: true, getVersion: () => '1.0.0', getPath: () => '/Applications/Ri.app/Contents/MacOS/Ri' }, autoUpdater: mocks.native, dialog: mocks.dialog }));
+vi.mock('./app-signature', () => ({ appleSigned: mocks.appleSigned }));
 vi.mock('electron-updater', () => ({ autoUpdater: mocks.updater }));
-vi.mock('../src/lib/service/release-trust', () => ({ checkRelease: mocks.checkRelease, releasePolicy: () => ({}) }));
-import { updateDesktop } from './shell-update';
+vi.mock('../src/lib/service/release-trust', () => ({ checkRelease: mocks.checkRelease, releasePolicy: () => ({ auto: true, metered: false }) }));
+import { downloadDesktopUpdateInBackground, relaunchWithHome, updateDesktop } from './shell-update';
 
 const release = { version: '1.0.1', channel: 'stable', notes: 'Update', shell: { url: 'https://releases.example/Ri.zip', sha512: 'digest', size: 100 } };
 const window = { setProgressBar: vi.fn(), isDestroyed: () => false, webContents: { send: vi.fn() } };
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.appleSigned.mockResolvedValue(true);
   vi.stubGlobal('process', { ...process, platform: 'darwin' });
   mocks.native.removeAllListeners();
   mocks.updater.removeAllListeners();
@@ -133,3 +136,30 @@ it('also refreshes Linux eligibility after downloading and before AppImage insta
   expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled();
   expect(commit).not.toHaveBeenCalled();
 });
+
+it('tells an unsigned Mac copy plainly that it can\'t replace itself, and touches nothing', async () => {
+  mocks.appleSigned.mockResolvedValue(false);
+  await updateDesktop(window as unknown as BrowserWindow, vi.fn(), vi.fn());
+  expect(mocks.dialog.showMessageBox).toHaveBeenCalledWith(window, expect.objectContaining({ message: "This copy of the app can't update itself" }));
+  expect(mocks.checkRelease).not.toHaveBeenCalled();
+  expect(mocks.dialog.showErrorBox).not.toHaveBeenCalled();
+  await downloadDesktopUpdateInBackground();
+  expect(mocks.updater.downloadUpdate).not.toHaveBeenCalled();
+});
+
+it('relaunches with the Home only once it moved to the version that downloaded', async () => {
+  const prepare = vi.fn().mockResolvedValue(true);
+  const commit = vi.fn();
+  await relaunchWithHome('1.0.1', prepare, commit);
+  expect(prepare).not.toHaveBeenCalled();
+  await downloadDesktopUpdateInBackground();
+  expect(mocks.updater.downloadUpdate).toHaveBeenCalledOnce();
+  await relaunchWithHome('1.0.0', prepare, commit);
+  expect(prepare).not.toHaveBeenCalled();
+  const relaunching = relaunchWithHome('1.0.1', prepare, commit);
+  await vi.waitFor(() => expect(mocks.updater.quitAndInstall).toHaveBeenCalledOnce());
+  mocks.native.emit('before-quit-for-update');
+  await relaunching;
+  expect(commit).toHaveBeenCalledOnce();
+});
+

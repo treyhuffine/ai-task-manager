@@ -1,5 +1,6 @@
 'use client';
 
+import { HarnessToolSetup } from '@/components/desktop/harness-tool-setup';
 import { CursorCredentialPanel } from '@/components/settings/cursor-credential-panel';
 import { HarnessPermissionNotice } from '@/components/settings/harness-permission-notice';
 import { HarnessPicker } from '@/components/settings/harness-picker';
@@ -263,6 +264,9 @@ export function HarnessSetup({
         onAccept={acceptApiKey}
       />
 
+      {!state.harnessAuth.report?.hasSubscription && <HarnessToolSetup harness={state.harness}
+        installed={state.harnessAuth.report?.binary.installed === true}
+        onComplete={() => void runCheck(state.harness, { fresh: true })} />}
       {state.harness === 'cursor' && <CursorCredentialPanel />}
       {state.harness === 'opencode' && <OpenCodeProviderPanel />}
 
