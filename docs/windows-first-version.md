@@ -19,19 +19,19 @@ on the PC. See [OpenAI's Windows guidance](https://learn.chatgpt.com/docs/window
 
 - [x] Actions produces an unsigned x64 `.exe` artifact
 - [x] Installer installs on the hosted Windows runner
-- [x] First launch creates a Home and finishes setup
+- [x] First launch creates a Home and finishes local setup
 - [x] Windows process ownership, control transport and shutdown work
 - [x] Real Claude Code and Codex installation, discovery and native version commands work
 - [x] Windows launching and streamed chat work with a stand-in Claude protocol
-- [ ] Real account sign-in and tool-using chat work on the PC
+- [ ] Real account sign-in and a chat that uses Ri tools work on the PC
 - [x] Tasks and notes work
 - [x] Closing and reopening preserves data
-- [ ] Installing a newer installer over the old one preserves data
-- [ ] Uninstall removes software and preserves authored data
+- [x] Installing a newer installer over the old one preserves data
+- [x] Uninstall removes software and preserves authored data
 - [x] Unsupported features are hidden or explained
-- [ ] Native dependencies and artifact contents are checked
-- [ ] Relevant checks pass on macOS and Windows
-- [ ] Trey receives an artifact link and a short PC checklist
+- [x] Native dependencies and artifact contents are checked
+- [x] Relevant checks pass on macOS and Windows
+- [x] Trey receives an artifact link and a short PC checklist
 
 ## Boundaries
 
@@ -44,22 +44,49 @@ background service. Personal Homes are the qualified path for this preview.
 
 ## Verification
 
-The hosted Windows runner has created a fresh Home, applied the real database
-migrations, opened the HTTPS app, created and completed a task, and edited and
-autosaved a note. A real harness dispatch through Windows npm shim discovery
-and the agentex parser produced and persisted a stand-in Claude reply. The
-browser's WebSocket terminal accepted PowerShell input and ran its pinned
-session CLI. Quitting stopped the controller, server, harnesses and terminal,
-and reopening retained the completed task and the note's real editor changes.
-The installed commands reported Codex 0.167.0 and Claude Code 2.1.319.
-This [runtime qualification](https://github.com/treyhuffine/ai-task-manager/actions/runs/42313636230)
-passed all 16 checks. It reuses an extracted installer with the current
-desktop shell and agentex resolver. It does not qualify the final installer.
+The [qualified installer](https://github.com/treyhuffine/ai-task-manager/actions/runs/42313665189/artifacts/13551717261)
+is `Ri-Setup-0.1.0-x64.exe`, built from commit `17fe86df`. Sign into GitHub,
+download `ri-windows-x64-preview`, and extract its ZIP. The [Actions run](https://github.com/treyhuffine/ai-task-manager/actions/runs/42313665189)
+passed all 20 acceptance checks against those exact installer bytes. The
+[qualification artifact](https://github.com/treyhuffine/ai-task-manager/actions/runs/42313665189/artifacts/13553050239)
+contains `windows.json` and a screenshot. Artifacts are retained for 14 days.
 
-The retained installer is about 319 MiB compressed and 3 GiB installed. Actual
-NSIS installation passed on the hosted runner in about 10.5 minutes. An older
-PC can take longer. The final candidate must repeat installation, runtime,
-upgrade and uninstall checks from the same newly built artifact.
+| Item | Value |
+| --- | --- |
+| Installer size | 334,360,041 bytes, about 319 MiB |
+| Installed payload | 3,242,385,365 bytes, about 3 GiB |
+| SHA-256 | `f741058d2a52370beeb10b4b1ccae56f8c6dc80e8a157e9ba84f8234490c2dfe` |
+| Build time | 40 minutes, 37 seconds |
+| Complete lifecycle test | 22 minutes, 43 seconds |
+
+The hosted Windows runner installed NSIS into a path with spaces and Unicode,
+created a fresh Home, applied real migrations, opened the HTTPS app, and
+verified its NTFS permissions. Settings installed Codex through its button and
+offered browser sign-in. Both real CLIs started: Codex 0.167.0 and Claude Code
+2.1.319. A real dispatch through the Windows launcher and streaming parser
+produced and persisted a stand-in Claude reply. No provider account was used.
+
+The app created and completed a task, edited and autosaved a note's title and
+body, and ran its signed `ri.cmd` in the WebSocket PowerShell terminal. Quitting
+stopped the controller, server, harnesses and terminal. Reopening retained the
+same Home, task and note. A higher-version installer replaced the app and kept
+those records. Uninstall removed the software and kept the Home database.
+Speech and Updates settings also explained the unavailable features and hid
+their install or update actions.
+
+Initial installation took 9 minutes, 22 seconds on the hosted runner. The
+upgrade took about 11.5 minutes, including reopening. An older PC can take
+longer. The payload inventory found no `.env` files, Home databases, Git
+metadata, private config/work folders or personal-data folders. Native PE
+imports showed no separate Visual C++ runtime dependency. node-pty still ships
+unused dependency prebuilds for other platforms. These add size and do not
+enable Windows ARM support.
+
+Before sharing with friends, complete the PC checklist with a real account.
+OAuth, real model requests, Codex's Windows sandbox behavior, and the old HP's
+hardware remain unverified. No CI credentials can stand in for that check.
+The current out-of-scope list can stay for this small preview. Signing would
+remove a significant installation hurdle before broader distribution.
 
 ## Implementation
 
@@ -113,9 +140,10 @@ candidate uses the same server commit, so it isolates installer replacement
 and data preservation. The first-run path applies the real database migrations.
 No provider credentials are supplied and no real billed model request runs.
 
-macOS checks so far: desktop suite 578 passed with three skips, including the
-Windows-only OEM code-page and fixed sign-in command tests. Focused
-core checks passed, typecheck and desktop compilation passed. The broader
+macOS checks: desktop suite 578 passed with three skips, including the
+Windows-only OEM code-page and fixed sign-in command tests. All 19 focused
+settings/onboarding checks and seven service-client checks passed, as did
+the focused core checks, typecheck and desktop compilation. The broader
 repository suite has existing failures, including ten message-route tests
 reproduced unchanged at the starting commit. A new IPC shutdown listener also
 conflicted with Vitest worker messages. It is now restricted to app-owned
@@ -165,7 +193,7 @@ with six skips, and its typecheck passed.
    "Create a task called Windows test and a note called Windows test containing Hello from Windows."
    Try the other tool too if your account supports it.
 5. Open that task and note, and edit the note. Close Ri, reopen it and check
-   that both records remain. Then complete the task. Install the supplied newer test installer only
-   when asked, then check the same records again.
+   that both records remain. Then complete the task. Install a newer test
+   installer only when asked, then check the same records again.
 6. Report the Windows version, which coding tool you tried, and the first step
    that did not work. A photo of an error is enough. No terminal commands needed.
