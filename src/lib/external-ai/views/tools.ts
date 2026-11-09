@@ -69,14 +69,14 @@ export function registerHomeViews(server: RiMcpServer): void {
     _meta: renderMeta('Opening your deck', 'Your deck'),
   }, () => reply(deckView()));
 
-  // A person opens this one, from ChatGPT's sidebar (OpenAI's global entrypoint), so the model never needs it.
+  // A person opens this one from ChatGPT's sidebar (OpenAI's global entrypoint). It stays visible to the
+  // model: ChatGPT won't draw the view of a tool hidden from it ("private tools can't render their widgets").
   server.registerTool('open_ri', {
     title: 'Ri',
-    description: 'Opens Ri as a full-screen app for the person: today’s deck, their tasks and a field to add one. People open it themselves from the app’s sidebar. To show them something in a chat, use show_deck or show_tasks.',
+    description: 'Opens Ri as a full-screen app for the person: today’s deck, their tasks and a field to add one. People usually open it themselves from the app’s sidebar. To show them something in a chat, use show_deck or show_tasks instead.',
     annotations: READ_ONLY,
     _meta: {
       ...renderMeta('Opening Ri', 'Ri'),
-      ui: { resourceUri: TASKS_VIEW_URI, visibility: ['app'] },
       'openai/ui': { entrypoints: [{ type: 'global' }] },
     },
   }, () => reply(deckView()));

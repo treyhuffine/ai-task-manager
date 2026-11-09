@@ -109,12 +109,14 @@ describe('over MCP', () => {
     expect(read.contents[0]).toMatchObject({ uri: TASKS_VIEW_URI, mimeType: MCP_APP_MIME, text: TASKS_VIEW_HTML, _meta: { ui: { csp: { connectDomains: [], resourceDomains: [] }, prefersBorder: true } } });
   });
 
-  it('offers a sidebar entry that a person opens full screen, that takes no arguments and that the model isn’t offered', async () => {
+  it('offers a sidebar entry that a person opens full screen and that takes no arguments', async () => {
     await seed();
     const client = await assistant();
     const entry = (await client.listTools()).tools.find(tool => tool.name === 'open_ri')!;
     expect(entry.title).toBe('Ri');
-    expect(entry._meta).toMatchObject({ ui: { resourceUri: TASKS_VIEW_URI, visibility: ['app'] }, 'openai/ui': { entrypoints: [{ type: 'global' }] } });
+    expect(entry._meta).toMatchObject({ ui: { resourceUri: TASKS_VIEW_URI }, 'openai/ui': { entrypoints: [{ type: 'global' }] } });
+    // Hidden from the model, ChatGPT refuses to draw it: "These private tools can't render their widgets".
+    expect((entry._meta?.ui as { visibility?: string[] }).visibility).toBeUndefined();
     expect((await client.callTool({ name: 'open_ri', arguments: {} })).structuredContent).toMatchObject({ view: 'deck', isToday: true });
     // Cards in a chat stay cards. Only the entry fills the screen.
     const read = await client.readResource({ uri: TASKS_VIEW_URI });
