@@ -38,16 +38,19 @@ beforeAll(async () => {
   const host = await build({
     stdin: { resolveDir: path.resolve('packages/mcp-apps-host'), loader: 'ts', contents: `
       import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
-      const log = window.__log = { calls: [], links: [], context: [], sizes: [], added: [] };
+      const log = window.__log = { calls: [], links: [], context: [], sizes: [], added: [], messages: [] };
       const deck = ${JSON.stringify(DECK)};
       const theme = new URLSearchParams(location.search).get('theme') || 'light';
       const displayMode = new URLSearchParams(location.search).get('display') || 'inline';
+      // A host that puts things in the person's message without sending them (OpenAI's ui/message extension).
+      const drafts = new URLSearchParams(location.search).get('drafts') === '1';
+      window.addEventListener('message', event => { if (event.data?.method === 'ui/message') log.messages.push(event.data.params); });
       const frame = document.createElement('iframe');
       frame.setAttribute('sandbox', 'allow-scripts');
       frame.style.cssText = (displayMode === 'fullscreen' ? 'width:1000px;height:680px;' : 'width:640px;height:520px;') + 'border:1px solid #ddd;border-radius:12px;background:' + (theme === 'dark' ? '#212121' : '#fff');
       document.body.style.background = theme === 'dark' ? '#212121' : '#fff';
       document.body.append(frame);
-      const bridge = new AppBridge(null, { name: 'Reference host', version: '1.0.0' }, { openLinks: {}, serverTools: {}, updateModelContext: { text: {} } }, {
+      const bridge = new AppBridge(null, { name: 'Reference host', version: '1.0.0' }, { openLinks: {}, serverTools: {}, updateModelContext: { text: {} }, ...(drafts ? { message: { text: {} }, experimental: { 'openai/message': {} } } : {}) }, {
         hostContext: { theme, locale: 'en-US', displayMode, styles: { variables: { '--font-sans': 'system-ui, sans-serif' } } },
       });
       bridge.oncalltool = async (params) => {
@@ -86,6 +89,7 @@ beforeAll(async () => {
         return { content: [{ type: 'text', text: JSON.stringify({ ok: true, action: params.name, result: {} }) }] };
       };
       bridge.onopenlink = async ({ url }) => { log.links.push(url); return {}; };
+      bridge.onmessage = async () => ({});
       bridge.onupdatemodelcontext = async (params) => { log.context.push(params); return {}; };
       bridge.onsizechange = ({ height }) => { log.sizes.push(height); if (height) frame.style.height = height + 'px'; };
       bridge.oninitialized = () => {
@@ -107,13 +111,13 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(async () => { await browser?.close(); server?.closeAllConnections(); await new Promise<void>(resolve => server ? server.close(() => resolve()) : resolve()); });
 
-async function open(theme: 'light' | 'dark', display: 'inline' | 'fullscreen' = 'inline'): Promise<Page> {
-  const page = await browser.newPage({ viewport: display === 'fullscreen' ? { width: 1060, height: 740 } : { width: 720, height: 720 } });
-  await page.goto(`${origin}/?theme=${theme}&display=${display}`);
+async function open(theme: 'light' | 'dark', display: 'inline' | 'fullscreen' = 'inline', options: { drafts?: boolean; width?: number } = {}): Promise<Page> {
+  const page = await browser.newPage({ viewport: options.width ? { width: options.width, height: 740 } : display === 'fullscreen' ? { width: 1060, height: 740 } : { width: 720, height: 720 } });
+  await page.goto(`${origin}/?theme=${theme}&display=${display}${options.drafts ? '&drafts=1' : ''}`);
   await page.frameLocator('iframe').locator('li[data-task="ship"]').waitFor();
   return page;
 }
-const log = (page: Page) => page.evaluate(() => (window as unknown as { __log: { calls: Array<{ name: string; arguments: Record<string, unknown> }>; links: string[]; context: Array<{ content: Array<{ text: string }> }>; sizes: number[] } }).__log);
+const log = (page: Page) => page.evaluate(() => (window as unknown as { __log: { calls: Array<{ name: string; arguments: Record<string, unknown> }>; links: string[]; context: Array<{ content: Array<{ text: string }> }>; sizes: number[]; messages: Array<{ role: string; content: Array<{ type: string; text: string; _meta?: Record<string, unknown> }>; _meta?: Record<string, unknown> }> } }).__log);
 
 it('draws the deck as Ri does: deadlines pinned on top, the ranked stack, quiet meta', async () => {
   const page = await open('light');
@@ -145,11 +149,41 @@ it('finishes a task with the content tool, checked against what the view saw, th
   await page.close();
 });
 
-it('stays a card in a chat, with no tabs or add field', async () => {
+it('stays a card in a chat, with no tabs or add field, and never offers to write a message a host would send', async () => {
   const page = await open('light');
   const view = page.frameLocator('iframe');
   expect(await view.getByRole('tab').count()).toBe(0);
   expect(await view.getByRole('textbox').count()).toBe(0);
+  // This host would send a ui/message as the person, so the view doesn't offer one.
+  expect(await view.getByRole('button', { name: /to your message$/ }).count()).toBe(0);
+  await page.close();
+});
+
+it('adds a task to the message being written, labeled and unsent, where the host can hold a draft', async () => {
+  const page = await open('light', 'inline', { drafts: true });
+  const view = page.frameLocator('iframe');
+  await view.locator('li[data-task="ship"]').hover();
+  await view.getByRole('button', { name: 'Add Ship the OAuth sign-in to your message' }).click();
+  await view.getByText('Added to your message.').waitFor();
+  const [message] = (await log(page)).messages;
+  expect(message).toMatchObject({ role: 'user', _meta: { 'openai/message': { target: 'active', send: false } } });
+  expect(message.content).toEqual([{ type: 'text', text: expect.stringContaining('Its ID is ship'), _meta: { 'openai/title': 'Ship the OAuth sign-in' } }]);
+  expect((await log(page)).calls).toEqual([]);
+  await page.close();
+});
+
+it('fits beside a chat, as a narrow tab', async () => {
+  const page = await open('dark', 'fullscreen', { drafts: true, width: 400 });
+  const view = page.frameLocator('iframe');
+  await page.evaluate(() => { const frame = document.querySelector('iframe')!; frame.style.width = '380px'; });
+  await view.getByRole('tab', { name: 'Tasks' }).waitFor();
+  // Nothing wider than the panel: the add field wraps under the tabs.
+  const overflow = await view.locator('html').evaluate(html => html.scrollWidth - html.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+  const tabs = await view.getByRole('tab', { name: 'Today' }).boundingBox();
+  const add = await view.getByRole('textbox', { name: 'Add a task' }).boundingBox();
+  expect(add!.y).toBeGreaterThan(tabs!.y + tabs!.height - 1);
+  await page.screenshot({ path: path.join(os.tmpdir(), 'ri-mcp-app-beside.png') });
   await page.close();
 });
 

@@ -14,6 +14,7 @@
 import {
   createMcpHandler,
   McpServer,
+  ResourceTemplate,
   type CallToolResult,
   type ServerContext,
   type StandardSchemaWithJSON,
@@ -74,6 +75,8 @@ export interface RiMcpServer {
   registerTool(name: string, config: RiMcpToolConfig, handler: RiMcpToolHandler): void;
   /** A fixed resource. Registering one is what makes the server offer resources. */
   registerResource(name: string, uri: string, config: RiMcpResourceConfig, read: () => { contents: RiMcpResourceContents[] }): void;
+  /** Resources named by a URI template (`ri://task/{id}`), read by the variables it matched. Not listed one by one. */
+  registerResourceTemplate(name: string, uriTemplate: string, config: RiMcpResourceConfig, read: (uri: URL, variables: Record<string, string | string[]>) => { contents: RiMcpResourceContents[] }): void;
 }
 
 export interface RiMcpServerOptions {
@@ -83,6 +86,12 @@ export interface RiMcpServerOptions {
   instructions?: string;
   /** Bytes a POST body may hold. Defaults to the SDK's 4 MiB. */
   maxRequestBodySize?: number;
+  /**
+   * Named extensions the server offers, such as OpenAI's `openai/mentions`.
+   * Advertised under `extensions` and, for clients that read the older place,
+   * `experimental` (OpenAI MCP extensions spec, "Server Capabilities").
+   */
+  extensions?: Record<string, Record<string, string>>;
 }
 
 const isZodType = (value: unknown): value is z.ZodTypeAny =>
@@ -165,6 +174,9 @@ function registrar(server: McpServer, era: 'legacy' | 'modern'): RiMcpServer {
     registerResource(name, uri, config, read) {
       server.registerResource(name, uri, config, () => read());
     },
+    registerResourceTemplate(name, uriTemplate, config, read) {
+      server.registerResource(name, new ResourceTemplate(uriTemplate, { list: undefined }), config, (uri, variables) => read(uri, variables));
+    },
   };
 }
 
@@ -176,7 +188,10 @@ export function riMcpHandler(build: (server: RiMcpServer) => void | Promise<void
   const handler = createMcpHandler(async ({ era }) => {
     const server = new McpServer(
       { name: options.name, version: options.version, ...(options.title ? { title: options.title } : {}) },
-      { capabilities: { tools: {} }, ...(options.instructions ? { instructions: options.instructions } : {}) },
+      {
+        capabilities: { tools: {}, ...(options.extensions ? { extensions: options.extensions, experimental: options.extensions } : {}) },
+        ...(options.instructions ? { instructions: options.instructions } : {}),
+      },
     );
     await build(registrar(server, era));
     return server;

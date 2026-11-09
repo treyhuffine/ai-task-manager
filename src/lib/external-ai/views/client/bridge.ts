@@ -21,6 +21,8 @@ export interface HostCapabilities {
   openLinks?: object;
   serverTools?: object;
   updateModelContext?: object;
+  message?: object;
+  experimental?: Record<string, object>;
   [key: string]: unknown;
 }
 
@@ -44,6 +46,14 @@ export interface Bridge {
   openLink(url: string): Promise<void>;
   /** Tells the model what the person did here, for its next turn. Replaces what this view said before. */
   updateModelContext(text: string): Promise<void>;
+  /**
+   * Whether the host can put something in the person's message without
+   * sending it (OpenAI's `ui/message` extension). A plain `ui/message` sends
+   * as the person, so without this the view never offers it.
+   */
+  readonly canDraft: boolean;
+  /** Adds a labeled item to the message the person is writing, and doesn't send it. */
+  addToMessage(title: string, text: string): Promise<void>;
   sizeChanged(height: number): void;
 }
 
@@ -124,6 +134,14 @@ export function connect(handlers: BridgeHandlers, host: Window = window.parent):
         await request('ui/update-model-context', { content: [{ type: 'text', text }] });
       },
       sizeChanged: height => notify('ui/notifications/size-changed', { height }),
+      get canDraft() { return Boolean(capabilities.message && (capabilities.experimental?.['openai/message'] || capabilities['openai/message'])); },
+      addToMessage: async (title, text) => {
+        await request('ui/message', {
+          role: 'user',
+          content: [{ type: 'text', text, _meta: { 'openai/title': title } }],
+          _meta: { 'openai/message': { target: 'active', send: false } },
+        });
+      },
     } satisfies Bridge;
   });
 }

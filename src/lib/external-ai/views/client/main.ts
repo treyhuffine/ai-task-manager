@@ -67,6 +67,9 @@ function icon(paths: string[], size = 14): SVGSVGElement {
 }
 const CHECK = ['M20 6 9 17l-5-5'];
 const OPEN = ['M7 17 17 7', 'M8 7h9v9'];
+const ADD_TO_MESSAGE = ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z', 'M12 7v6', 'M9 10h6'];
+/** A row's last confirmation, such as "Added to your message". */
+const rowNotes = new Map<string, string>();
 
 // ─── Dates, in the host's language and zone ───────────────────
 
@@ -122,6 +125,7 @@ async function change(task: ViewTask, command: 'complete' | 'start' | 'reopen'):
   if (!bridge || pending.has(task.id)) return;
   pending.add(task.id);
   rowErrors.delete(task.id);
+  rowNotes.delete(task.id);
   const before = task.status;
   // Show it at once, then what Ri answered, then the redraw from Ri.
   task.status = command === 'complete' ? 'done' : command === 'start' ? 'in_progress' : 'todo';
@@ -228,6 +232,20 @@ function appHead(active: View['view']): HTMLElement {
   return h('div', { className: 'app-head' }, h('div', { className: 'tabs', role: 'tablist', 'aria-label': 'Ri' }, tab('deck', 'Today'), tab('tasks', 'Tasks')), addField);
 }
 
+/** Puts the task in the message the person is writing, as a labeled item they can remove. Nothing is sent. */
+async function addToMessage(task: ViewTask): Promise<void> {
+  if (!bridge?.canDraft) return;
+  rowErrors.delete(task.id);
+  try {
+    const facts = [task.status === 'in_progress' ? 'in progress' : task.status, task.area, task.deadline ? `due ${task.deadline}` : null].filter(Boolean).join(', ');
+    await bridge.addToMessage(task.title, `Ri task "${task.title}" (${facts}). Its ID is ${task.id}: read it with get_task.`);
+    rowNotes.set(task.id, 'Added to your message.');
+  } catch {
+    rowErrors.set(task.id, 'Couldn’t add it to your message.');
+  }
+  render();
+}
+
 function open(url: string | null): void {
   if (url && bridge) void bridge.openLink(url).catch(() => {});
 }
@@ -266,7 +284,12 @@ function row(task: ViewTask, options: { reason?: boolean } = {}): HTMLLIElement 
     ? h('button', { type: 'button', className: 'start', disabled: busy, 'aria-label': `Start ${task.title}`, onClick: () => void change(task, 'start') }, 'Start')
     : null;
 
+  const draft = bridge?.canDraft
+    ? h('button', { type: 'button', className: 'draft', 'aria-label': `Add ${task.title} to your message`, onClick: () => void addToMessage(task) }, icon(ADD_TO_MESSAGE, 14))
+    : null;
+
   const error = rowErrors.get(task.id);
+  const note = rowNotes.get(task.id);
   return h('li', { className: `row${done ? ' done' : ''}${busy ? ' busy' : ''}`, 'data-task': task.id },
     h('button', {
       type: 'button', className: 'check', disabled: busy || next !== null || task.status === 'archived',
@@ -278,8 +301,10 @@ function row(task: ViewTask, options: { reason?: boolean } = {}): HTMLLIElement 
       meta.length ? h('div', { className: 'meta' }, ...meta.flatMap((node, index) => index ? [h('span', { className: 'dot', 'aria-hidden': 'true' }, '·'), node] : [node])) : null,
       reason,
       error ? h('p', { className: 'row-error', role: 'alert' }, error) : null,
+      note && !error ? h('p', { className: 'row-note', role: 'status' }, note) : null,
     ),
     start,
+    draft,
   );
 }
 

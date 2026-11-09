@@ -17,7 +17,7 @@ import { registerActionTool } from '@/lib/orchestrator/mcp-registration';
 import { isMcpTransport, mcpNotFound, riMcpHandler } from '@/lib/mcp/http-server';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { contentToolAnnotations, permitsHomeContentAction } from '@/lib/external-ai/policy';
-import { registerHomeViews, VIEW_CALLED_META, VIEW_CALLED_TOOLS } from '@/lib/external-ai/views/tools';
+import { HOME_VIEW_EXTENSIONS, registerHomeViews, VIEW_CALLED_META, VIEW_CALLED_TOOLS } from '@/lib/external-ai/views/tools';
 import { APP_NAME } from '@/constants/app';
 import { actions } from '@/lib/orchestrator/registry';
 import { runAction } from '@/lib/orchestrator/dispatch';
@@ -97,6 +97,7 @@ async function handle(request: Request) {
       name: `${APP_NAME.toLowerCase()}-orchestrator`,
       version: '0.1.0',
       instructions: contentOnly ? contentInstructions() : SERVER_INSTRUCTIONS,
+      ...(contentOnly ? { extensions: HOME_VIEW_EXTENSIONS } : {}),
     },
   );
   return handler(request);

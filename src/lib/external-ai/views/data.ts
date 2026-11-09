@@ -6,8 +6,9 @@
 import { getRemoteBaseUrl } from '@/lib/auth/bootstrap';
 import { calendarDaysUntil } from '@/lib/dates';
 import { todayLocalDate } from '@/lib/deck/date';
-import { getActiveDeckForDate, getDeadlineTasks, getLatestDeck, getTask, listAreas, listTasks } from '@/lib/db/queries';
-import type { TaskRecord } from '@/db/types';
+import { getActiveDeckForDate, getDeadlineTasks, getLatestDeck, getNote, getTask, listAreas, listNotes, listTasks } from '@/lib/db/queries';
+import { ftsSearch } from '@/lib/embeddings/search';
+import type { NoteRecord, TaskRecord } from '@/db/types';
 
 export interface ViewTask {
   id: string;
@@ -173,4 +174,86 @@ export function viewSummary(view: DeckView | TasksView): string {
   else parts.push(`${view.isToday ? 'Today' : `The deck for ${view.forDate}`}:\n${view.items.map((task, index) => `${index + 1}. ${line(task)}`).join('\n')}`);
   if (view.inProgress) parts.push(`${view.inProgress} in progress.`);
   return parts.join('\n\n');
+}
+
+// ─── @ in the message box (OpenAI's composer at-mentions) ─────
+
+/** One item in the host's @ menu: a link to a task or note it reads with `resources/read`. */
+export interface MentionItem {
+  type: 'resource_link';
+  uri: string;
+  name: string;
+  title: string;
+  description: string;
+  mimeType: 'text/markdown';
+}
+
+export const TASK_URI = (id: string) => `ri://task/${id}`;
+export const NOTE_URI = (id: string) => `ri://note/${id}`;
+const MENTION_LIMIT = 8;
+/** What one mentioned item may carry into the conversation. */
+const MENTION_TEXT_MAX = 32 * 1024;
+
+const statusWord: Record<TaskRecord['status'], string> = { consider: 'considering', todo: 'to do', in_progress: 'in progress', done: 'done', archived: 'archived' };
+
+function taskItem(task: TaskRecord, areas: Map<string, string>): MentionItem {
+  const area = task.areaId ? areas.get(task.areaId) : null;
+  return { type: 'resource_link', uri: TASK_URI(task.id), name: task.title, title: task.title, description: ['Task', statusWord[task.status], area].filter(Boolean).join(' · '), mimeType: 'text/markdown' };
+}
+
+function noteItem(note: NoteRecord, areas: Map<string, string>): MentionItem {
+  const title = note.title?.trim() || note.body.trim().split('\n')[0].slice(0, 80) || 'Untitled note';
+  const area = note.areaId ? areas.get(note.areaId) : null;
+  return { type: 'resource_link', uri: NOTE_URI(note.id), name: title, title, description: [note.kind === 'decision' ? 'Decision' : 'Note', area].filter(Boolean).join(' · '), mimeType: 'text/markdown' };
+}
+
+/**
+ * The @ menu: with nothing typed, today's deck and the notes touched last,
+ * then keyword matches as the person types (full-text, never the slower
+ * meaning search, since it runs on every keystroke). Never the Stream, and
+ * nothing archived.
+ */
+export function mentionItems(query: string, now = new Date()): MentionItem[] {
+  const areas = areaNames();
+  const q = query.trim();
+  if (!q) {
+    const deck = getActiveDeckForDate(todayLocalDate(now)) ?? getLatestDeck();
+    const tasks = (deck?.items ?? []).map(item => getTask(item.taskId)).filter((task): task is TaskRecord => Boolean(task) && task!.status !== 'archived' && task!.status !== 'done');
+    const notes = listNotes({ status: 'active', orderBy: 'updatedAt', limit: 3 } as Parameters<typeof listNotes>[0]);
+    return [...tasks.slice(0, MENTION_LIMIT - notes.length).map(task => taskItem(task, areas)), ...notes.map(note => noteItem(note, areas))];
+  }
+  const items: MentionItem[] = [];
+  for (const hit of ftsSearch(q, 20, { includeStream: false })) {
+    if (items.length >= MENTION_LIMIT) break;
+    if (hit.entityType === 'task') {
+      const task = getTask(hit.entityId);
+      if (task && task.status !== 'archived') items.push(taskItem(task, areas));
+    } else if (hit.entityType === 'note') {
+      const note = getNote(hit.entityId);
+      if (note && note.status !== 'archived') items.push(noteItem(note, areas));
+    }
+  }
+  return items;
+}
+
+const capped = (text: string) => (text.length > MENTION_TEXT_MAX ? `${text.slice(0, MENTION_TEXT_MAX)}\n\n(The rest is in Ri.)` : text);
+
+/** A mentioned task as the conversation reads it, with its ID so the model can act on it. */
+export function taskMarkdown(id: string): string | null {
+  const task = getTask(id);
+  if (!task) return null;
+  const area = task.areaId ? areaNames().get(task.areaId) : null;
+  const facts = [`Status: ${statusWord[task.status]}`, area ? `Area: ${area}` : null, task.hardDeadline ? `Due: ${task.hardDeadline.slice(0, 10)}` : null, task.recurrence ? `Repeats: ${task.recurrence}` : null, task.blockedOn ? `Blocked on: ${task.blockedOn}` : null].filter(Boolean);
+  const parts = [`# ${task.title}`, `Ri task ${task.id}. ${facts.join('. ')}.`, task.outcome ? `Done when: ${task.outcome}` : null, task.description, task.body].filter(Boolean);
+  return capped(parts.join('\n\n'));
+}
+
+/** A mentioned note as the conversation reads it. */
+export function noteMarkdown(id: string): string | null {
+  const note = getNote(id);
+  if (!note) return null;
+  const area = note.areaId ? areaNames().get(note.areaId) : null;
+  const heading = note.title?.trim() ? `# ${note.title.trim()}` : null;
+  const kind = note.kind === 'decision' ? 'decision' : 'note';
+  return capped([heading, `Ri ${kind} ${note.id}${area ? `. Area: ${area}` : ''}.`, note.body].filter(Boolean).join('\n\n'));
 }

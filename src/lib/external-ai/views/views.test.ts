@@ -114,7 +114,8 @@ describe('over MCP', () => {
     const client = await assistant();
     const entry = (await client.listTools()).tools.find(tool => tool.name === 'open_ri')!;
     expect(entry.title).toBe('Ri');
-    expect(entry._meta).toMatchObject({ ui: { resourceUri: TASKS_VIEW_URI }, 'openai/ui': { entrypoints: [{ type: 'global' }] } });
+    // Global is the sidebar, full screen. Thread is a tab beside a chat.
+    expect(entry._meta).toMatchObject({ ui: { resourceUri: TASKS_VIEW_URI }, 'openai/ui': { entrypoints: [{ type: 'global' }, { type: 'thread' }] } });
     // Hidden from the model, ChatGPT refuses to draw it: "These private tools can't render their widgets".
     expect((entry._meta?.ui as { visibility?: string[] }).visibility).toBeUndefined();
     expect((await client.callTool({ name: 'open_ri', arguments: {} })).structuredContent).toMatchObject({ view: 'deck', isToday: true });
@@ -125,6 +126,38 @@ describe('over MCP', () => {
     expect((await client.listTools()).tools.find(tool => tool.name === 'create_task')!._meta).toMatchObject({ 'openai/widgetAccessible': true });
     const added = await client.callTool({ name: 'create_task', arguments: { title: 'Added in the app' } });
     expect(JSON.parse((added.content as Array<{ text: string }>)[0].text)).toMatchObject({ ok: true, result: { title: 'Added in the app', status: 'todo' } });
+  });
+
+  it('offers its tasks and notes in the @ menu of the person’s message box, and reads each one it names', async () => {
+    const { ship, docs } = await seed();
+    const q = await import('@/lib/db/queries');
+    const note = q.createNote({ title: 'OAuth launch notes', body: 'Sign-in works in ChatGPT.' } as Parameters<typeof q.createNote>[0]);
+    const old = q.createTask({ title: 'Old sign-in idea' });
+    q.transitionTask({ taskId: old.id, command: 'archive', idempotencyKey: 'seed-archive', meta: { source: 'human' } });
+    const client = await assistant();
+    expect(client.getServerCapabilities()?.extensions).toEqual({ 'openai/mentions': { searchTool: 'search_mentions' } });
+    const tool = (await client.listTools()).tools.find(entry => entry.name === 'search_mentions')!;
+    expect(tool.annotations).toMatchObject({ readOnlyHint: true });
+    expect(tool._meta).toMatchObject({ ui: { visibility: ['app'] } });
+
+    const mention = async (query: string) => ((await client.callTool({ name: 'search_mentions', arguments: { query } })).structuredContent as { items: Array<{ type: string; uri: string; name: string; description: string }> }).items;
+    // Nothing typed: today's deck first, then the notes touched last.
+    const opening = await mention('');
+    expect(opening.slice(0, 2).map(item => item.uri)).toEqual([`ri://task/${ship.id}`, `ri://task/${docs.id}`]);
+    expect(opening.map(item => item.uri)).toContain(`ri://note/${note.id}`);
+    // Typing narrows by keyword, never shows archived work, and says what each item is.
+    const typed = await mention('sign');
+    expect(typed.map(item => item.uri)).toEqual(expect.arrayContaining([`ri://task/${ship.id}`, `ri://note/${note.id}`]));
+    expect(typed.map(item => item.uri)).not.toContain(`ri://task/${old.id}`);
+    expect(typed.find(item => item.uri === `ri://task/${ship.id}`)).toMatchObject({ type: 'resource_link', name: 'Ship the OAuth sign-in', description: 'Task · to do · Ri' });
+
+    // What the host reads when the message is sent, with the ID the model needs to act on it.
+    const task = (await client.readResource({ uri: `ri://task/${ship.id}` })).contents[0] as { mimeType: string; text: string };
+    expect(task.mimeType).toBe('text/markdown');
+    expect(task.text).toContain('# Ship the OAuth sign-in');
+    expect(task.text).toContain(`Ri task ${ship.id}. Status: to do. Area: Ri. Due:`);
+    expect(((await client.readResource({ uri: `ri://note/${note.id}` })).contents[0] as { text: string }).text).toBe(`# OAuth launch notes\n\nRi note ${note.id}.\n\nSign-in works in ChatGPT.`);
+    expect(((await client.readResource({ uri: 'ri://task/nope' })).contents[0] as { text: string }).text).toMatch(/isn’t in Ri any more/);
   });
 
   it('shows today’s deck as Ri does: deadlines pinned once, the ranked stack, what’s in progress', async () => {

@@ -8,9 +8,13 @@
 import { z } from 'zod';
 import type { RiMcpServer } from '@/lib/mcp/http-server';
 import { TASKS_VIEW_HTML } from './tasks-view.html';
-import { deckView, TASK_VIEW_LIMIT, tasksView, viewSummary, type DeckView, type TasksView } from './data';
+import { deckView, mentionItems, noteMarkdown, TASK_VIEW_LIMIT, taskMarkdown, tasksView, viewSummary, type DeckView, type TasksView } from './data';
 
 export const TASKS_VIEW_URI = 'ui://ri/tasks.html';
+export const MENTION_SEARCH_TOOL = 'search_mentions';
+
+/** What an outside app's connection offers beyond tools: @ items in the person's message box. */
+export const HOME_VIEW_EXTENSIONS = { 'openai/mentions': { searchTool: MENTION_SEARCH_TOOL } };
 export const MCP_APP_MIME = 'text/html;profile=mcp-app';
 
 /**
@@ -77,9 +81,31 @@ export function registerHomeViews(server: RiMcpServer): void {
     annotations: READ_ONLY,
     _meta: {
       ...renderMeta('Opening Ri', 'Ri'),
-      'openai/ui': { entrypoints: [{ type: 'global' }] },
+      // Global: the sidebar, full screen. Thread: a tab beside any chat.
+      'openai/ui': { entrypoints: [{ type: 'global' }, { type: 'thread' }] },
     },
   }, () => reply(deckView()));
+
+  // The @ menu in the message box (OpenAI's composer at-mentions). It runs on
+  // every keystroke, so it only reads, and only the host's app layer calls it.
+  server.registerTool(MENTION_SEARCH_TOOL, {
+    title: 'Mention a Ri task or note',
+    description: 'Finds the person’s tasks and notes by title for the @ menu in their message box. To read or search for yourself, use search, get_task or get_note.',
+    inputSchema: { query: z.string().max(200).default('') },
+    annotations: READ_ONLY,
+    _meta: { ui: { visibility: ['app'] } },
+  }, args => ({ content: [], structuredContent: { items: mentionItems(String(args.query ?? '')) } }));
+
+  // What a mentioned item reads as. The host reads each one when the message is sent.
+  const missing = (uri: URL, kind: string) => ({ contents: [{ uri: uri.href, mimeType: 'text/markdown', text: `This ${kind} isn’t in Ri any more.` }] });
+  server.registerResourceTemplate('ri-task', 'ri://task/{id}', { title: 'Ri task', mimeType: 'text/markdown' }, (uri, { id }) => {
+    const text = taskMarkdown(String(id));
+    return text === null ? missing(uri, 'task') : { contents: [{ uri: uri.href, mimeType: 'text/markdown', text }] };
+  });
+  server.registerResourceTemplate('ri-note', 'ri://note/{id}', { title: 'Ri note', mimeType: 'text/markdown' }, (uri, { id }) => {
+    const text = noteMarkdown(String(id));
+    return text === null ? missing(uri, 'note') : { contents: [{ uri: uri.href, mimeType: 'text/markdown', text }] };
+  });
 
   server.registerTool('show_tasks', {
     title: 'Show tasks',
