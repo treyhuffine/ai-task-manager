@@ -62,7 +62,7 @@ export interface ServerRuntimeRecord {
 }
 
 export function getServerRuntimePath(): string {
-  return path.join(getWorkDir(), 'server-runtime.json');
+  return path.join(/* turbopackIgnore: true */ getWorkDir(), 'server-runtime.json');
 }
 
 /** True if `pid` is a live process this user can signal. */
@@ -100,7 +100,7 @@ export function readServerRuntime(): ServerRuntimeRecord | null {
   const p = getServerRuntimePath();
   let raw: string;
   try {
-    raw = fs.readFileSync(p, 'utf8');
+    raw = fs.readFileSync(/* turbopackIgnore: true */ p, 'utf8');
   } catch {
     return null; // ENOENT is the common case — no managed instance recorded.
   }
