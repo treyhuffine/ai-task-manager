@@ -49,10 +49,22 @@ normal environment.
 The local read-only audit also verified the signature, minimum macOS version,
 checksum and 100,135 regular payload files, with no suspect private paths.
 The test Home and provider account credentials are not in the installer or reports.
-Intel qualification is still pending. The checks below apply to Apple silicon
-until Intel passes separately.
 
-- [ ] Both native DMGs build in Actions
+The Intel DMG is also ready for recipient testing:
+[download the Intel artifact ZIP](https://github.com/treyhuffine/ai-task-manager/actions/runs/42712199756/artifacts/13717620106).
+It contains `Ri-0.1.0.dmg`, built from `14d27ffd`, with 784,682,030 installer
+bytes (about 748 MiB) and about 2.6 GiB of installed files.
+SHA256: `9755bf8bfc141ec6119674568b0cb584f65b0bad506b892413b347606a154ca0`.
+[Its report and screenshot](https://github.com/treyhuffine/ai-task-manager/actions/runs/42712199756/artifacts/13718175760)
+record the same nine passing checks using the smoke at `cce5c5a2`. The initial
+copy exceeded the test's three-minute limit. The unchanged DMG passed with a
+ten-minute copy limit. The local read-only audit verified its signature,
+minimum OS, checksum and 100,136 regular payload files, with no suspect private
+paths.
+
+The completed checks below apply to both processor versions.
+
+- [x] Both native DMGs build in Actions
 - [x] Mount DMG, copy Ri.app and verify its signature and native dependencies
 - [x] First-run Home choice and service start
 - [x] Install a real coding CLI through Settings
