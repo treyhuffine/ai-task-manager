@@ -137,14 +137,14 @@ panel. On the phone it gets its own row under the header.
 right (`tools-box.tsx`): the branch, a **Run** row (status, a labeled
 Start / Stop / Restart, opens Run), a **Preview** row (opens the
 interface, or offers an explicit "Start & preview" when stopped), then
-Changes (N files, +/-), Files (⌘P), Terminal (⌃`), then Notes & tasks and
+Artifacts, Changes (N files, +/-), Files (⌘P), Terminal (⌃`), then Notes & tasks and
 Scratchpad. Status is text, rows navigate (chevron), labeled buttons run
 something. Its shell, rows and strip icons (`FloatingToolsBox`, `ToolsRow`,
 `ToolsMini`, `TOOLS_BOX_CLEARANCE`) are shared with the agent view's box
 (docs/agents-view-spec.md §9). The chat pads for the box where it would cover text, and the
 box folds to an icon strip when the chat column is narrow.
 
-**Panel (open).** The same tools as tabs: Run · Preview · Changes · Files,
+**Panel (open).** The same tools as tabs: Run · Preview · Artifacts · Changes · Files,
 plus More ▾ holding Notes & tasks and Scratchpad (More takes the name of
 whichever is open). Expand (⤢ or double-click a tab) gives the panel the
 width and folds the chat to a strip. Views stay mounted once visited, so
@@ -153,6 +153,13 @@ A PDF, image or HTML card in the chat opens its file here as one more tab
 after More, named for the file with × to close it (the `file` view,
 docs/chat-sessions.md "Files beside the chat"), unless files are set to
 open large.
+
+- **Artifacts** (`workbench/artifacts-view.tsx`): files shared in replies and
+  message attachments from every chat on the execution, including archived
+  chats. Repeated paths collapse into one entry. Opening a file uses the
+  common viewer, and closing it returns to the collection. The filename,
+  path and chat filter applies to loaded entries, with older messages
+  available on demand. See [Execution artifacts](execution-artifacts.md).
 
 - **Run** (`preview/run-view.tsx`): the process. Status, Start / Stop /
   Restart, full-height output, the start command, setup-script recovery,
@@ -271,7 +278,7 @@ pins to the edge on overflow, with a fade on whichever edge hides tabs.
 
 **Phone.** The chat, with a **Tools** button in the header that opens the
 same list as a bottom sheet (no terminal: the phone is a thin client).
-A tool opens full width with "‹ Chat" and a Run · Preview · Changes ·
+A tool opens full width with "‹ Chat" and a Run · Preview · Artifacts · Changes ·
 Files selector (⋯ for the rest). If the chat needs an answer meanwhile, a
 "Needs input · Answer" bar stays on screen and returns to the approval.
 

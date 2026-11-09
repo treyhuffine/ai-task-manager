@@ -50,7 +50,7 @@ interface MobileDestinationProps {
 
 /**
  * A tool opened on the phone, full width. A compact selector moves between
- * Run · Preview · Changes · Files, with Notes & tasks and Scratchpad under
+ * Run · Preview · Artifacts · Changes · Files, with Notes & tasks and Scratchpad under
  * ⋯. "‹ Chat" goes back. If the chat needs an answer meanwhile, a bar at
  * the bottom says so and takes you straight back to it.
  */

@@ -1,0 +1,1 @@
+CREATE INDEX `idx_chat_events_artifact_message` ON `chat_events` (`session_id`,`created_at`,`id`) WHERE ("chat_events"."source" = 'agent' OR "chat_events"."attachments" <> '[]');

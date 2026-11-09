@@ -49,7 +49,7 @@ interface ExecutionViewProps {
  *   header      identity · the chat's status · menu · [Terminal] [Tools] · git
  *   chat        tabs, transcript, composer. A floating tools box sits on its
  *               right while the panel is closed.
- *   panel       Run · Preview · Changes · Files · More (Notes & tasks,
+ *   panel       Run · Preview · Artifacts · Changes · Files · More (Notes & tasks,
  *               Scratchpad), opened from the box or the Tools toggle.
  *   terminal    a drawer across the whole bottom, for commands you type.
  *

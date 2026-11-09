@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   File,
   FileText,
+  Files,
   GitCompareArrows,
   ListTodo,
   MoreHorizontal,
@@ -31,6 +32,7 @@ import { PanelWindowControls, panelTabClass } from './panel-strip';
 export const VIEW_ICONS: Record<PanelView, React.ComponentType<{ size?: number; className?: string }>> = {
   run: Play,
   preview: AppWindow,
+  artifacts: Files,
   changes: GitCompareArrows,
   files: FileText,
   notes: ListTodo,
@@ -48,7 +50,7 @@ interface WorkbenchPanelProps {
 }
 
 /**
- * The right-hand panel. Its header navigates: Run · Preview · Changes ·
+ * The right-hand panel. Its header navigates: Run · Preview · Artifacts · Changes ·
  * Files as tabs, Notes & tasks and Scratchpad under More (which takes the
  * name of whichever is open), then the file opened from the chat as its own
  * tab while there is one, then expand and close. A jump from the chat or
@@ -83,13 +85,14 @@ export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scra
               <button
                 type="button"
                 data-tab={v}
+                aria-label={PANEL_VIEW_LABELS[v]}
                 onClick={() => show(v)}
                 onDoubleClick={() => dispatch({ type: 'toggleMaximize' })}
                 aria-pressed={on}
                 className={cn('flex items-center gap-1.5', panelTabClass(on))}
               >
                 <Icon size={13} />
-                <span className="@max-[560px]/panel:hidden">{PANEL_VIEW_LABELS[v]}</span>
+                <span className="@max-[720px]/panel:hidden">{PANEL_VIEW_LABELS[v]}</span>
                 {v === 'run' && status !== 'stopped' && status !== 'not-configured' && status !== 'elsewhere' && (
                   <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full', runDotClass(status))} />
                 )}
@@ -104,10 +107,11 @@ export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scra
           <DropdownMenuTrigger asChild>
             <Tip label="Notes & tasks, Scratchpad">
               <button
+                aria-label={moreActive ? PANEL_VIEW_LABELS[view] : 'More tools'}
                 className={cn('flex items-center gap-1.5 outline-none', panelTabClass(moreActive))}
               >
                 <MoreIcon size={13} />
-                <span className="@max-[560px]/panel:hidden">{moreActive ? PANEL_VIEW_LABELS[view] : 'More'}</span>
+                <span className="@max-[720px]/panel:hidden">{moreActive ? PANEL_VIEW_LABELS[view] : 'More'}</span>
                 <ChevronDown size={12} className="opacity-70" />
               </button>
             </Tip>
@@ -169,7 +173,7 @@ export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scra
             aria-hidden={v !== view}
             className={cn('absolute inset-0', v !== view && 'pointer-events-none opacity-0')}
           >
-            <WorkbenchViewBody view={v} ctx={ctx} />
+            <WorkbenchViewBody view={v} ctx={ctx} active={v === view} />
           </div>
         ))}
       </div>

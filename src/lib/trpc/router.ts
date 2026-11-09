@@ -36,6 +36,7 @@ import { completeSharedTask, transitionSharedTask, updateTaskWithShared } from '
 import { LIFECYCLE_COMMANDS } from '@/lib/tasks/lifecycle';
 import { resolveHomeContext } from '@/lib/home/context';
 import { filePreviewsRouter } from '@/lib/files/router';
+import { artifactsRouter } from '@/lib/sessions/artifacts-router';
 import { resolveHomeExecutionChoices } from '@/lib/home/execution-choices';
 import { isTeamAuthority } from '@/lib/home/authority';
 import { SCRATCHPAD_MAX_LENGTH } from '@/lib/scratchpad/merge';
@@ -83,6 +84,7 @@ export const appRouter = router({
   homeExecutionChoices: sp.query(({ ctx }) => resolveHomeExecutionChoices(ctx.key)),
   coordination: coordinationRouter,
   filePreviews: filePreviewsRouter,
+  artifacts: artifactsRouter,
   email: emailRouter,
   externalAi: externalAiRouter,
   localApps: localAppsRouter,

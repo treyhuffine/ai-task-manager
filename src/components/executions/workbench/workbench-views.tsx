@@ -9,6 +9,7 @@ import { RunView } from '../preview/run-view';
 import type { PreviewController } from '../preview/use-preview-controller';
 import { ChangesView } from './changes-view';
 import { FilesView } from './files-view';
+import { ArtifactsView } from './artifacts-view';
 import type { PanelView } from './workbench-state';
 import { Tip } from '@/components/ui/tip';
 import { BesideFileView } from '@/components/chat-ui/artifacts/artifact-beside';
@@ -47,7 +48,7 @@ export interface WorkbenchViewContext {
 const WORKTREE_VIEWS: ReadonlySet<PanelView> = new Set(['run', 'preview', 'changes', 'files']);
 
 /** The body of one workbench view. Shared by the desktop panel and the phone. */
-export function WorkbenchViewBody({ view, ctx }: { view: PanelView; ctx: WorkbenchViewContext }) {
+export function WorkbenchViewBody({ view, ctx, active = true }: { view: PanelView; ctx: WorkbenchViewContext; active?: boolean }) {
   if (ctx.settingUp && WORKTREE_VIEWS.has(view)) {
     return (
       <SetupPlaceholder
@@ -59,6 +60,8 @@ export function WorkbenchViewBody({ view, ctx }: { view: PanelView; ctx: Workben
   }
 
   switch (view) {
+    case 'artifacts':
+      return <ArtifactsView key={ctx.worktreeId} sessionId={ctx.sessionId} executionId={ctx.worktreeId === ctx.sessionId ? null : ctx.worktreeId} active={active} previewHost={ctx.besideHost} />;
     case 'run':
       return (
         <RunView

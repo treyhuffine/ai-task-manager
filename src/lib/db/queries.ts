@@ -49,6 +49,8 @@ import { mergeScratchpad } from '@/lib/scratchpad/merge';
 import { FILE_TOOL_NAMES, fileTargetPath, isSubagentTool } from '@/lib/executions/tool-display';
 import { replyNamesTextFile } from '@/lib/sessions/reply-text';
 import { replyNamesFile } from '@/lib/sessions/reply-artifacts';
+import { isArtifactMessage } from '@/lib/db/schema';
+import type { ArtifactCursor, ArtifactMessage } from '@/lib/sessions/artifact-messages';
 import { activityReasonForEventSource, isActivity, shouldThrottledBump, type ActivityReason } from '@/lib/sessions/activity';
 import type { ReferencePage, ReferenceRow, ReferenceSection } from '@/lib/sessions/contracts';
 import type { ChatTurnStatus } from '@/lib/sessions/turn-status';
@@ -11143,6 +11145,19 @@ export function agentReplyNamesFile(sessionId: string, file: string): boolean {
     WHERE session_id = ? AND role = 'assistant' AND instr(content, ?) > 0`).iterate(sessionId, file);
   for (const row of candidates) if (replyNamesFile((row as { content: string }).content, file)) return true;
   return false;
+}
+
+/** Read one chat's shared messages through the partial index, never its tool log.
+ * A row-value cursor seeks directly into long chats, including timestamp ties. */
+export function listArtifactMessages(sessionId: string, before?: ArtifactCursor, limit = 51): ArtifactMessage[] {
+  return getDb().select({
+    id: sql<string>`${chatEvents.id}`, sessionId: sql<string>`${chatEvents.sessionId}`, createdAt: sql<string>`${chatEvents.createdAt}`,
+    source: sql<string>`${chatEvents.source}`, content: sql<string | null>`${chatEvents.content}`,
+    attachments: sql<StoredAttachment[] | null>`${chatEvents.attachments}`.mapWith(chatEvents.attachments),
+  }).from(sql`${chatEvents} INDEXED BY idx_chat_events_artifact_message`)
+    .where(and(eq(chatEvents.sessionId, sessionId), isArtifactMessage(chatEvents),
+      before ? sql`(${chatEvents.createdAt}, ${chatEvents.id}) < (${before.createdAt}, ${before.id})` : undefined))
+    .orderBy(desc(chatEvents.createdAt), desc(chatEvents.id)).limit(limit).all().map(row => hydrateRow(row));
 }
 
 /**
