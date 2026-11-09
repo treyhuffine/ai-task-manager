@@ -46,8 +46,22 @@ jobs:
           NODE_ENV: production
           RI_BUILD_MEMORY_LIMIT_GB: '16'
         run: |
+          # Temporary trace diagnosis, per AGENTS.md. Make a broad JSON glob
+          # large enough for Turbopack to report the source location.
+          node -e 'const fs=require("node:fs");for(let i=0;i<14000;i++)fs.writeFileSync(`scripts/trace-canary/diagnostic-${i}.json`,"")'
           pnpm apps:catalog --compatible
           node scripts/next-build.mjs
+          node -e 'const fs=require("node:fs");for(const n of fs.readdirSync("scripts/trace-canary"))if(n.startsWith("diagnostic-"))fs.unlinkSync(`scripts/trace-canary/${n}`)'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ri-linux-trace-diagnostic
+          path: |
+            .next-desktop/server/app/api/browser/route.js.nft.json
+            .next-desktop/server/app/api/home/route.js.nft.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 2
       - name: Build Debian and AppImage installers without an update feed
         run: pnpm desktop:package --share --skip-build
       - uses: actions/upload-artifact@v4
