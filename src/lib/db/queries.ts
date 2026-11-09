@@ -11962,7 +11962,8 @@ interface ReferenceScanRow {
  * seen. The composer's `@` picker reads the same list, a page per kind.
  */
 export function listSessionReferences(opts: {
-  sessionId: string;
+  /** Null before a chat exists, so there are no prior mentions to rank first. */
+  sessionId: string | null;
   workspaceId: string | null;
   q?: string;
   kind?: 'task' | 'note';

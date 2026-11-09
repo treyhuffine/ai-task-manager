@@ -25,6 +25,17 @@ interface SlashMenuOptions {
   getCommands?: () => SlashCommand[]
 }
 
+interface SlashMenuStorage {
+  refresh: () => void
+  open: () => void
+}
+
+declare module '@tiptap/core' {
+  interface Storage {
+    slashMenu: SlashMenuStorage
+  }
+}
+
 /**
  * Tiptap extension that opens a slash-command popover when the user
  * types `/` at the start of the composer. Items come from agentex's
@@ -41,7 +52,7 @@ interface SlashMenuOptions {
  * does, they keep typing. Either way the submit path is the existing
  * `session.send(text)` — Claude Code handles the expansion server-side.
  */
-export const SlashMenuExtension = Extension.create<SlashMenuOptions>({
+export const SlashMenuExtension = Extension.create<SlashMenuOptions, SlashMenuStorage>({
   name: 'slashMenu',
 
   // Run before the chat composer's Enter→submit keymap so Enter on an
@@ -51,6 +62,10 @@ export const SlashMenuExtension = Extension.create<SlashMenuOptions>({
 
   addOptions() {
     return { getCommands: undefined }
+  },
+
+  addStorage() {
+    return { refresh: () => {}, open: () => {} }
   },
 
   addProseMirrorPlugins() {
@@ -80,7 +95,38 @@ export const SlashMenuExtension = Extension.create<SlashMenuOptions>({
           .insertContent(`/${match.command.name} `)
           .run()
       },
-      render: createSuggestionRenderer(),
+      render: () => {
+        const renderer = createSuggestionRenderer()()
+        let current: SuggestionProps<CommandMatch> | null = null
+        const withCommands = (props: SuggestionProps<CommandMatch>) => ({
+          ...props,
+          items: rankCommands(getCommands(), props.query),
+        })
+        // Query data can arrive or change while the caret and query stay put.
+        // Tiptap only reruns items when the suggestion itself changes.
+        this.storage.refresh = () => {
+          if (current) renderer.onUpdate?.(withCommands(current))
+        }
+        // The + menu explicitly reopens a token previously dismissed with Escape.
+        this.storage.open = () => {
+          if (current) renderer.onStart?.(withCommands(current))
+        }
+        return {
+          ...renderer,
+          onStart: (props) => {
+            current = props
+            renderer.onStart?.(withCommands(props))
+          },
+          onUpdate: (props) => {
+            current = props
+            renderer.onUpdate?.(withCommands(props))
+          },
+          onExit: () => {
+            current = null
+            renderer.onExit?.()
+          },
+        }
+      },
     }
 
     return [

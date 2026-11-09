@@ -228,11 +228,9 @@ export interface ChatInputEditorProps {
   onHotkeyTargetChange?: (isTarget: boolean) => void;
   className?: string;
   /**
-   * Optional slash-command descriptors surfaced via `/`. When provided
-   * and non-empty, registers the SlashMenu extension. When omitted, the
-   * editor behaves like a plain composer with no popup. The data
-   * source is `useSlashCommands(sessionId)` on the consumer side, which
-   * also carries each command's `frecency` for ranking.
+   * Slash-command descriptors surfaced via `/`, loaded for a session or
+   * the launcher's selected agent. Lists can arrive after the editor mounts.
+   * Each command also carries its `frecency` for ranking.
    */
   slashCommands?: SlashCommand[];
   /**
@@ -952,6 +950,10 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       });
     }, [editor, draftKey]);
 
+    useEffect(() => {
+      editor?.storage.slashMenu?.refresh();
+    }, [editor, slashCommands]);
+
     // A reload verifies the same retained JSON used on mount. Failed storage
     // or an uploading chip leaves the live editor open, never silently lost.
     useEffect(() => registerChatDraftWriter(editorRef, () => {
@@ -1112,7 +1114,10 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           editor.view.focus();
           // A command already there is the search, so a pick replaces it.
           const typed = /^\/\S*/.exec(editor.state.doc.firstChild?.textContent ?? '')?.[0];
-          if (typed) editor.commands.setTextSelection(1 + typed.length);
+          if (typed) {
+            editor.commands.setTextSelection(1 + typed.length);
+            editor.storage.slashMenu?.open();
+          }
           else editor.commands.insertContentAt(1, '/');
         },
         getMarkerOutput: () => buildMarkerOutput(editor),

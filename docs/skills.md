@@ -67,6 +67,16 @@ the skill's chats follow it.
 
 ### How a chat gets them
 
+The `/` picker works in New chat before a chat or worktree exists. It loads
+global skills, the selected agent folder's project skills and Ri's installed
+library for the chosen harness. Changing the agent or model updates the list,
+including a picker already open. The + menu's Skills row opens the same picker.
+Once a chat exists, discovery uses its actual working folder and attached
+skills, including a builder's exclusions and a try chat's extra skill. Claude's
+live inventory narrows the list once available. Drafts and skills marked
+`user-invocable: false` stay out. Local discovery is offered only for personal
+chats running on this computer.
+
 - Ri's skills are attached to every chat Ri starts (agentex `skillDirs`,
   `src/lib/executor/skills.ts`). Drafts never are. How a harness takes them
   is agentex's business: Claude gets a temporary folder, Codex links them

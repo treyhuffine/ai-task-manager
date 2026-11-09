@@ -61,7 +61,7 @@ describe.each(engines)('the + menu in %s', (_name, engine) => {
     page.on('filechooser', () => { choosers++; });
 
     await plus(page).tap();
-    await expect.poll(() => page.getByRole('menuitem').allTextContents()).toEqual(['Files and photos', 'Tasks', 'Mention anything@', 'Skills/', 'Extra row']);
+    await expect.poll(() => page.getByRole('menuitem').allTextContents()).toEqual(['Files and photos', 'Tasks', 'Notes', 'Agents', 'Mention anything@', 'Skills/', 'Extra row']);
     for (const asked of ['Take Photo', 'Photo Library', 'Choose File']) expect(await page.getByText(asked).count()).toBe(0);
     const box = await page.getByRole('menu').boundingBox();
     expect(box!.x).toBeGreaterThanOrEqual(0);
@@ -124,6 +124,22 @@ describe.each(engines)('the + menu in %s', (_name, engine) => {
     await close();
   }, 30_000);
 
+  it.each([
+    { label: 'Notes', prefix: 'note:', result: 'Trip ideas', marker: '[[note:note-ideas]]' },
+    { label: 'Agents', prefix: 'agent:', result: 'Travel planner', marker: '[[agent:agent-travel]]' },
+  ])('adds a $label reference from its shared shortcut', async ({ label, prefix, result, marker }) => {
+    const { page, errors, close } = await open(browser, phone);
+    await plus(page).tap();
+    await row(page, label).tap();
+    await expect.poll(() => text(page)).toBe(`@${prefix}`);
+    expect(await editorHasFocus(page)).toBe(true);
+    await page.locator('.slash-command-popup').getByText(result, { exact: true }).tap();
+    await expect.poll(() => text(page)).toBe(marker);
+    expect(await page.evaluate(() => window.addMenu.sent())).toEqual([]);
+    expect(errors).toEqual([]);
+    await close();
+  }, 30_000);
+
   it('runs a skill on what is already written, since a skill has to open the message', async () => {
     const { page, errors, close } = await open(browser, computer);
     await editor(page).click();
@@ -164,7 +180,7 @@ describe.each(engines)('the + menu in %s', (_name, engine) => {
   it('leaves no skills row where there is no / menu', async () => {
     const { page, close } = await open(browser, computer, '?skills=0');
     await plus(page).click();
-    await expect.poll(() => page.getByRole('menuitem').allTextContents()).toEqual(['Files and photos', 'Mention@', 'Extra row']);
+    await expect.poll(() => page.getByRole('menuitem').allTextContents()).toEqual(['Files and photos', 'Tasks', 'Notes', 'Agents', 'Mention anything@', 'Extra row']);
     await close();
   }, 30_000);
 

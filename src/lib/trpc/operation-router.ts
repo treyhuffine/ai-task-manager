@@ -1,3 +1,5 @@
+import * as launchPicker from '@/lib/server/operations/workspaces/picker';
+import * as skillCommands from '@/lib/server/operations/skills/commands';
 import { operationContext, unwrapOperation } from '@/lib/server/operation';
 import { listAccountsNeedingYou } from '@/lib/integrations/attention';
 import * as operation1 from "@/lib/server/operations/browser";
@@ -585,6 +587,7 @@ export const internalRouters = {
     baseUrlTunnelNamePost: p.input(operation189.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation189.POST(input, operationContext(ctx.request, input, "/settings/base-url/tunnel-name")))),
   }),
   skills: router({
+    commands: sp.input(skillCommands.GETInput).query(async ({ input, ctx }) => unwrapOperation(await skillCommands.GET(input, operationContext(ctx.request, input, "/skills/commands")))),
     list: sp.input(operation190.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation190.GET(input, operationContext(ctx.request, input, "/skills")))),
     create: sp.input(operation190.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation190.POST(input, operationContext(ctx.request, input, "/skills")))),
     RefGet: sp.input(operation191.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation191.GET(input, operationContext(ctx.request, input, "/skills/[ref]")))),
@@ -629,6 +632,7 @@ export const internalRouters = {
     update: sp.input(operation211.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation211.PATCH(input, operationContext(ctx.request, input, "/user-state")))),
   }),
   workspaces: router({
+    launchPicker: sp.input(launchPicker.GETInput).query(async ({ input, ctx }) => unwrapOperation(await launchPicker.GET(input, operationContext(ctx.request, input, "/workspaces/picker")))),
     list: sp.input(operation212.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation212.GET(input, operationContext(ctx.request, input, "/workspaces")))),
     create: sp.input(operation212.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation212.POST(input, operationContext(ctx.request, input, "/workspaces")))),
     treeGet: sp.input(operation213.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation213.GET(input, operationContext(ctx.request, input, "/workspaces/[id]/tree")))),

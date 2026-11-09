@@ -14,7 +14,7 @@ import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 | --- | --- |
 | `chat-transcript.tsx` | Common event grouping, paging, scroll anchoring and subagent navigation. Personal and team adapters provide data and attribution slots. |
 | `chat-composer.tsx` | Common composer layout around `ChatInputEditor` and contextual actions. Transport, receipts and allowed tools stay in their adapters. |
-| `add-menu/` | The composer's +: files and photos, mentions and skills everywhere, and in an existing chat rows for tasks, notes, agents and connectors, then schedules, linked folders, apps and plugins. A row shows only where it can do something |
+| `add-menu/` | The composer's +: files and photos, tasks, notes, available agents and skills before and after launch. Existing chats also offer connectors, schedules, linked folders, apps and plugins where supported |
 | `chat-capabilities.tsx` | Explicit delivery and result interactions, without enabling personal endpoints in a team transcript. |
 | `chat-menu.tsx` | A chat's ⋯ menu: coordination preferences (personal chats) and Restart chat for whoever may stop it, personal or shared |
 | `chat-recovery.tsx` | The inline reason and Restart chat, shown only while a chat is blocked on a harness that hasn't confirmed it stopped |
@@ -42,6 +42,14 @@ its prefix (`@task:`) for you, so there is no second picker. Connectors stay one
 row rather than one per account, since a Home can hold dozens of accounts.
 Skills opens the `/` menu. A skill has to open the message, so it works at the
 start of the first line and what is already written becomes the skill's input.
+
+New chat uses the same `ComposerMentionRows` as an existing chat. Task and note
+searches use the shared reference picker, with the selected agent's work first,
+without creating a chat. These are references added to the message. The launcher's
+separate Start from controls choose a task to work on, a PR or branch to fork,
+or a chat to continue. Connector and app sources need a chat ID, so their rows
+appear once the chat exists. Scheduling, linked-folder setup and plugin setup
+remain with the existing chat's contextual actions.
 
 Message copy buttons stay visible on touch devices and devices without hover.
 Coarse pointers get a 44 px tap target. With a mouse, user-message copy buttons

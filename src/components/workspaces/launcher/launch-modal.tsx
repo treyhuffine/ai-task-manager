@@ -10,6 +10,8 @@ import { useDefaultSelection } from '@/hooks/use-default-selection';
 import { useTouchFirst } from '@/hooks/use-touch-first';
 import { useVisualViewportBottom } from '@/hooks/use-visual-viewport-bottom';
 
+import { ComposerMentionRows } from '@/components/chat-ui/add-menu/composer-mention-rows';
+import { useLaunchPicker } from '@/hooks/use-launch-picker';
 import { ComposerAddMenu } from '@/components/chat-ui/add-menu/composer-add-menu';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import {
@@ -20,6 +22,7 @@ import { useWorkNavigation } from '@/contexts/work-context';
 import type { EffortLevel } from '@/db/types';
 import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
 import { useHarnessModels } from '@/hooks/use-harness-models';
+import { useLaunchSlashCommands } from '@/hooks/use-slash-commands';
 import { useUserState } from '@/hooks/use-user-state';
 import { useMentionAgents, useRunOn, useSetDefaultDevice, useWorkspacePRs, useWorkspaces } from '@/hooks/use-workspaces';
 import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
@@ -202,6 +205,7 @@ function LaunchModalInner({
   // can't reach each other, so its launcher offers none.
   const mentionAgents = useMentionAgents(useChatCapabilities().coordination !== false);
   const loadReferenceTree = useLoadReferenceTree();
+  const searchMentionEntities = useLaunchPicker(workspaceId);
 
   // The editor owns its own document; we only mirror "is there anything to
   // send" for the Start button. Pulling the text out happens once, at launch.
@@ -278,6 +282,7 @@ function LaunchModalInner({
     }),
     [harnessPick, fallbackProvider, fallbackModel],
   );
+  const slashCommands = useLaunchSlashCommands(workspaceId, selection.harness, runsHere && personalControls);
   const { models } = useHarnessModels(selection.harness);
   const runtimeProblem = !personalControls && workspaceId && !workspace ? 'Opening the selected agent…' : !personalControls && (!selectedModelAvailable(models, selection.model) || (!harnessPick && !defaultSelection)) ? 'Choose a model available to the team.' : null;
   const selectedModelOption = useMemo(
@@ -759,11 +764,9 @@ function LaunchModalInner({
               {/* The SAME editor the chat composer uses. Brings auto-grow
                   (20px → 200px then scrolls), image paste/drop as attachments,
                   long-paste-becomes-a-file, and `#` PR mentions for free.
-                  File `@`-mentions and slash commands are deliberately absent:
-                  both are sourced from a worktree/harness that doesn't exist
-                  until this modal creates one. Reference folders aren't: they
-                  belong to the agent, so `@alias` finds them here too. Nor
-                  are agents, which need no worktree. */}
+                  Worktree file mentions wait for a worktree. Tasks, notes,
+                  agents, reference folders and installed skills can all be
+                  picked before a chat exists. */}
               <div
                 onKeyDownCapture={handleEditorKeyDownCapture}
                 className="rounded-lg border border-border bg-background px-3 py-2.5 focus-within:border-primary/40 focus-within:ring-1 focus-within:ring-primary/30"
@@ -772,10 +775,12 @@ function LaunchModalInner({
                   ref={editorRef}
                   placeholder="What are we working on?"
                   disabled={launching}
+                  slashCommands={runsHere && personalControls ? slashCommands.data?.commands : undefined}
                   prs={prMentions}
                   mentionReferenceFolders={mentionReferenceFolders}
                   loadReferenceTree={loadReferenceTree}
                   mentionAgents={mentionAgents}
+                  searchMentionEntities={searchMentionEntities}
                   // Opened with no agent, the draft is the launcher's own and
                   // stays put while an agent is picked. Keyed to the agent, a
                   // pick would swap in that agent's draft over what you typed.
@@ -867,6 +872,8 @@ function LaunchModalInner({
             <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 border-t border-border bg-muted/25 px-3 py-2">
               <ComposerAddMenu
                 editor={editorRef}
+                mentions={<ComposerMentionRows editor={editorRef} agents={mentionAgents.length > 0} />}
+                skills={runsHere && personalControls && (slashCommands.data?.commands.length ?? 0) > 0}
                 onPick={attachFile}
                 disabled={launching}
                 className="-ml-1"

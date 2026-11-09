@@ -1,86 +1,32 @@
 import { getRequestKey } from '@/lib/auth/request-key';
 import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
-import { getAppRoot } from '@/lib/config/paths';
-import { getChatSession, getSkillUsageScores } from '@/lib/db/queries';
+import { getChatSessionWithExecution, chatPlacement } from '@/lib/db/queries';
+import { chatSkillCommands } from '@/lib/skills/commands';
+import { sessionSkillPlan } from '@/lib/skills/exclusions';
 import * as executor from '@/lib/executor/adapter';
 import { reply, type OperationContext } from '@/lib/server/operation';
-import {
-  discoverSkillCommands,
-  reconcileSkillCommands,
-  type SkillCommandDescriptor,
-} from '@agentex/agent';
 import { z as rpcZ } from 'zod/v4';
 
-/**
- * Merge agentex's local skill discovery with the live runtime inventory
- * captured from the provider's `system/init` event, then return the
- * descriptors the slash menu should offer.
- *
- * Two filters at the boundary:
- *   - `userInvocable !== false` — hides skills the author flagged as
- *     model-only.
- *   - `available !== false` — for Claude, this hides skills that didn't
- *     appear in `system/init.skills` / `slash_commands`. For other
- *     providers it's a no-op (reconcile passes them through).
- *
- * Discovery scans both:
- *   - User-level: `~/.claude/skills/` and `~/.agents/skills/` (skills the
- *     user shares across all their agents — same set Claude Code's own
- *     ancestor walk picks up).
- *   - Workspace-level: `<app-root>/.claude/skills/` and
- *     `<app-root>/.agents/skills/` (where `<cli> skills install`
- *     symlinks the skills shipped with this app).
- * `includeInstalled: 'all'` covers both. No filesystem watcher — the
- * result is re-fetched per request via TanStack Query.
- */
-// Compressed when the body is JSON and over ~1KiB; a streamed or
-// non-JSON response passes through untouched. See lib/api/compression.ts.
-
+/** Discover from the chat's working folder and attached skills, then apply its live inventory. */
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
     const authority = sessionAuthority(getRequestKey(request.headers), id, 'read');
 
-    const session = getChatSession(id);
+    const session = getChatSessionWithExecution(id);
     if (!session) {
       return reply({ error: 'session not found' }, { status: 404 });
     }
 
-    const provider = session.harness;
-
-    if (authority) return reply({ commands: [], diagnostics: [], inventorySource: 'none' });
-
-    const { commands, diagnostics } = await discoverSkillCommands({
-      cwd: getAppRoot(),
-      includeInstalled: 'all',
-      runtime: provider,
-    });
-
-    const reconciled = reconcileSkillCommands({
-      discovered: commands,
+    if (authority || chatPlacement(id)?.isHome === false) return reply({ commands: [], diagnostics: [], inventorySource: 'none' });
+    const cwd = executor.resolveCwd(session);
+    if (!cwd) return reply({ commands: [], diagnostics: [], inventorySource: 'none' });
+    return reply(await chatSkillCommands({
+      cwd,
+      harness: session.harness,
       inventory: executor.getSessionInventory(id),
-      provider,
-    });
-
-    // Attach the decayed usage score so the menu can rank by habit. Joined here
-    // rather than fetched separately by the client — the descriptor list is
-    // already a per-session request the composer caches, and usage without the
-    // commands it belongs to is useless. Names not in `skill_usage` (the common
-    // case on a fresh install) simply carry no `frecency`, and ranking falls
-    // back to match quality alone.
-    const usage = getSkillUsageScores();
-    const visible = reconciled
-      .filter((cmd: SkillCommandDescriptor) => cmd.userInvocable !== false && cmd.available !== false)
-      .map((cmd: SkillCommandDescriptor) => {
-        const frecency = usage.get(cmd.name.toLowerCase());
-        return frecency ? { ...cmd, frecency } : cmd;
-      });
-
-    return reply({
-      commands: visible,
-      diagnostics,
-      inventorySource: executor.getSessionInventory(id)?.source ?? 'none',
-    });
+      skillPlan: sessionSkillPlan(session),
+    }));
   } catch (error) {
     const denied = executionOperationFailure(error);
     if (denied) return denied;

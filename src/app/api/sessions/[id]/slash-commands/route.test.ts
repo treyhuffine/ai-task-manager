@@ -24,6 +24,8 @@ const reconcileSkillCommands = vi.fn();
 const getChatSession = vi.fn();
 const getSkillUsageScores = vi.fn();
 const getSessionInventory = vi.fn();
+const chatPlacement = vi.fn();
+const resolveCwd = vi.fn();
 
 vi.mock('@agentex/agent', () => ({
   discoverSkillCommands: (...args: unknown[]) => discoverSkillCommands(...args),
@@ -31,17 +33,22 @@ vi.mock('@agentex/agent', () => ({
 }));
 
 vi.mock('@/lib/db/queries', () => ({ getHome: () => null,
-  getChatSession: (id: string) => getChatSession(id),
+  getChatSessionWithExecution: (id: string) => getChatSession(id),
+  chatPlacement: (id: string) => chatPlacement(id),
   getSkillUsageScores: () => getSkillUsageScores(),
 }));
 
 vi.mock('@/lib/executor/adapter', () => ({
   getSessionInventory: (id: string) => getSessionInventory(id),
+  resolveCwd: (session: unknown) => resolveCwd(session),
 }));
 
 vi.mock('@/lib/config/paths', () => ({
   getAppRoot: () => '/tmp/test-app-root',
 }));
+
+vi.mock('@/lib/executor/skills', () => ({ resolveSkillDirsForSession: () => ['/tmp/ri-skill'] }));
+vi.mock('@/lib/skills/exclusions', () => ({ sessionSkillPlan: () => ({ exclude: [], extra: [] }) }));
 
 import { GET } from './route';
 
@@ -78,6 +85,8 @@ beforeEach(() => {
   getChatSession.mockReset();
   getSkillUsageScores.mockReset();
   getSessionInventory.mockReset();
+  chatPlacement.mockReset().mockReturnValue(null);
+  resolveCwd.mockReset().mockImplementation((session: { worktreePath?: string }) => session.worktreePath ?? '/tmp/test-app-root');
 
   // Sensible defaults: session/agent exist, no inventory, empty discovery,
   // no usage history.
@@ -89,6 +98,29 @@ beforeEach(() => {
 });
 
 describe('GET /api/sessions/[id]/slash-commands', () => {
+  it('does not discover host skills for a chat on another device', async () => {
+    chatPlacement.mockReturnValue({ isHome: false });
+    const body = await (await GET(makeRequest(), makeParams())).json();
+    expect(body.commands).toEqual([]);
+    expect(discoverSkillCommands).not.toHaveBeenCalled();
+    expect(resolveCwd).not.toHaveBeenCalled();
+  });
+
+  it('waits for a resolvable chat folder instead of discovering from the source checkout', async () => {
+    resolveCwd.mockReturnValue(null);
+    const body = await (await GET(makeRequest(), makeParams())).json();
+    expect(body.commands).toEqual([]);
+    expect(discoverSkillCommands).not.toHaveBeenCalled();
+  });
+
+  it('discovers project and attached skills from the chat worktree', async () => {
+    getChatSession.mockReturnValue({ id: SESSION_ID, harness: 'claude', worktreePath: '/tmp/chat-worktree' });
+    await GET(makeRequest(), makeParams());
+    expect(discoverSkillCommands).toHaveBeenCalledWith({
+      cwd: '/tmp/chat-worktree', skillDirs: ['/tmp/ri-skill'], includeInstalled: 'all', runtime: 'claude',
+    });
+  });
+
   it('returns 404 when the chat session is missing', async () => {
     getChatSession.mockReturnValue(undefined);
 

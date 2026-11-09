@@ -31,6 +31,7 @@ import { ChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import { ChatComposer } from '@/components/chat-ui/chat-composer';
 import { ChatAddMenu } from '@/components/chat-ui/add-menu/chat-add-menu';
 import { ComposerAddMenu } from '@/components/chat-ui/add-menu/composer-add-menu';
+import { ComposerMentionRows } from '@/components/chat-ui/add-menu/composer-mention-rows';
 import { ConfirmProvider } from '@/components/ui/confirm-dialog';
 import { WorkContext, type WorkActivity, type WorkNavigation } from '@/contexts/work-context';
 import { ModelMenuContent, ModelMenuLabel } from '@/components/chat-ui/model-menu/model-menu';
@@ -287,14 +288,15 @@ function AddMenuExample() {
   return <div className="pt-96"><ChatComposer status={picked.length > 0 ? `Picked ${picked.join(', ')}. Nothing was uploaded.` : 'This example saves nothing.'}>
     <ChatInputEditor
       ref={editor} ariaLabel="Example message" placeholder="Ask for anything. @ to mention, / for skills" attachmentsEnabled={false} sourceChatId={inChat ? CHAT_ID : undefined}
-      searchMentionEntities={inChat ? async () => ({ tasks: [{ kind: 'task', id: 'gallery-task', title: 'Plan the launch', status: 'todo' }], notes: [{ kind: 'note', id: 'gallery-note', title: 'Launch checklist' }], totals: { tasks: 1, notes: 1 } }) : undefined}
-      mentionFiles={[{ kind: 'file', path: 'README.md', name: 'README.md' }]}
-      slashCommands={inChat ? [{ id: 'review', name: 'review', description: 'Review the diff', source: 'installed-user', userInvocable: true, available: true, execution: { kind: 'provider-slash', provider: 'claude', commandText: '/review' } }] : undefined}
+      searchMentionEntities={async () => ({ tasks: [{ kind: 'task', id: 'gallery-task', title: 'Plan the launch', status: 'todo' }], notes: [{ kind: 'note', id: 'gallery-note', title: 'Launch checklist' }], totals: { tasks: 1, notes: 1 } })}
+      mentionAgents={[{ kind: 'agent', id: RECORD_ID, name: 'Launch planner', slug: 'launch', purpose: 'Plans the launch', picture: { image: null, emoji: null } }]}
+      mentionFiles={inChat ? [{ kind: 'file', path: 'README.md', name: 'README.md' }] : undefined}
+      slashCommands={[{ id: 'review', name: 'review', description: 'Review the diff', source: 'installed-user', userInvocable: true, available: true, execution: { kind: 'provider-slash', provider: 'claude', commandText: '/review' } }]}
     />
     <div className="flex items-center gap-1 px-1.5 pb-1.5">
       {inChat
         ? <ChatAddMenu sessionId={CHAT_ID} editor={editor} onPick={onPick} skills />
-        : <ComposerAddMenu editor={editor} onPick={onPick} />}
+        : <ComposerAddMenu editor={editor} onPick={onPick} skills mentions={<ComposerMentionRows editor={editor} agents />} />}
     </div>
   </ChatComposer></div>;
 }

@@ -15,7 +15,8 @@ import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/ac
  * many more there are. Files come from the file-tree route, and the
  * scratchpad is one option the picker adds itself.
  */
-import { getChatSession, listSessionReferences, REFERENCE_PAGE_SIZE } from '@/lib/db/queries';
+import { getChatSession } from '@/lib/db/queries';
+import { referencePicker } from '@/lib/sessions/reference-picker';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
@@ -28,22 +29,13 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: Operat
     if (!session) return reply({ error: 'Session not found' }, { status: 404 });
 
     const query = rpcInput.query ?? {};
-    const page = (kind: 'task' | 'note') => listSessionReferences({
+    return reply(referencePicker({
       sessionId: id,
       workspaceId: session.workspaceId,
       q: query.q,
-      kind,
-      limit: query.limit ? Number(query.limit) : REFERENCE_PAGE_SIZE,
-    });
-    const total = (p: ReturnType<typeof page>) => p.counts.inChat + p.counts.workspace + p.counts.all;
-    const tasks = query.kind === 'note' ? null : page('task');
-    const notes = query.kind === 'task' ? null : page('note');
-
-    return reply({
-      tasks: (tasks?.rows ?? []).map((t) => ({ id: t.id, title: t.title, status: t.status ?? 'todo' })),
-      notes: (notes?.rows ?? []).map((n) => ({ id: n.id, title: n.title })),
-      totals: { tasks: tasks ? total(tasks) : 0, notes: notes ? total(notes) : 0 },
-    });
+      kind: query.kind,
+      limit: query.limit ? Number(query.limit) : undefined,
+    }));
   } catch (err) {
     const denied = executionOperationFailure(err);
     if (denied) return denied;

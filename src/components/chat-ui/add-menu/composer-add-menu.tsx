@@ -10,8 +10,8 @@
  *
  * `mentions` names what a surface can mention, so someone browsing sees nouns
  * rather than having to know what `@` reaches. `children` adds what it has
- * beyond the message. An existing chat has more of both (`ChatAddMenu`) than a
- * chat that hasn't started yet.
+ * beyond the message. New and existing chats share their core context rows.
+ * An existing chat adds actions through `ChatAddMenu`.
  */
 
 import { useRef, type ComponentProps, type ReactNode, type RefObject } from 'react';
