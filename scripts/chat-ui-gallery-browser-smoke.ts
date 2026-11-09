@@ -361,6 +361,27 @@ async function main() {
       await frame.getByRole('button', { name: 'Show large', exact: true }).click();
       await frame.getByRole('dialog').getByRole('heading', { name: 'Friday review', exact: true }).waitFor();
     }
+    async function exerciseArtifactList() {
+      let frame = await select('artifact-list');
+      const filter = frame.getByRole('textbox', { name: 'Filter artifacts', exact: true });
+      await filter.fill('research');
+      assert.equal(await frame.locator('[data-artifact-list] [data-artifact-card]').count(), 1);
+      await filter.fill('no-such-file');
+      await waitForText(frame, 'No matching artifacts');
+      await filter.fill('');
+      await frame.getByRole('button', { name: 'Open artifact: budget.xlsx', exact: true }).click();
+      const dialog = frame.getByRole('dialog');
+      await dialog.getByRole('cell', { name: 'Widget', exact: true }).waitFor();
+      await dialog.getByRole('button', { name: 'Next preview', exact: true }).click();
+      await dialog.getByRole('heading', { name: 'review.docx', exact: true }).waitFor();
+      await dialog.getByTitle('Document preview').waitFor();
+      await dialog.getByRole('button', { name: 'Next preview', exact: true }).click();
+      await dialog.getByRole('cell', { name: 'docs/review.md', exact: true }).waitFor();
+      assert.equal(await dialog.getByRole('button', { name: 'Next preview', exact: true }).isDisabled(), true);
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+      frame = await select('artifact-list', 'empty');
+      await waitForText(frame, 'No artifacts yet');
+    }
     async function exerciseRichFiles() {
       let frame = await select('file-previews', 'media');
       await frame.getByRole('button', { name: 'Open file: demo.webm', exact: true }).click();
@@ -420,6 +441,7 @@ async function main() {
       }
       if (focusedExample === 'text-files') await exerciseTextFiles();
       if (focusedExample === 'file-previews') await exerciseRichFiles();
+      if (focusedExample === 'artifact-list') await exerciseArtifactList();
       const focusedStates: readonly { id: string }[] = CHAT_UI_EXAMPLES.find(example => example.id === focusedExample)!.states;
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 1050 });
@@ -471,6 +493,7 @@ async function main() {
     frame = await select('server-form', 'expired');
     assert.equal(await frame.getByRole('button', { name: 'Submit', exact: true }).count(), 0);
     await waitForText(frame, 'This form waited too long and closed.');
+    await exerciseArtifactList();
     await exerciseSharedChat();
     frame = await select('email');
     await frame.getByLabel('Message', { exact: true }).fill('A message typed in the gallery');

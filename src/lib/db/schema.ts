@@ -2361,6 +2361,10 @@ export const isAuthRequiredEvent = (t: { source: AnySQLiteColumn }) => sql`${t.s
 export const isConnectionCardEvent = (t: { source: AnySQLiteColumn }) =>
   sql`${t.source} IN ('connection_request', 'connection_response')`;
 
+/** Messages that can share artifacts. Literal predicate shared with the paged reader. */
+export const isArtifactMessage = (t: { source: AnySQLiteColumn; attachments: AnySQLiteColumn }) =>
+  sql`(${t.source} = 'agent' OR ${t.attachments} <> '[]')`;
+
 /** Durable content of an email_draft chat event. Edits use compare-and-swap on content. */
 export interface StoredEmailDraft {
   version: 1;
@@ -2434,6 +2438,9 @@ export const chatEvents = sqliteTable(
     // SQLite appends rowid to this index, so insertion-order team cursors
     // seek and page without sorting every event in a long chat.
     index('idx_chat_events_session_cursor').on(table.sessionId),
+    index('idx_chat_events_artifact_message')
+      .on(table.sessionId, table.createdAt, table.id)
+      .where(isArtifactMessage(table)),
     index('idx_chat_events_tool_call_id').on(table.externalToolCallId),
     // The rare events that carry files, covering `attachments`, so the
     // attachment sweep (`collectReferencedFileNames`) reads those rows only.

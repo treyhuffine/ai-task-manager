@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  Files,
   GitBranch,
   GitCompareArrows,
   ListTodo,
@@ -188,6 +189,7 @@ export function ToolsList({
       </div>
 
       <ToolsDivider />
+      {row('artifacts', <Files size={15} />, 'Artifacts', null, 'Files shared across every chat in this execution')}
       {row(
         'changes',
         <GitCompareArrows size={15} />,
@@ -381,6 +383,7 @@ export function ToolsBox(props: ToolsListProps) {
         <>
           <ToolsMini onClick={() => onShow('run')} icon={<Play size={15} />} label={`Run · ${RUN_STATUS_LABEL[status]}`} badge={status === 'not-configured' || status === 'stopped' || status === 'elsewhere' ? undefined : runDotClass(status)} />
           <ToolsMini onClick={() => onShow('preview')} icon={<AppWindow size={16} />} label="Preview" />
+          <ToolsMini onClick={() => onShow('artifacts')} icon={<Files size={16} />} label="Artifacts" />
           <ToolsMini onClick={() => onShow('changes')} icon={<GitCompareArrows size={16} />} label={diffStats?.files ? `Changes · ${filesLabel(diffStats.files)}` : 'Changes'} badge={diffStats?.files ? 'bg-amber-500' : undefined} />
           <ToolsMini onClick={() => onShow('files')} icon={<FileText size={16} />} label="Files" />
           {terminal && <TerminalToolsMini {...terminal} />}

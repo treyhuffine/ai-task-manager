@@ -18,6 +18,7 @@ import { MessageEntityChip, TeamRecordChip } from '@/components/chat-ui/referenc
 import { SourceChip, SourceMetadataProvider } from '@/components/chat-ui/references/source-chip';
 import { parseSourceMarkers } from '@/lib/chat-sources/reference';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
+import { ArtifactList, type ArtifactListItem } from '@/components/chat-ui/artifacts/artifact-list';
 import { ArtifactPreviewProvider, useBesidePreview, useBesideRegion } from '@/components/chat-ui/artifacts/artifact-preview-provider';
 import { PREVIEW_HOST_ATTRIBUTE } from '@/components/chat-ui/artifacts/artifact-preview-store';
 import { BesideFileTab, BesideFileView } from '@/components/chat-ui/artifacts/artifact-beside';
@@ -247,6 +248,18 @@ function RichFiles() {
   return config.state === 'beside' ? <FilesBeside>{links}</FilesBeside> : <section role="log" aria-label="Chat">{links}</section>;
 }
 
+function ArtifactCollection() {
+  const [query, setQuery] = useState('');
+  const items: ArtifactListItem[] = config.state === 'empty' ? [] : ['budget.xlsx', 'review.docx', 'files.zip'].map((name, index) => ({
+    key: name, name, source: { kind: 'session', sessionId: CHAT_ID, path: name }, mimeType: null,
+    sessionId: CHAT_ID, eventId: `artifact-${index}`, createdAt: NOW, chatLabel: index ? 'Prepare the handoff' : 'Research the options',
+  }));
+  return <div className="rounded-lg border border-border p-2">
+    <label className="mb-2 block px-3 text-xs text-muted-foreground">Files from every chat<input aria-label="Filter artifacts" placeholder="Filter by filename, path or chat" value={query} onChange={event => setQuery(event.target.value)} className="mt-2 block w-full rounded-md border border-border bg-background p-2 text-sm" /></label>
+    <ArtifactList items={items} query={query} />
+  </div>;
+}
+
 /** Keep status in the real composer card, so the preview covers its placement. */
 function CoordinationComposer() {
   const editor = useRef<ChatInputEditorHandle | null>(null);
@@ -294,6 +307,7 @@ function Example() {
     {__GALLERY_EXAMPLE__ !== 'app-kit' && <p className="mb-5 text-xs leading-relaxed text-muted-foreground">{example.tryThis}</p>}
     {__GALLERY_EXAMPLE__ === 'text-files' && <TextFiles />}
     {__GALLERY_EXAMPLE__ === 'file-previews' && <RichFiles />}
+    {__GALLERY_EXAMPLE__ === 'artifact-list' && <ArtifactCollection />}
     {__GALLERY_EXAMPLE__ === 'links' && <AgentResponse text={config.state === 'paths'
       ? 'Review [the notes](./notes/review.md), [the source](/tmp/example/src/app.tsx), or [README](README.md).'
       : 'Read [the website](https://example.com/guide?view=review#next), visit https://example.com, or use [a longer destination](https://example.com/research/planning/a-longer-document-name?view=review&section=next-steps#decisions).'} />}
