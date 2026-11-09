@@ -62,7 +62,7 @@ The endpoint is `/api/orchestrator/mcp`. Tools reuse the orchestrator registry a
 
 Personal external credentials use the existing `api_keys.role = ai_client`, with both `device_id` and `member_id` null, and `client` naming the agent (migration `0026_ai_client_kind`). Only a personal viewer can manage them, through `externalAi` tRPC: `create` (a key for one agent, returned once), `list`, `revoke`, `address`, and for this computer `local`, `setUp` and `disconnectLocal`. A team AI client still requires an active member (`team.aiClients`, with `address` for its steps). Device-bound AI keys remain invalid in a personal Ri. Host-key backfill assigns only sign-in keys, so startup cannot attach external clients to the host.
 
-These keys cannot sign into a browser, open a WebSocket, use the natural-language `/api/mcp`, start agents or chats, use terminals, change settings or read attachment files. Search excludes the private capture stream. Body updates support `expected_body_revision` so clients can avoid replacing newer text. Existing viewer and signed-session MCP behavior is unchanged.
+These keys cannot sign into a browser, open a WebSocket, use the natural-language `/api/mcp`, start agents or chats, use terminals, change settings or read attachment files. They can add to the capture stream (`create_stream_item`) but never read it, and search excludes it. Apps that draw Ri's view show the person their Stream, scratchpad and calendar through view-only tools the model doesn't see ([MCP sign-in](mcp-oauth.md), "The app"). Body updates support `expected_body_revision` so clients can avoid replacing newer text. Existing viewer and signed-session MCP behavior is unchanged.
 
 Coverage:
 

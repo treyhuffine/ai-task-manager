@@ -1,14 +1,18 @@
 /**
  * Ri's MCP Apps views for outside assistants (docs/mcp-oauth.md, "Views").
- * One HTML resource draws both: `show_deck` for today's deck and `show_tasks`
- * for a list. They are render tools, as MCP Apps and OpenAI recommend: the
- * model still reads data with `get_deck` and `list_tasks`, and calls these
- * when the person should see and act on the result.
+ * One HTML resource draws them all: `show_deck` for today's deck and
+ * `show_tasks` for a list in a chat, and `open_ri` for the whole app (the
+ * sidebar and the tab beside a chat). They are render tools, as MCP Apps and
+ * OpenAI recommend: the model still reads data with `get_deck` and
+ * `list_tasks`, and calls these when the person should see and act on the
+ * result. The app's other screens read through `load_view`, which only the
+ * view calls.
  */
 import { z } from 'zod';
 import type { RiMcpServer } from '@/lib/mcp/http-server';
 import { TASKS_VIEW_HTML } from './tasks-view.html';
 import { deckView, mentionItems, noteMarkdown, TASK_VIEW_LIMIT, taskMarkdown, tasksView, viewSummary, type DeckView, type TasksView } from './data';
+import { saveScratchpadFromView, SCRATCHPAD_MAX, screenView, VIEW_SCREENS, type ScreenInput } from './screens';
 
 export const TASKS_VIEW_URI = 'ui://ri/tasks.html';
 export const MENTION_SEARCH_TOOL = 'search_mentions';
@@ -28,10 +32,14 @@ const RESOURCE_META = {
 };
 
 /** The content tools the view itself calls. ChatGPT's Apps SDK layer asks for `widgetAccessible` on them. */
-export const VIEW_CALLED_TOOLS: ReadonlySet<string> = new Set(['complete_task', 'transition_task', 'create_task']);
+export const VIEW_CALLED_TOOLS: ReadonlySet<string> = new Set([
+  'complete_task', 'transition_task', 'create_task', 'update_task', 'create_note', 'update_note', 'create_stream_item',
+]);
 export const VIEW_CALLED_META = { 'openai/widgetAccessible': true };
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+/** Only the view calls it: hosts that follow MCP Apps keep it from their model. */
+const VIEW_ONLY = { ui: { visibility: ['app'] }, 'openai/widgetAccessible': true };
 
 function renderMeta(invoking: string, invoked: string) {
   return {
@@ -77,14 +85,38 @@ export function registerHomeViews(server: RiMcpServer): void {
   // model: ChatGPT won't draw the view of a tool hidden from it ("private tools can't render their widgets").
   server.registerTool('open_ri', {
     title: 'Ri',
-    description: 'Opens Ri as a full-screen app for the person: today’s deck, their tasks and a field to add one. People usually open it themselves from the app’s sidebar. To show them something in a chat, use show_deck or show_tasks instead.',
+    description: 'Opens Ri as an app for the person: today’s deck, their tasks, a board, their calendar, notes, search, the Stream and their scratchpad, where they can read and change their work. People usually open it themselves, from the app’s sidebar or beside a chat. To show them something in a chat, use show_deck or show_tasks instead.',
     annotations: READ_ONLY,
     _meta: {
       ...renderMeta('Opening Ri', 'Ri'),
       // Global: the sidebar, full screen. Thread: a tab beside any chat.
       'openai/ui': { entrypoints: [{ type: 'global' }, { type: 'thread' }] },
     },
-  }, () => reply(deckView()));
+  }, () => reply({ ...deckView(), app: true }));
+
+  // The app's other screens. The view reads them for the person, and the
+  // model never sees what comes back, so it holds no text for one.
+  server.registerTool('load_view', {
+    title: 'Load a screen of Ri’s view',
+    description: 'Only Ri’s own view calls this, to draw its board, calendar, notes, search, one task or note, the Stream and the scratchpad for the person. To read Ri yourself, use search, list_tasks, get_task and get_note.',
+    inputSchema: {
+      screen: z.enum(VIEW_SCREENS),
+      start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      query: z.string().max(200).optional(),
+      type: z.enum(['task', 'note']).optional(),
+      id: z.string().max(200).optional(),
+    },
+    annotations: READ_ONLY,
+    _meta: VIEW_ONLY,
+  }, async args => ({ content: [], structuredContent: await screenView(args as unknown as ScreenInput) as unknown as Record<string, unknown> }));
+
+  server.registerTool('save_scratchpad', {
+    title: 'Save the scratchpad',
+    description: 'Only Ri’s own view calls this, when the person writes in their scratchpad. base is the text the view last had from Ri, so a change from another device is merged rather than lost.',
+    inputSchema: { body: z.string().max(SCRATCHPAD_MAX), base: z.string().max(SCRATCHPAD_MAX) },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    _meta: VIEW_ONLY,
+  }, args => ({ content: [], structuredContent: saveScratchpadFromView(String(args.body), String(args.base)) as unknown as Record<string, unknown> }));
 
   // The @ menu in the message box (OpenAI's composer at-mentions). It runs on
   // every keystroke, so it only reads, and only the host's app layer calls it.

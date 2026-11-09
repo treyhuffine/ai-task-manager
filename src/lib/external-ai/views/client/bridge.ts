@@ -37,6 +37,8 @@ export interface BridgeHandlers {
   toolResult?(result: ToolResult): void;
   hostContext?(context: HostContext): void;
   cancelled?(): void;
+  /** The host is about to remove the view: finish anything unsaved. The host waits for the answer. */
+  teardown?(): Promise<void> | void;
 }
 
 export interface Bridge {
@@ -67,6 +69,7 @@ interface RpcMessage {
 }
 
 const REQUEST_TIMEOUT_MS = 60_000;
+const TEARDOWN_WAIT_MS = 2_000;
 
 export function connect(handlers: BridgeHandlers, host: Window = window.parent): Promise<Bridge> {
   let sequence = 0;
@@ -109,8 +112,13 @@ export function connect(handlers: BridgeHandlers, host: Window = window.parent):
       default:
         // A request the view doesn't serve still gets an answer, so the host never waits on it.
         if (message.id !== undefined && message.method) {
-          if (message.method === 'ui/resource-teardown' || message.method === 'ping') post({ id: message.id, result: {} });
-          else post({ id: message.id, error: { message: `The view doesn't handle ${message.method}` } } as RpcMessage);
+          const id = message.id;
+          if (message.method === 'ui/resource-teardown') {
+            // A save on its way gets a moment to land, never long enough to hold the host up.
+            const done = Promise.resolve(handlers.teardown?.()).catch(() => {});
+            void Promise.race([done, new Promise(resolve => setTimeout(resolve, TEARDOWN_WAIT_MS))]).then(() => post({ id, result: {} }));
+          } else if (message.method === 'ping') post({ id, result: {} });
+          else post({ id, error: { message: `The view doesn't handle ${message.method}` } } as RpcMessage);
         }
     }
   });

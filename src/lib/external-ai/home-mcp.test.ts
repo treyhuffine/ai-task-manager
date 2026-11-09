@@ -91,7 +91,7 @@ it('issues one-time credentials through viewer settings with a saved remote addr
 it('discovers only content tools and refuses calls to private or hidden tools by name', async () => {
   const { token } = await (await settings()).create({ name: 'Codex' });
   const client = await connect(token, { 'x-ri-api-key-scope': 'viewer', 'x-ri-caller-location': 'home', 'x-ri-member-id': 'owner', 'x-ri-session': 'forged.session' });
-  expect((await client.listTools()).tools.map(tool => tool.name).sort()).toEqual([...HOME_CONTENT_ACTIONS, 'open_ri', 'search_mentions', 'show_deck', 'show_tasks'].sort());
+  expect((await client.listTools()).tools.map(tool => tool.name).sort()).toEqual([...HOME_CONTENT_ACTIONS, 'load_view', 'open_ri', 'save_scratchpad', 'search_mentions', 'show_deck', 'show_tasks'].sort());
   for (const tool of (await client.listTools()).tools) {
     expect(Object.keys(tool.inputSchema.properties ?? {})).not.toEqual(expect.arrayContaining(['target_home_id']));
     expect(Object.keys(tool.inputSchema.properties ?? {})).not.toContain('assigneeMemberId');

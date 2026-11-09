@@ -46,6 +46,8 @@ export interface DeckView {
   items: ViewTask[];
   inProgress: number;
   url: string | null;
+  /** Drawn as the whole app (`open_ri`), whatever display mode the host reports. */
+  app?: true;
 }
 
 export interface TasksView {
@@ -60,17 +62,17 @@ export interface TasksView {
 export const TASK_VIEW_LIMIT = 50;
 
 /** The base URL a person can open from the device they're on. A local address means nothing on a phone. */
-function openBase(): string | null {
+export function openBase(): string | null {
   return getRemoteBaseUrl()?.replace(/\/+$/, '') ?? null;
 }
 
-function areaNames(): Map<string, string> {
+export function areaNames(): Map<string, string> {
   return new Map(listAreas({ status: 'all' }).map(area => [area.id, area.name]));
 }
 
-type TaskLike = Pick<TaskRecord, 'id' | 'title' | 'status' | 'areaId' | 'hardDeadline' | 'blockedOn' | 'recurrence' | 'nextRecurrenceAt' | 'statusChangedCount'>;
+export type TaskLike = Pick<TaskRecord, 'id' | 'title' | 'status' | 'areaId' | 'hardDeadline' | 'blockedOn' | 'recurrence' | 'nextRecurrenceAt' | 'statusChangedCount'>;
 
-function viewTask(task: TaskLike, areas: Map<string, string>, base: string | null, reason: string | null = null, now = new Date()): ViewTask {
+export function viewTask(task: TaskLike, areas: Map<string, string>, base: string | null, reason: string | null = null, now = new Date()): ViewTask {
   return {
     id: task.id,
     title: task.title,

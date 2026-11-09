@@ -32,7 +32,8 @@ it('is a standard MCP Apps page that reaches nothing on the network', () => {
   const resource = { contents: [{ uri: TASKS_VIEW_URI, mimeType: MCP_APP_MIME, text: TASKS_VIEW_HTML }] };
   expect(() => prepareResource(resource, TASKS_VIEW_URI, false)).not.toThrow();
   expect(TASKS_VIEW_HTML).not.toMatch(/https?:\/\/(?!www\.w3\.org\/2000\/svg)/);
-  expect(Buffer.byteLength(TASKS_VIEW_HTML)).toBeLessThan(40_000);
+  // The whole app with no SDK. A jump past this means something heavy was bundled in.
+  expect(Buffer.byteLength(TASKS_VIEW_HTML)).toBeLessThan(80_000);
 });
 
 it('hints every content tool as reading or changing work, from its own action', async () => {
@@ -118,7 +119,9 @@ describe('over MCP', () => {
     expect(entry._meta).toMatchObject({ ui: { resourceUri: TASKS_VIEW_URI }, 'openai/ui': { entrypoints: [{ type: 'global' }, { type: 'thread' }] } });
     // Hidden from the model, ChatGPT refuses to draw it: "These private tools can't render their widgets".
     expect((entry._meta?.ui as { visibility?: string[] }).visibility).toBeUndefined();
-    expect((await client.callTool({ name: 'open_ri', arguments: {} })).structuredContent).toMatchObject({ view: 'deck', isToday: true });
+    // Drawn as the app whatever display mode the host reports for its tab beside a chat.
+    expect((await client.callTool({ name: 'open_ri', arguments: {} })).structuredContent).toMatchObject({ view: 'deck', isToday: true, app: true });
+    expect((await client.callTool({ name: 'show_deck', arguments: {} })).structuredContent).not.toHaveProperty('app');
     // Cards in a chat stay cards. Only the entry fills the screen.
     const read = await client.readResource({ uri: TASKS_VIEW_URI });
     expect(read.contents[0]._meta).toMatchObject({ 'openai/ui': { availableDisplayModes: ['inline', 'fullscreen'], preferredDisplayMode: 'inline' } });
@@ -232,5 +235,161 @@ describe('over MCP', () => {
     expect((result.content as Array<{ text: string }>)[0].text).toContain('There is no deck yet');
     const q = await import('@/lib/db/queries');
     expect(q.getLatestDeck()).toBeNull();
+  });
+
+  async function screen<T>(client: Client, args: Record<string, unknown>): Promise<T> {
+    const result = await client.callTool({ name: 'load_view', arguments: args });
+    expect(result.isError, JSON.stringify(result.content)).toBeFalsy();
+    // The model never reads what a screen holds.
+    expect(result.content).toEqual([]);
+    return result.structuredContent as T;
+  }
+  const envelope = (result: Awaited<ReturnType<Client['callTool']>>) => JSON.parse((result.content as Array<{ text: string }>)[0].text);
+
+  it('reads the app’s screens through a tool only the view calls', async () => {
+    const client = await assistant();
+    const tools = (await client.listTools()).tools;
+    for (const name of ['load_view', 'save_scratchpad']) {
+      const tool = tools.find(entry => entry.name === name)!;
+      expect(tool._meta, name).toMatchObject({ ui: { visibility: ['app'] }, 'openai/widgetAccessible': true });
+      expect(tool._meta?.ui, name).not.toHaveProperty('resourceUri');
+    }
+    expect(tools.find(entry => entry.name === 'load_view')!.annotations).toMatchObject({ readOnlyHint: true });
+    expect(tools.find(entry => entry.name === 'save_scratchpad')!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+    // Everything the view changes goes through the content tools, which ChatGPT lets a view call.
+    for (const name of ['update_task', 'update_note', 'create_note', 'create_stream_item']) {
+      expect(tools.find(entry => entry.name === name)!._meta, name).toMatchObject({ 'openai/widgetAccessible': true });
+    }
+  });
+
+  it('draws the board as Ri’s columns, and moves a card with the lifecycle’s own commands', async () => {
+    const { ship, docs, later } = await seed();
+    const q = await import('@/lib/db/queries');
+    const maybe = q.createTask({ title: 'Try a podcast', status: 'consider' });
+    const client = await assistant();
+    const board = await screen<import('./screens').BoardView>(client, { screen: 'board' });
+    expect(board.columns.map(column => [column.status, column.items.map(item => item.title).sort()])).toEqual([
+      ['consider', ['Try a podcast']],
+      ['todo', ['File the taxes', 'Plan the offsite', 'Ship the OAuth sign-in']],
+      ['in_progress', ['Write the docs']],
+    ]);
+    // Consider to Todo, as the view's drag sends it.
+    const moved = await client.callTool({ name: 'transition_task', arguments: { id: maybe.id, command: 'move_to_todo', idempotency_key: 'board-1', expected_status_changed_count: board.columns[0].items[0].statusChangedCount } });
+    expect(envelope(moved)).toMatchObject({ ok: true, result: { toStatus: 'todo' } });
+    const after = await screen<import('./screens').BoardView>(client, { screen: 'board' });
+    expect(after.columns[1].items.map(item => item.id)).toContain(maybe.id);
+    expect(after.columns[0].items).toEqual([]);
+    void ship; void docs; void later;
+  });
+
+  it('opens a task in full, with its outcome, body links, subtasks and notes, and edits it against its revision', async () => {
+    const { ship } = await seed();
+    const q = await import('@/lib/db/queries');
+    const note = q.createNote({ title: 'Launch notes', body: 'Ask about the CIMD form.', taskId: ship.id } as Parameters<typeof q.createNote>[0]);
+    q.updateTask(ship.id, { outcome: 'ChatGPT connects with one Allow', body: `Steps in [[note:${note.id}]].\n\n- [x] Discovery\n- [ ] Consent` }, { source: 'human' });
+    const sub = q.createTask({ title: 'Test on the phone', parentId: ship.id });
+    const client = await assistant();
+    const view = await screen<Extract<import('./screens').ItemView, { task: unknown }>>(client, { screen: 'item', type: 'task', id: ship.id });
+    expect(view.task).toMatchObject({ title: 'Ship the OAuth sign-in', outcome: 'ChatGPT connects with one Allow', area: 'Ri', team: false, parent: null, url: `${BASE}/task/${ship.id}` });
+    expect(view.task.body).toContain('- [x] Discovery');
+    expect(view.links).toEqual({ [note.id]: { type: 'note', title: 'Launch notes' } });
+    expect(view.subtasks.map(task => task.id)).toEqual([sub.id]);
+    expect(view.notes.map(entry => entry.title)).toEqual(['Launch notes']);
+    const child = await screen<Extract<import('./screens').ItemView, { task: unknown }>>(client, { screen: 'item', type: 'task', id: sub.id });
+    expect(child.task.parent).toEqual({ id: ship.id, title: 'Ship the OAuth sign-in' });
+
+    // The editor's save: only what changed, with the revision it drew.
+    const saved = await client.callTool({ name: 'update_task', arguments: { id: ship.id, title: 'Ship OAuth sign-in', body: 'Rewritten here', expected_body_revision: view.task.bodyRevision } });
+    expect(envelope(saved)).toMatchObject({ ok: true });
+    // A second save from the same drawing would replace newer text, so it's refused with Ri's current revision.
+    const stale = await client.callTool({ name: 'update_task', arguments: { id: ship.id, body: 'Older words', expected_body_revision: view.task.bodyRevision } });
+    expect(envelope(stale)).toMatchObject({ ok: false, error: { code: 'conflict', details: { current: { body: 'Rewritten here', bodyRevision: view.task.bodyRevision + 1 } } } });
+    // A subtask from the viewer's field.
+    expect(envelope(await client.callTool({ name: 'create_task', arguments: { title: 'Write the FAQ', parentId: ship.id } }))).toMatchObject({ ok: true, result: { parentId: ship.id } });
+    expect((await screen<Extract<import('./screens').ItemView, { subtasks: unknown }>>(client, { screen: 'item', type: 'task', id: ship.id })).subtasks).toHaveLength(2);
+    expect(await screen(client, { screen: 'item', type: 'task', id: 'gone' })).toEqual({ screen: 'item', type: 'task', missing: true, id: 'gone' });
+  });
+
+  it('lists notes newest first, makes one, and opens and edits one in full', async () => {
+    const q = await import('@/lib/db/queries');
+    q.createNote({ body: '## Groceries\n\nEggs, **milk** and bread' } as Parameters<typeof q.createNote>[0]);
+    const client = await assistant();
+    const made = envelope(await client.callTool({ name: 'create_note', arguments: { title: 'Trip ideas', body: 'Lisbon in **May**' } }));
+    expect(made).toMatchObject({ ok: true });
+    const notes = await screen<import('./screens').NotesView>(client, { screen: 'notes' });
+    expect(notes.items.map(note => [note.title, note.untitled, note.excerpt])).toEqual([
+      ['Trip ideas', false, 'Lisbon in May'],
+      ['Groceries', true, 'Eggs, milk and bread'],
+    ]);
+    const open = await screen<Extract<import('./screens').ItemView, { note: unknown }>>(client, { screen: 'item', type: 'note', id: made.result.id });
+    expect(open.note).toMatchObject({ title: 'Trip ideas', body: 'Lisbon in **May**', status: 'active', task: null, url: `${BASE}/note/${made.result.id}` });
+    expect(envelope(await client.callTool({ name: 'update_note', arguments: { id: made.result.id, body: 'Lisbon in June', expected_body_revision: open.note.bodyRevision } }))).toMatchObject({ ok: true });
+    expect(envelope(await client.callTool({ name: 'update_note', arguments: { id: made.result.id, status: 'archived' } }))).toMatchObject({ ok: true });
+    expect((await screen<import('./screens').NotesView>(client, { screen: 'notes' })).items.map(note => note.title)).toEqual(['Groceries']);
+  });
+
+  it('searches tasks and notes together, and never the Stream', async () => {
+    await seed();
+    const q = await import('@/lib/db/queries');
+    q.createNote({ title: 'Sign-in research', body: 'How Todoist does OAuth.' } as Parameters<typeof q.createNote>[0]);
+    q.createStream({ rawText: 'sign-in thought nobody else should see', source: 'capture' });
+    const client = await assistant();
+    const found = await screen<import('./screens').SearchView>(client, { screen: 'search', query: 'sign-in' });
+    expect(found.tasks.map(task => task.title)).toContain('Ship the OAuth sign-in');
+    expect(found.notes.map(note => note.title)).toEqual(['Sign-in research']);
+    expect(JSON.stringify(found)).not.toContain('nobody else should see');
+    expect(await screen(client, { screen: 'search', query: '  ' })).toEqual({ screen: 'search', query: '', tasks: [], notes: [] });
+  });
+
+  it('draws a week of days with each day’s Todo and In progress deadlines, and says when no calendar is connected', async () => {
+    await seed();
+    const q = await import('@/lib/db/queries');
+    const day = (offset: number) => todayLocalDate(new Date(Date.now() + offset * 86_400_000));
+    const done = q.createTask({ title: 'Send the invoice', hardDeadline: day(1) });
+    q.completeTask(done.id, { meta: { source: 'human' } });
+    q.createTask({ title: 'Renew passport', hardDeadline: day(3) });
+    const client = await assistant();
+    const week = await screen<import('./screens').CalendarView>(client, { screen: 'calendar' });
+    expect(week).toMatchObject({ start: day(0), today: day(0), status: 'no_providers' });
+    expect(week.days.map(entry => entry.date)).toEqual([0, 1, 2, 3, 4, 5, 6].map(day));
+    expect(week.days[0].deadlines.map(task => task.title)).toEqual(['Ship the OAuth sign-in']);
+    // Finished work leaves the commitment calendar, as in Ri.
+    expect(week.days[1].deadlines).toEqual([]);
+    expect(week.days[3].deadlines.map(task => task.title)).toEqual(['Renew passport']);
+    const earlier = await screen<import('./screens').CalendarView>(client, { screen: 'calendar', start: day(-7) });
+    expect(earlier.days[5].deadlines.map(task => task.title)).toEqual(['File the taxes']);
+  });
+
+  it('lets an outside app add to the Stream for Rye, and shows the Stream only to the person in the view', async () => {
+    const q = await import('@/lib/db/queries');
+    q.createStream({ rawText: 'Call the bank about the card', source: 'capture' });
+    const reviewed = q.createStream({ rawText: 'Already sorted', source: 'capture' });
+    q.updateStream(reviewed.id, { status: 'reviewed' } as Parameters<typeof q.updateStream>[1]);
+    const client = await assistant();
+    const captured = envelope(await client.callTool({ name: 'create_stream_item', arguments: { rawText: 'Look into a standing desk' } }));
+    expect(captured).toMatchObject({ ok: true, result: { rawText: 'Look into a standing desk', status: 'pending' } });
+    const view = await screen<import('./screens').StreamView>(client, { screen: 'stream' });
+    expect(view.items.map(item => item.text)).toEqual(['Look into a standing desk', 'Call the bank about the card']);
+    expect(view.items[0]).toMatchObject({ media: 'text', proposed: false, cut: false });
+    // The model's own tools still can't read it.
+    const names = (await client.listTools()).tools.map(tool => tool.name);
+    for (const name of ['list_stream', 'get_stream_item', 'get_scratchpad']) {
+      expect(names, name).not.toContain(name);
+      await expect(client.callTool({ name, arguments: { id: captured.result.id } }), name).rejects.toThrow(/not found/);
+    }
+  });
+
+  it('saves the scratchpad from the view, merging another device’s lines rather than losing them', async () => {
+    const q = await import('@/lib/db/queries');
+    q.saveScratchpad('milk\neggs', '');
+    const client = await assistant();
+    const pad = await screen<import('./screens').ScratchpadView>(client, { screen: 'scratchpad' });
+    expect(pad).toMatchObject({ body: 'milk\neggs', updatedAt: expect.any(String) });
+    // Another device adds a line while the view is open.
+    q.saveScratchpad('milk\neggs\nbread', 'milk\neggs');
+    const saved = (await client.callTool({ name: 'save_scratchpad', arguments: { body: 'call mom\nmilk\neggs', base: pad.body } })).structuredContent as import('./screens').ScratchpadSaved;
+    expect(saved).toMatchObject({ merged: true });
+    expect(saved.body.split('\n').sort()).toEqual(['bread', 'call mom', 'eggs', 'milk']);
+    expect(q.getScratchpad()?.body).toBe(saved.body);
   });
 });

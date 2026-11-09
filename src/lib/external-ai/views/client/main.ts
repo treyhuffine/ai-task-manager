@@ -1,381 +1,136 @@
 /**
- * Ri's tasks view: today's deck or a task list, drawn inside ChatGPT, Claude
- * or any MCP Apps host (docs/mcp-oauth.md, "Views"). It follows the deck's
- * own grammar (docs/deck-layout.md): deadlines pinned on top, a flat ranked
- * stack, status as quiet chips, the deck's reasoning as one-line glimpses.
- * A check finishes a task, Start starts it, and the title opens it in Ri.
- * Full screen, as ChatGPT's sidebar entry opens it, it's a small app: Today,
- * Tasks with a search, and a field to add a task, in the deck's own spirit.
+ * Ri's view, drawn inside ChatGPT, Claude or any MCP Apps host
+ * (docs/mcp-oauth.md, "Views"). In a chat it's a card: today's deck or a
+ * task list, where a check finishes a task, Start starts it and the title
+ * opens it in full. Opened as the app (ChatGPT's sidebar or the tab beside
+ * a chat), or with a card made full screen, it's Ri: Today, Tasks, Board,
+ * Calendar, Notes, the Stream and the scratchpad, with search across tasks
+ * and notes, and any task or note readable and editable in place.
  * Browser code: bundled into the view by `pnpm mcp-views:build`.
  */
-import type { DeckView, TasksView, ViewTask } from '../data';
-import { connect, type Bridge, type HostContext, type ToolResult } from './bridge';
-
-type View = DeckView | TasksView;
+import type { DeckView, TasksView } from '../data';
+import type { BoardView, CalendarView, ItemView, NotesView, ScratchpadView, SearchView, StreamView } from '../screens';
+import { connect, type HostContext } from './bridge';
+import { back, current, go, isApp, reload, screenKey, state, hooks, type Loaded, type Screen } from './core';
+import { fit, h, icon, ICONS } from './dom';
+import { item, newNote } from './item';
+import { calendar, clearCaptureNote, flushScratchpad, notes, scratchpad, search, searchField, stream } from './pages';
+import { board, clearAddNote, deck, tasks } from './tasks';
 
 const root = document.getElementById('root')!;
-let bridge: Bridge | null = null;
-let view: View | null = null;
+/** The arguments the model drew a task list with, so it stays filtered when redrawn. */
 let toolArgs: Record<string, unknown> = {};
-/** Tasks with a change on its way, so a double tap can't send two. */
-const pending = new Set<string>();
-/** A row's last error, shown under it until the next change. */
-const rowErrors = new Map<string, string>();
-let notice: string | null = null;
-/** The last redraw from Ri failed, so what's on screen may be behind. */
-let stale = false;
+
+const TABS: Array<{ screen: Screen; label: string }> = [
+  { screen: { name: 'deck' }, label: 'Today' },
+  { screen: { name: 'tasks', args: { limit: 50 } }, label: 'Tasks' },
+  { screen: { name: 'board' }, label: 'Board' },
+  { screen: { name: 'calendar' }, label: 'Calendar' },
+  { screen: { name: 'notes' }, label: 'Notes' },
+  { screen: { name: 'stream' }, label: 'Stream' },
+  { screen: { name: 'scratchpad' }, label: 'Scratchpad' },
+];
+
+function openTab(screen: Screen): void {
+  clearAddNote();
+  clearCaptureNote();
+  if (state.stack.length === 1 && state.stack[0].name === screen.name) void reload();
+  else go(screen, 'root');
+}
+
 /**
- * Tasks finished in this list. A list of current tasks no longer includes
- * them, so without this a tick would make the row vanish with no way back.
- * They stay where they were, ticked, until the list changes.
+ * Kept across draws, so the row keeps where it was scrolled to at panel
+ * width. Opening a tab brings it into view.
  */
-const finishedHere = new Map<string, { task: ViewTask; index: number }>();
+const tabButtons = new Map(TABS.map(({ screen, label }) => [screen.name, h('button', { type: 'button', role: 'tab', className: 'tab', onClick: () => openTab(screen) }, label)]));
+const head = h('div', { className: 'app-head' },
+  h('nav', { className: 'tabs', role: 'tablist', 'aria-label': 'Ri' }, ...tabButtons.values()),
+  h('div', { className: 'search' }, icon(ICONS.search, 14), searchField),
+);
+let shownTab: Screen['name'] | null = null;
 
-// ─── Small DOM helpers ────────────────────────────────────────
-
-type Child = Node | string | null | false | undefined;
-function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, unknown> = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
-  const element = document.createElement(tag);
-  for (const [name, value] of Object.entries(props)) {
-    if (value === undefined || value === null || value === false) continue;
-    if (name.startsWith('on') && typeof value === 'function') element.addEventListener(name.slice(2).toLowerCase(), value as EventListener);
-    else if (name === 'className') element.className = String(value);
-    else element.setAttribute(name, value === true ? '' : String(value));
+function appHead(): HTMLElement {
+  const active = state.stack[0].name;
+  for (const [name, button] of tabButtons) {
+    button.setAttribute('aria-selected', String(name === active));
+    button.classList.toggle('on', name === active);
   }
-  for (const child of children) if (child) element.append(child);
-  return element;
-}
-
-const SVG = 'http://www.w3.org/2000/svg';
-function icon(paths: string[], size = 14): SVGSVGElement {
-  const svg = document.createElementNS(SVG, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('width', String(size));
-  svg.setAttribute('height', String(size));
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '2');
-  svg.setAttribute('stroke-linecap', 'round');
-  svg.setAttribute('stroke-linejoin', 'round');
-  svg.setAttribute('aria-hidden', 'true');
-  for (const d of paths) {
-    const path = document.createElementNS(SVG, 'path');
-    path.setAttribute('d', d);
-    svg.append(path);
+  if (shownTab !== active) {
+    shownTab = active;
+    const button = tabButtons.get(active);
+    requestAnimationFrame(() => {
+      const nav = button?.parentElement;
+      if (!button || !nav) return;
+      // Sideways only: the page itself never moves for this.
+      if (button.offsetLeft < nav.scrollLeft) nav.scrollLeft = button.offsetLeft - 4;
+      else if (button.offsetLeft + button.offsetWidth > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = button.offsetLeft + button.offsetWidth - nav.clientWidth + 28;
+    });
   }
-  return svg;
-}
-const CHECK = ['M20 6 9 17l-5-5'];
-const OPEN = ['M7 17 17 7', 'M8 7h9v9'];
-const ADD_TO_MESSAGE = ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z', 'M12 7v6', 'M9 10h6'];
-/** A row's last confirmation, such as "Added to your message". */
-const rowNotes = new Map<string, string>();
-
-// ─── Dates, in the host's language and zone ───────────────────
-
-function locale(): string | undefined {
-  return bridge?.context.locale || undefined;
+  return head;
 }
 
-function localDay(value: string): Date {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Date(year, month - 1, day);
+const BACK_TO: Partial<Record<Screen['name'], string>> = { deck: 'Today', tasks: 'Tasks', board: 'Board', calendar: 'Calendar', notes: 'Notes', search: 'Results', stream: 'Stream', scratchpad: 'Scratchpad' };
+
+function backBar(): HTMLElement {
+  const before = state.stack[state.stack.length - 2];
+  const label = BACK_TO[before.name] ?? 'Back';
+  return h('div', { className: 'back-bar' }, h('button', { type: 'button', className: 'back', onClick: back }, icon(ICONS.back, 14), label));
 }
 
-function dayLabel(value: string, withWeekday = true): string {
-  return localDay(value).toLocaleDateString(locale(), withWeekday ? { weekday: 'short', month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric' });
+function kindOf(loaded: Loaded): string {
+  return 'view' in loaded ? loaded.view : loaded.screen;
 }
 
-function deadlineLabel(task: ViewTask): { text: string; tone: 'danger' | 'warning' | 'quiet' } | null {
-  if (!task.deadline || task.daysUntil === null) return null;
-  if (task.daysUntil < 0) return { text: `Overdue ${-task.daysUntil} ${task.daysUntil === -1 ? 'day' : 'days'}`, tone: 'danger' };
-  if (task.daysUntil === 0) return { text: 'Due today', tone: 'warning' };
-  if (task.daysUntil === 1) return { text: 'Due tomorrow', tone: 'warning' };
-  if (task.daysUntil < 7) return { text: `Due ${localDay(task.deadline).toLocaleDateString(locale(), { weekday: 'long' })}`, tone: 'quiet' };
-  return { text: `Due ${dayLabel(task.deadline, false)}`, tone: 'quiet' };
-}
-
-// ─── Talking to Ri ────────────────────────────────────────────
-
-interface Envelope { ok: boolean; result?: unknown; error?: { code?: string; message?: string } }
-
-function envelopeOf(result: ToolResult): Envelope {
-  const text = result.content?.find(part => part.type === 'text')?.text;
-  try { return text ? JSON.parse(text) as Envelope : { ok: !result.isError }; }
-  catch { return { ok: !result.isError, error: { message: text } }; }
-}
-
-function idempotencyKey(): string {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-/** Draw what Ri says now. Reuses the call that drew the view, so a filtered list stays filtered. */
-async function refresh(target: View['view'] | undefined = view?.view): Promise<void> {
-  if (!bridge || !target) return;
-  try {
-    const result = await bridge.callTool(target === 'deck' ? 'show_deck' : 'show_tasks', target === 'deck' ? {} : toolArgs);
-    stale = Boolean(result.isError || !result.structuredContent);
-    if (!stale) show(result.structuredContent as unknown as View);
-  } catch {
-    stale = true;
+function draw(screen: Screen, loaded: Loaded | undefined): Node[] {
+  if (screen.name === 'new-note') return newNote();
+  if (!loaded || kindOf(loaded) !== (screen.name === 'deck' ? 'deck' : screen.name)) {
+    return state.stale ? [] : [h('p', { className: 'loading', role: 'status' }, 'Loading from Ri')];
   }
-}
-
-async function change(task: ViewTask, command: 'complete' | 'start' | 'reopen'): Promise<void> {
-  if (!bridge || pending.has(task.id)) return;
-  pending.add(task.id);
-  rowErrors.delete(task.id);
-  rowNotes.delete(task.id);
-  const before = task.status;
-  // Show it at once, then what Ri answered, then the redraw from Ri.
-  task.status = command === 'complete' ? 'done' : command === 'start' ? 'in_progress' : 'todo';
-  render();
-  const base = { id: task.id, idempotency_key: idempotencyKey(), expected_status_changed_count: task.statusChangedCount };
-  try {
-    const result = command === 'complete'
-      ? await bridge.callTool('complete_task', base)
-      : await bridge.callTool('transition_task', { ...base, command });
-    const envelope = envelopeOf(result);
-    if (result.isError || !envelope.ok) {
-      task.status = before;
-      rowErrors.set(task.id, envelope.error?.code === 'conflict'
-        ? 'This task changed in Ri, so that didn’t go through.'
-        : envelope.error?.message?.slice(0, 200) || 'Ri couldn’t make that change.');
-    } else {
-      // Good even if the redraw below fails: a repeating task's next date, and the count the next change needs.
-      const outcome = (envelope.result ?? {}) as { toStatus?: ViewTask['status']; statusChangedCount?: number; nextRecurrenceAt?: string | null };
-      if (outcome.toStatus) task.status = outcome.toStatus;
-      if (typeof outcome.statusChangedCount === 'number') task.statusChangedCount = outcome.statusChangedCount;
-      if (outcome.nextRecurrenceAt) task.nextOccurrence = outcome.nextRecurrenceAt;
-      if (task.status === 'done' && view?.view === 'tasks') finishedHere.set(task.id, { task, index: view.items.indexOf(task) });
-      else finishedHere.delete(task.id);
-      const done = command === 'complete' ? 'marked done' : command === 'start' ? 'started' : 'reopened';
-      void bridge.updateModelContext(`In the Ri view, the person ${done} the task "${task.title}" (${task.id}).`).catch(() => {});
-    }
-  } catch {
-    task.status = before;
-    rowErrors.set(task.id, 'Ri didn’t answer. Try again.');
+  switch (screen.name) {
+    case 'deck': return deck(loaded as DeckView);
+    case 'tasks': return tasks(loaded as TasksView);
+    case 'board': return board(loaded as BoardView);
+    case 'calendar': return calendar(loaded as CalendarView);
+    case 'notes': return notes(loaded as NotesView);
+    case 'search': return search(loaded as SearchView);
+    case 'item': return item(loaded as ItemView);
+    case 'stream': return stream(loaded as StreamView);
+    case 'scratchpad': return scratchpad(loaded as ScratchpadView);
   }
-  render();
-  // The row stays busy until Ri's own answer is drawn, so a quick second tap
-  // never sends the count from before this change.
-  await refresh();
-  pending.delete(task.id);
-  render();
-}
-
-// ─── Full screen: tabs, search and adding ─────────────────────
-
-/** Kept across redraws, so what's being typed survives a change landing. */
-function field(label: string, onEnter: () => void): HTMLInputElement {
-  return h('input', {
-    className: 'field', type: 'text', placeholder: label, 'aria-label': label, autocomplete: 'off',
-    // Enter by hand: a sandboxed frame may not allow a form to submit at all.
-    onKeydown: (event: KeyboardEvent) => { if (event.key === 'Enter') { event.preventDefault(); onEnter(); } },
-  });
-}
-
-const addField = field('Add a task', () => void addTask());
-const searchField = field('Search tasks', () => void search());
-let addNote: string | null = null;
-let adding = false;
-
-function listArgs(): Record<string, unknown> {
-  const q = searchField.value.trim();
-  return { limit: 50, ...(q ? { q } : {}) };
-}
-
-async function showTab(tab: View['view']): Promise<void> {
-  if (view?.view === tab) return;
-  addNote = null;
-  finishedHere.clear();
-  toolArgs = tab === 'tasks' ? listArgs() : {};
-  await refresh(tab);
-  render();
-}
-
-async function search(): Promise<void> {
-  finishedHere.clear();
-  toolArgs = listArgs();
-  await refresh('tasks');
-  render();
-}
-
-async function addTask(): Promise<void> {
-  const title = addField.value.trim();
-  if (!bridge || !title || adding) return;
-  adding = true;
-  addNote = null;
-  try {
-    const result = await bridge.callTool('create_task', { title });
-    const envelope = envelopeOf(result);
-    if (result.isError || !envelope.ok) {
-      addNote = envelope.error?.message?.slice(0, 200) || 'Ri couldn’t add that.';
-    } else {
-      addField.value = '';
-      addNote = `Added “${title}” to your tasks.`;
-      void bridge.updateModelContext(`In the Ri view, the person added the task "${title}".`).catch(() => {});
-    }
-  } catch {
-    addNote = 'Ri didn’t answer. Try again.';
-  }
-  adding = false;
-  await refresh();
-  render();
-}
-
-function appHead(active: View['view']): HTMLElement {
-  const tab = (id: View['view'], label: string) => h('button', {
-    type: 'button', role: 'tab', 'aria-selected': String(active === id), className: `tab${active === id ? ' on' : ''}`,
-    onClick: () => void showTab(id),
-  }, label);
-  return h('div', { className: 'app-head' }, h('div', { className: 'tabs', role: 'tablist', 'aria-label': 'Ri' }, tab('deck', 'Today'), tab('tasks', 'Tasks')), addField);
-}
-
-/** Puts the task in the message the person is writing, as a labeled item they can remove. Nothing is sent. */
-async function addToMessage(task: ViewTask): Promise<void> {
-  if (!bridge?.canDraft) return;
-  rowErrors.delete(task.id);
-  try {
-    const facts = [task.status === 'in_progress' ? 'in progress' : task.status, task.area, task.deadline ? `due ${task.deadline}` : null].filter(Boolean).join(', ');
-    await bridge.addToMessage(task.title, `Ri task "${task.title}" (${facts}). Its ID is ${task.id}: read it with get_task.`);
-    rowNotes.set(task.id, 'Added to your message.');
-  } catch {
-    rowErrors.set(task.id, 'Couldn’t add it to your message.');
-  }
-  render();
-}
-
-function open(url: string | null): void {
-  if (url && bridge) void bridge.openLink(url).catch(() => {});
-}
-
-// ─── Drawing ──────────────────────────────────────────────────
-
-function row(task: ViewTask, options: { reason?: boolean } = {}): HTMLLIElement {
-  // A repeating task finished for now looks done, and has nothing to press until its next date.
-  const next = task.nextOccurrence ? new Date(task.nextOccurrence).toLocaleDateString(locale(), { weekday: 'short', month: 'short', day: 'numeric' }) : null;
-  const done = task.status === 'done' || next !== null;
-  const busy = pending.has(task.id);
-  const deadline = deadlineLabel(task);
-  const meta: Child[] = [];
-  const push = (node: Child) => { if (node) meta.push(node); };
-  if (task.status === 'in_progress') push(h('span', { className: 'chip' }, 'In progress'));
-  if (task.status === 'consider') push(h('span', { className: 'chip' }, 'Considering'));
-  if (task.blocked && !done) push(h('span', { className: 'chip' }, 'Blocked'));
-  if (task.area) push(h('span', {}, task.area));
-  if (deadline && !done) push(h('span', { className: `tone-${deadline.tone}` }, deadline.text));
-  if (next) push(h('span', {}, `Next ${next}`));
-  else if (task.recurring) push(h('span', {}, 'Repeats'));
-
-  const titleText = h('span', { className: 'title-text' }, task.title);
-  const title = task.url
-    ? h('button', { type: 'button', className: 'title link', onClick: () => open(task.url) }, titleText)
-    : h('span', { className: 'title' }, titleText);
-
-  const reason = options.reason && task.reason && !done
-    ? h('button', { type: 'button', className: 'reason', 'aria-expanded': 'false', onClick: (event: Event) => {
-      const target = event.currentTarget as HTMLElement;
-      target.setAttribute('aria-expanded', String(target.classList.toggle('open')));
-    } }, task.reason)
-    : null;
-
-  const start = !done && (task.status === 'todo' || task.status === 'consider')
-    ? h('button', { type: 'button', className: 'start', disabled: busy, 'aria-label': `Start ${task.title}`, onClick: () => void change(task, 'start') }, 'Start')
-    : null;
-
-  const draft = bridge?.canDraft
-    ? h('button', { type: 'button', className: 'draft', 'aria-label': `Add ${task.title} to your message`, onClick: () => void addToMessage(task) }, icon(ADD_TO_MESSAGE, 14))
-    : null;
-
-  const error = rowErrors.get(task.id);
-  const note = rowNotes.get(task.id);
-  return h('li', { className: `row${done ? ' done' : ''}${busy ? ' busy' : ''}`, 'data-task': task.id },
-    h('button', {
-      type: 'button', className: 'check', disabled: busy || next !== null || task.status === 'archived',
-      'aria-pressed': String(done), 'aria-label': next ? `${task.title} is done until ${next}` : done ? `Reopen ${task.title}` : `Mark ${task.title} done`,
-      onClick: () => void change(task, done ? 'reopen' : 'complete'),
-    }, done ? icon(CHECK, 12) : null),
-    h('div', { className: 'body' },
-      title,
-      meta.length ? h('div', { className: 'meta' }, ...meta.flatMap((node, index) => index ? [h('span', { className: 'dot', 'aria-hidden': 'true' }, '·'), node] : [node])) : null,
-      reason,
-      error ? h('p', { className: 'row-error', role: 'alert' }, error) : null,
-      note && !error ? h('p', { className: 'row-note', role: 'status' }, note) : null,
-    ),
-    start,
-    draft,
-  );
-}
-
-function section(label: string, meta: Child, aside: Child, ...body: Child[]): HTMLElement {
-  return h('section', {},
-    h('header', { className: 'section-head' }, h('h2', {}, label), meta ? h('span', { className: 'section-meta' }, meta) : null, aside ? h('span', { className: 'aside' }, aside) : null),
-    ...body,
-  );
-}
-
-function footer(url: string | null): HTMLElement | null {
-  return url ? h('footer', {}, h('button', { type: 'button', className: 'open', onClick: () => open(url) }, 'Open Ri', icon(OPEN, 12))) : null;
-}
-
-function deck(data: DeckView): Node[] {
-  const nodes: Node[] = [];
-  if (data.deadlines.length) {
-    nodes.push(section('Deadlines', String(data.deadlines.length), null, h('ul', {}, ...data.deadlines.map(task => row(task)))));
-  }
-  const label = data.isToday || !data.forDate ? 'Today' : 'Deck';
-  const meta = data.forDate ? dayLabel(data.forDate) : null;
-  const aside = data.inProgress ? h('span', { className: 'chip' }, `${data.inProgress} in progress`) : null;
-  const stale = data.forDate && !data.isToday ? h('p', { className: 'note' }, `This is the deck for ${dayLabel(data.forDate)}. Today’s isn’t made yet.`) : null;
-  const framing = data.framing ? h('button', { type: 'button', className: 'reason framing', 'aria-expanded': 'false', onClick: (event: Event) => {
-    const target = event.currentTarget as HTMLElement;
-    target.setAttribute('aria-expanded', String(target.classList.toggle('open')));
-  } }, data.framing) : null;
-  const body = data.items.length
-    ? h('ol', {}, ...data.items.map(task => row(task, { reason: true })))
-    : h('p', { className: 'empty' }, data.forDate ? 'Nothing is on this deck.' : 'There’s no deck yet. Ri makes one each morning, or open Ri to make one now.');
-  nodes.push(section(label, meta, aside, stale, framing, body));
-  const end = footer(data.url);
-  if (end) nodes.push(end);
-  return nodes;
-}
-
-function tasks(data: TasksView): Node[] {
-  const more = data.more ? h('p', { className: 'note' }, 'More in Ri.') : null;
-  const body = data.items.length ? h('ul', {}, ...data.items.map(task => row(task))) : h('p', { className: 'empty' }, 'No tasks match.');
-  const nodes: Node[] = [section(data.title, data.items.length ? `${data.items.length}${data.more ? '+' : ''}` : null, null, body, more)];
-  const end = footer(data.url);
-  if (end) nodes.push(end);
-  return nodes;
 }
 
 function render(): void {
   // Before anything moves. Drawing moves the kept fields, which drops their
   // focus, so it's given back below: a change landing never interrupts typing.
   const focused = document.activeElement;
+  const selection = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement ? [focused.selectionStart, focused.selectionEnd] as const : null;
+  const screen = current();
+  document.documentElement.dataset.screen = screen.name;
+  document.documentElement.dataset.app = isApp() ? 'app' : 'card';
   const nodes: Node[] = [];
-  const app = bridge?.context.displayMode === 'fullscreen' ? view : null;
-  if (app) nodes.push(appHead(app.view));
-  if (app && addNote) nodes.push(h('p', { className: 'note', role: 'status' }, addNote));
-  if (notice) nodes.push(h('p', { className: 'notice', role: 'status' }, notice));
-  if (stale) nodes.push(h('p', { className: 'notice', role: 'status' }, 'This view may be out of date. ', h('button', { type: 'button', className: 'retry', onClick: () => void refresh().then(render) }, 'Try again')));
-  if (app?.view === 'tasks') nodes.push(searchField);
-  if (view) nodes.push(...(view.view === 'deck' ? deck(view) : tasks(view)));
-  else if (!notice) nodes.push(h('p', { className: 'loading', role: 'status' }, 'Loading from Ri'));
+  if (isApp()) nodes.push(appHead());
+  if (state.stack.length > 1) nodes.push(backBar());
+  if (state.notice) nodes.push(h('p', { className: 'notice', role: 'status' }, state.notice));
+  if (state.stale) nodes.push(h('p', { className: 'notice', role: 'status' }, 'This view may be out of date. ', h('button', { type: 'button', className: 'retry', onClick: () => void reload() }, 'Try again')));
+  nodes.push(...draw(screen, state.loaded.get(screenKey(screen))));
   root.replaceChildren(...nodes);
-  if (focused instanceof HTMLElement && focused !== document.body && root.contains(focused)) focused.focus();
-}
-
-function show(next: View): void {
-  if (next?.view !== 'deck' && next?.view !== 'tasks') return;
-  if (next.view === 'tasks') {
-    for (const { task, index } of finishedHere.values()) {
-      if (!next.items.some(item => item.id === task.id)) next.items.splice(Math.min(index, next.items.length), 0, task);
-    }
+  for (const area of root.querySelectorAll<HTMLTextAreaElement>('textarea.grow')) fit(area);
+  if (focused instanceof HTMLElement && focused !== document.body && root.contains(focused) && document.activeElement !== focused) {
+    focused.focus();
+    if (selection && (focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement)) focused.setSelectionRange(selection[0], selection[1]);
   }
-  view = next;
-  notice = null;
+}
+hooks.render = render;
+
+/** What the model's tool drew: today's deck, a list, or the app itself. */
+function shown(data: DeckView | TasksView): void {
+  if (data?.view !== 'deck' && data?.view !== 'tasks') return;
+  const screen: Screen = data.view === 'deck' ? { name: 'deck' } : { name: 'tasks', args: toolArgs };
+  if (data.view === 'deck' && data.app) state.appEntry = true;
+  if (!state.appEntry) state.cardRoot = screen;
+  state.loaded.set(screenKey(screen), data);
+  if (!state.moved) state.stack = [screen];
+  state.notice = null;
   render();
 }
 
@@ -393,6 +148,8 @@ function applyContext(context: HostContext): void {
   }
   html.dataset.hover = context.deviceCapabilities?.hover === false || context.deviceCapabilities?.touch ? 'none' : 'hover';
   if (context.locale) html.lang = context.locale;
+  // A full-screen card back in its place in the chat goes back to what the chat drew.
+  if (!isApp() && state.cardRoot && state.stack[0].name !== state.cardRoot.name) state.stack = [state.cardRoot];
 }
 
 // ─── Start ────────────────────────────────────────────────────
@@ -401,13 +158,14 @@ render();
 connect({
   toolInput: args => { toolArgs = args; },
   toolResult: result => {
-    if (result.isError || !result.structuredContent) { notice = 'Ri couldn’t load this.'; render(); return; }
-    show(result.structuredContent as unknown as View);
+    if (result.isError || !result.structuredContent) { state.notice = 'Ri couldn’t load this.'; render(); return; }
+    shown(result.structuredContent as unknown as DeckView | TasksView);
   },
   hostContext: context => { applyContext(context); render(); },
-  cancelled: () => { if (!view) { notice = 'Cancelled.'; render(); } },
+  cancelled: () => { if (!state.loaded.size) { state.notice = 'Cancelled.'; render(); } },
+  teardown: () => flushScratchpad(),
 }).then(connected => {
-  bridge = connected;
+  state.bridge = connected;
   applyContext(connected.context);
   render();
   let last = 0;
@@ -416,6 +174,6 @@ connect({
     if (height !== last) { last = height; connected.sizeChanged(height); }
   }).observe(document.documentElement);
 }).catch(() => {
-  notice = 'This view needs an app that shows MCP views.';
+  state.notice = 'This view needs an app that shows MCP views.';
   render();
 });

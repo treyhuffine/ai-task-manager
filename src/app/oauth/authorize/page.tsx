@@ -26,6 +26,8 @@ const CAN = [
   'Search and read your tasks, notes and areas',
   'Add and change tasks, notes and areas, and start, finish or archive tasks',
   'See today’s deck and change its order',
+  'Add thoughts to your Stream for Rye to sort',
+  'Show you your calendar, Stream and scratchpad in Ri’s view, and save what you write in the scratchpad',
 ];
 
 function Shell({ children }: { children: ReactNode }) {
@@ -103,7 +105,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
               </li>
             ))}
             <li className="flex gap-2 text-sm text-muted-foreground">
-              <X size={14} className="mt-0.5 shrink-0" aria-hidden /> Not your chats, the Stream, files or settings, and it can’t start agents
+              <X size={14} className="mt-0.5 shrink-0" aria-hidden /> Not your chats, files or settings, and it can’t start agents
             </li>
           </ul>
         </div>
