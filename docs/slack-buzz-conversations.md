@@ -108,6 +108,8 @@ The existing Slack account Connector is the path for searching and reviewing mes
 
 The setup distinguishes three facts: an app is saved, a Slack account has authorized access, and its tools are ready. Each long operation shows an inline working state and a loading toast, replaced by success or an actionable error. Browser OAuth returns to this provider's detail. When authorization opens outside Ri, the pane explains that it is waiting and offers **I've finished signing in** to check the specific account and consent, plus **Stop waiting**. An already-connected sibling account cannot complete another account's sign-in. Apps remain visible instead of being hidden under OAuth apps, and the account form names the app it will use.
 
+New account manifests name the Slack app **Ri**. This is separate from **App label in Ri** and **Account label**, which only identify saved configurations inside Ri. To rename an app already created in Slack, open its **Basic Information > Display Information**, change **App Name** and click **Save Changes**. Changing Ri's generated default does not rename existing Slack apps.
+
 ### Slack says the app is not enabled for MCP access
 
 If Slack returns **App is not enabled for Slack MCP server access**, Ri shows **Enable Slack access** linking directly to that app's `https://api.slack.com/apps/<app-id>/app-assistant` page. Enable access to Slack's MCP server there, then return and click **Test connection**. An unfinished setup without an engine connection offers **Continue setup** instead. This uses the existing app and account setup. The raw error stays under **Technical details**.

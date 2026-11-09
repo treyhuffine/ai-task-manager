@@ -14,7 +14,7 @@ export const SLACK_ACCOUNT_USER_SCOPES = [
 
 export function slackAccountManifest(redirectUri: string) {
   return {
-    display_information: { name: `${APP_NAME} Slack account` },
+    display_information: { name: APP_NAME },
     oauth_config: {
       redirect_urls: [redirectUri],
       scopes: { user: [...SLACK_ACCOUNT_USER_SCOPES] },

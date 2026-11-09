@@ -9,6 +9,7 @@ it('prefills Slack app creation with the current callback and the published MCP 
   expect(url.origin + url.pathname).toBe('https://api.slack.com/apps');
   expect(url.searchParams.get('new_app')).toBe('1');
   const manifest = JSON.parse(url.searchParams.get('manifest_json')!);
+  expect(manifest.display_information.name).toBe('Ri');
   expect(manifest.oauth_config.redirect_urls).toEqual([callback]);
   const captured = JSON.parse(fs.readFileSync(new URL('../../../docs/integration-audit/fifth-wave-discovery.json', import.meta.url), 'utf8'));
   const published = captured.records.find((record: { id: string }) => record.id === 'slack').discovery.resourceMetadata.scopes_supported;
