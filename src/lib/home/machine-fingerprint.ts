@@ -14,19 +14,20 @@
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { untraced } from '@/lib/utils/untraced';
 
 let cached: string | null | undefined;
 let override: string | null | undefined;
 
 function readMachineId(): string | null {
   if (process.platform === 'darwin') {
-    const out = spawnSync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 3000 });
+    const out = spawnSync(untraced('ioreg'), ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 3000 });
     const match = out.status === 0 ? /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(out.stdout) : null;
     return match?.[1] ?? null;
   }
   for (const file of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
     try {
-      const id = fs.readFileSync(file, 'utf8').trim();
+      const id = fs.readFileSync(/* turbopackIgnore: true */ file, 'utf8').trim();
       if (id) return id;
     } catch {
       /* try the next */
