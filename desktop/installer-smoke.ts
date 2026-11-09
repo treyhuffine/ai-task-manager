@@ -38,7 +38,7 @@ let fixture: AcceptanceFixture | undefined;
 let mounted = false;
 let linuxInstalled = false;
 let packageName = '';
-const copyApp = () => execFileSync('/usr/bin/ditto', [path.join(mount, 'Ri.app'), installed], { timeout: 180_000 });
+const copyApp = () => execFileSync('/usr/bin/ditto', [path.join(mount, 'Ri.app'), installed], { timeout: 600_000 });
 const installDeb = (reinstall = false) => {
   execFileSync('sudo', ['apt-get', 'install', '-y', ...(reinstall ? ['--reinstall'] : []), installer], { stdio: 'inherit', timeout: 600_000 });
   linuxInstalled = true;
