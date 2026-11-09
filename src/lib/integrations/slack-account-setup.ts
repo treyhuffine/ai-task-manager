@@ -19,7 +19,15 @@ export function slackAccountManifest(redirectUri: string) {
       redirect_urls: [redirectUri],
       scopes: { user: [...SLACK_ACCOUNT_USER_SCOPES] },
     },
+    settings: { is_mcp_enabled: true },
   };
+}
+
+/** Only link to Slack's known app settings, never an arbitrary URL from a remote error. */
+export function slackMcpAccessIssue(error?: string | null): { settingsUrl: string } | null {
+  if (!error?.includes('App is not enabled for Slack MCP server access')) return null;
+  const appId = error.replaceAll('\\/', '/').match(/https:\/\/api\.slack\.com\/apps\/(A[A-Z0-9]+)\/app-assistant\b/)?.[1];
+  return { settingsUrl: appId ? `https://api.slack.com/apps/${appId}/app-assistant` : 'https://api.slack.com/apps' };
 }
 
 /** Slack's documented app-creation link accepts a URL-encoded manifest. */

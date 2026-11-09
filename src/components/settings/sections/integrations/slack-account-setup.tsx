@@ -42,20 +42,21 @@ export function SlackAccountSetup({ redirectUri, callbackFields, credentials, sa
           <Button type="button" size="sm" variant="outline" onClick={() => void navigator.clipboard.writeText(scopesJson).then(() => setCopyStatus('User scopes copied')).catch(() => setCopyStatus('Copy failed. Select and copy the list above.'))}>Copy user scopes</Button>
           {copyStatus && <p role="status" className="text-xs text-muted-foreground">{copyStatus}</p>}
           <p className="text-xs text-muted-foreground">This uses Ri’s web callback. Leave Slack’s public-client PKCE setting unchanged.</p>
+          <p className="text-muted-foreground">In <strong>App Manifest</strong>, set <code>settings.is_mcp_enabled</code> to <code>true</code>. Keep the other settings. This enables Slack account tools for the app.</p>
         </details>
       </li>
       <li className="space-y-3 border-t border-border/60 pt-4">
         <h4 className="font-medium">2. Copy your app credentials into Ri</h4>
-        <p className="text-muted-foreground">After creating the app, Slack opens <strong>Basic Information</strong>. Under <strong>App Credentials</strong>, copy <strong>Client ID</strong>. Click <strong>Show</strong> beside <strong>Client Secret</strong> and copy that too. Paste both below, give the app a label and click <strong>Add app</strong>.</p>
+        <p className="text-muted-foreground">After creating the app, Slack opens <strong>Basic Information</strong>. Under <strong>App Credentials</strong>, copy <strong>Client ID</strong>. Click <strong>Show</strong> beside <strong>Client Secret</strong> and copy that too. Paste both below, give the app a label and click <strong>Save app and continue</strong>.</p>
         {credentials}
         <p className="text-xs text-muted-foreground">Credentials are stored encrypted in your Ri. Bot tokens and app-level tokens belong to the separate Slack conversation setup.</p>
         {saveAction}
       </li>
       <li className="space-y-3 border-t border-border/60 pt-4">
         <h4 className="font-medium">3. Sign in to Slack</h4>
-        <p className="text-muted-foreground">After adding the app, choose <strong>Connect Slack</strong> or <strong>Connect</strong> beside your saved app. Choose the workspace and Slack account you want Ri to use, then approve access. Slack brings you back to Ri.</p>
+        <p className="text-muted-foreground">Saving the app prepares sign-in. Next, choose that app and click <strong>Connect Slack</strong>. Choose the workspace and Slack account you want Ri to use, then approve access. Slack brings you back to Ri and checks its tools.</p>
         {savedApps}
-        <p className="text-muted-foreground">The account should show <strong>Connected</strong>. Click <strong>Test</strong> to check it, then try asking Ri: <strong>Find recent Slack messages that mention me.</strong></p>
+        <p className="text-muted-foreground">The account should show <strong>Connected</strong>. Click <strong>Test connection</strong> to check it, then try asking Ri: <strong>Find recent Slack messages that mention me.</strong></p>
       </li>
     </ol>
   </section>;
@@ -66,8 +67,8 @@ export function SlackAccountSignInHelp() {
   const meta = integrationMeta('slack');
   return <div className="space-y-2 text-sm">
     <h4 className="font-medium">3. Sign in to Slack</h4>
-    <p className="text-muted-foreground">Your Slack app is saved in Ri. If you see <strong>Account label</strong>, enter a name such as Work or Personal. Click <strong>Connect Slack</strong>, choose the Slack workspace and approve access. Slack brings you back here when it finishes.</p>
-    <p className="text-muted-foreground">When the account shows <strong>Connected</strong>, click <strong>Test</strong>. Then ask Ri: <strong>Find recent Slack messages that mention me.</strong></p>
+    <p className="text-muted-foreground">Your Slack app is saved in Ri. Choose the app and name this account, then click <strong>Connect Slack</strong>. Approve access in Slack. The account is ready when Ri has checked its tools and shows <strong>Connected</strong>.</p>
+    <p className="text-muted-foreground">When the account shows <strong>Connected</strong>, click <strong>Test connection</strong>. Then ask Ri: <strong>Find recent Slack messages that mention me.</strong></p>
     <div className="flex flex-wrap gap-3 text-xs">
       <a className="font-medium text-primary hover:underline" href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer">Open Slack app settings</a>
       <a className="text-muted-foreground hover:underline" href={meta.docsUrl} target="_blank" rel="noopener noreferrer">Slack reference docs</a>

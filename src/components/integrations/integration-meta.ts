@@ -98,9 +98,9 @@ export const INTEGRATION_META: Record<string, IntegrationMeta> = {
     docsUrl: 'https://docs.slack.dev/ai/slack-mcp-server/',
     setup: [
       'Create Slack app opens the app creation page with Ri’s callback and user permissions filled in. Choose your Slack workspace and create the app.',
-      'In Basic Information > App Credentials, copy Client ID and reveal Client Secret. Paste them into Ri and click Add app.',
-      'Choose Connect Slack, select your Slack account and workspace, and approve access. When you return, the account should show Connected.',
-      'Click Test, then ask Ri to find recent Slack messages that mention you.',
+      'In Basic Information > App Credentials, copy Client ID and reveal Client Secret. Paste them into Ri and click Save app and continue.',
+      'Choose the saved Slack app, name the account and click Connect Slack. Approve access, then return to Ri to check the account and tools.',
+      'For an existing app, enable settings.is_mcp_enabled in its App Manifest. If Ri shows Enable Slack access, follow its link and enable access for that app, then test the connection.',
     ],
   },
   discord: {

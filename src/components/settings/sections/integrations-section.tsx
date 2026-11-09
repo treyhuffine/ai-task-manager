@@ -33,12 +33,15 @@ import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { type HostedEndpointSelection } from '@/lib/client/integration-endpoint';
 import { openIntegrationAuthorization } from '@/lib/client/desktop';
 import { AlertCircle, CheckCircle2, Loader2, Plug, Search, Waypoints } from 'lucide-react';
+import { toast } from 'sonner';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { hostedAccountRequestFields, hostedAccountSignedIn } from './integrations/hosted-account-request';
 import { watchOAuthReturn } from './integrations/oauth-focus-refresh';
 import { CatalogTile, GroupHeading } from './integrations/parts';
 import { PreviousConnections } from './integrations/previous-connections';
-import { ProviderDetail } from './integrations/provider-detail';
+import { ProviderDetail, type ProviderDetailProps } from './integrations/provider-detail';
+import { SlackMcpAccessHelp } from './integrations/slack-mcp-access-help';
+import { slackMcpAccessIssue } from '@/lib/integrations/slack-account-setup';
 import { ApplicationDetail } from './integrations/application-detail';
 import { SourcesPanel } from './integrations/sources-panel';
 import { useManagedAccounts, useSourcesOverview } from '@/hooks/use-integration-sources';
@@ -120,8 +123,10 @@ export function IntegrationsSection({ active = true, navigation }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [activity, setActivity] = useState<string | null>(null);
+  const [savedApp, setSavedApp] = useState<ProviderDetailProps['savedApp']>();
   const [pendingOAuth, setPendingOAuth] = useState<string | null>(null);
-  const [pendingRegisteredOAuth, setPendingRegisteredOAuth] = useState<{ id: string; displayName: string; serverId?: string; authorizationId?: string } | null>(null);
+  const [pendingRegisteredOAuth, setPendingRegisteredOAuth] = useState<{ id: string; displayName: string; serverId?: string; authorizationId?: string; noticeId?: string | number } | null>(null);
   const [query, setQuery] = useState('');
   // A managed sign-in the browser just came back from (`?attempt=`), finished on its application's page.
   const [returnedAttempt, setReturnedAttempt] = useState<string | null>(null);
@@ -144,6 +149,7 @@ export function IntegrationsSection({ active = true, navigation }: {
 
   // BYO OAuth app state (per provider).
   const [byoConfigs, setByoConfigs] = useState<Record<string, AuthConfigSummary[]>>({});
+  const [loadingApps, setLoadingApps] = useState<string | null>(null);
   const [byoForm, setByoForm] = useState<Record<string, ByoForm>>({});
 
   const providerScopes = useCallback(
@@ -194,17 +200,34 @@ export function IntegrationsSection({ active = true, navigation }: {
     return st.providers;
   }, []);
 
-  useEffect(() => {
-    if (!pendingRegisteredOAuth) return;
-    return watchOAuthReturn(window, async () => {
+  const checkRegisteredOAuth = useCallback(async () => {
+    if (!pendingRegisteredOAuth) return false;
+    setActivity(`Checking ${pendingRegisteredOAuth.displayName}…`);
+    try {
       const current = await refresh();
       const provider = current.find(candidate => candidate.id === pendingRegisteredOAuth.id);
-      return hostedAccountSignedIn(provider, pendingRegisteredOAuth.serverId, pendingRegisteredOAuth.authorizationId);
-    }, () => {
-      setBanner(`Connected ${pendingRegisteredOAuth.displayName}`);
-      setPendingRegisteredOAuth(null);
-    }, error => setError(errMsg(error)));
+      const account = provider?.mcp?.accounts?.find(account => account.serverId === pendingRegisteredOAuth.serverId);
+      if (provider?.id === 'slack' && slackMcpAccessIssue(account?.error)) throw new Error(account!.error!);
+      if (provider?.id === 'slack' && account && !account.requiresAuth && account.error) throw new Error(account.error);
+      return hostedAccountSignedIn(provider, pendingRegisteredOAuth.serverId, pendingRegisteredOAuth.authorizationId) && (provider?.id !== 'slack' || account?.status === 'ok');
+    } finally { setActivity(null); }
   }, [pendingRegisteredOAuth, refresh]);
+  const finishRegisteredOAuth = useCallback(() => {
+    if (!pendingRegisteredOAuth) return;
+      setBanner(`Connected ${pendingRegisteredOAuth.displayName}`);
+      toast.success(`Connected ${pendingRegisteredOAuth.displayName}`, {id:pendingRegisteredOAuth.noticeId,description:'Account access and tools are ready.'});
+      setPendingRegisteredOAuth(null);
+  }, [pendingRegisteredOAuth]);
+  const failRegisteredOAuth = useCallback((error: unknown) => {
+    const message = errMsg(error);
+    setError(message);
+    setPendingRegisteredOAuth(null);
+    toast.error(slackMcpAccessIssue(message) ? 'Enable Slack access for this app' : message, {id:pendingRegisteredOAuth?.noticeId});
+  }, [pendingRegisteredOAuth?.noticeId]);
+  useEffect(() => {
+    if (!pendingRegisteredOAuth) return;
+    return watchOAuthReturn(window, checkRegisteredOAuth, finishRegisteredOAuth, failRegisteredOAuth);
+  }, [pendingRegisteredOAuth, checkRegisteredOAuth, finishRegisteredOAuth, failRegisteredOAuth]);
 
   // Read the post-OAuth result the callback bounced back with, then strip it
   // from the URL (keep ?settings=plugins so the modal stays put).
@@ -215,8 +238,8 @@ export function IntegrationsSection({ active = true, navigation }: {
     const attempt = params.get('attempt');
     // A managed sign-in's page reads its own attempt, with the real reason when it failed.
     if (attempt && /^att_[a-f0-9]{32}$/.test(attempt)) setReturnedAttempt(attempt);
-    else if (connected) setBanner(connected === 'Connected' ? 'Connected' : `Connected ${connected}`);
-    else if (err) setError(`Connect failed: ${err}`);
+    else if (connected) { const message = connected === 'Connected' ? 'Connected' : `Connected ${connected}`; setBanner(message); toast.success(message); }
+    else if (err) { setError(`Connect failed: ${err}`); toast.error(slackMcpAccessIssue(err) ? 'Enable Slack access for this app' : 'Connection needs attention'); }
     if (connected || err || attempt) {
       params.delete('connected');
       params.delete('error');
@@ -230,15 +253,20 @@ export function IntegrationsSection({ active = true, navigation }: {
   }, [refresh]);
 
   const run = useCallback(
-    async (fn: () => Promise<void>) => {
+    async (fn: () => Promise<void>, feedback?: { loading: string; success: string }) => {
       setBusy(true);
       setError(null);
+      setActivity(feedback?.loading ?? null);
+      const notice = feedback ? toast.loading(feedback.loading) : undefined;
       try {
         await fn();
         await refresh();
+        if (feedback) toast.success(feedback.success, {id:notice});
       } catch (e) {
         setError(errMsg(e));
+        toast.error(errMsg(e), {id:notice});
       } finally {
+        setActivity(null);
         setBusy(false);
       }
     },
@@ -310,8 +338,11 @@ export function IntegrationsSection({ active = true, navigation }: {
   // --- Bring-your-own OAuth app -------------------------------------------
 
   const loadByo = useCallback(async (providerId: string) => {
-    const { configs } = await trpcClient.integrations.authConfigsGet.query({query: rpcQuery({"providerId": providerId})});
-    setByoConfigs((c) => ({ ...c, [providerId]: configs }));
+    setLoadingApps(providerId);
+    try {
+      const { configs } = await trpcClient.integrations.authConfigsGet.query({query: rpcQuery({"providerId": providerId})});
+      setByoConfigs((c) => ({ ...c, [providerId]: configs }));
+    } finally { setLoadingApps(current => current === providerId ? null : current); }
   }, []);
 
   const setByoField = (providerId: string, field: keyof ByoForm, value: string) =>
@@ -321,12 +352,11 @@ export function IntegrationsSection({ active = true, navigation }: {
     run(async () => {
       const form = byoForm[p.id];
       if (!form?.label || !form?.clientId) {
-        setError('Label and client ID are required.');
-        return;
+        throw new Error('Label and client ID are required.');
       }
       const callback = oauthAppRedirectUri(p, redirectUri);
       if (!callback) throw new Error('The callback address is unavailable. Reload Settings and try again.');
-      await trpcClient.integrations.authConfigsPost.mutate({body: {
+      const result = await trpcClient.integrations.authConfigsPost.mutate({body: {
         providerId: p.id,
         label: form.label,
         oauth: { clientId: form.clientId, redirectUri: callback },
@@ -334,20 +364,22 @@ export function IntegrationsSection({ active = true, navigation }: {
       }});
       setByoForm((f) => ({ ...f, [p.id]: EMPTY_BYO_FORM }));
       await loadByo(p.id);
-      setBanner(`Added your ${p.displayName} app`);
-    });
+      setSavedApp({providerId:p.id,id:result.config.id,label:form.label});
+      if (p.id === 'slack') setAdvancedOpen(false);
+      setBanner(p.id === 'slack' ? `${form.label} app saved. Next, connect your Slack account.` : `Added your ${p.displayName} app`);
+    }, {loading:`Saving ${p.displayName} app…`,success:`${p.displayName} app saved. Connect your account next.`});
 
   const deleteByo = (p: ProviderStatus, id: string) =>
     run(async () => {
       await trpcClient.integrations.authConfigsDelete.mutate({query: rpcQuery({"id": id})});
       await loadByo(p.id);
-    });
+    }, {loading:'Removing app…',success:'App removed'});
 
   const setDefaultByo = (p: ProviderStatus, id: string) =>
     run(async () => {
       await trpcClient.integrations.authConfigsDefaultPost.mutate({body: { providerId: p.id, id }});
       await loadByo(p.id);
-    });
+    }, {loading:'Updating default app…',success:'Default app updated'});
 
   const copyRedirect = () => {
     const provider = view.kind === 'provider' ? providers.find(p => p.id === view.id) : undefined;
@@ -374,7 +406,7 @@ export function IntegrationsSection({ active = true, navigation }: {
   const openProvider = (p: ProviderStatus) => {
     navigate({ kind: 'provider', id: p.id });
     // OAuth details show the bring-your-own apps, so have them ready on arrival.
-    if ((p.method === 'oauth2' || isRegisteredMcp(p)) && !p.orphan) loadByo(p.id).catch(() => {});
+    if ((p.method === 'oauth2' || isRegisteredMcp(p)) && !p.orphan) loadByo(p.id).catch(error => setError(errMsg(error)));
   };
 
   // `openSettings('plugins', { anchor: 'integrations:<id>' })` lands on that
@@ -420,6 +452,9 @@ export function IntegrationsSection({ active = true, navigation }: {
     async (p: ProviderStatus, authConfigId?: string, intent?: HostedConnectIntent) => {
       setBusy(true);
       setError(null);
+      setBanner(null);
+      setActivity(`Preparing ${p.displayName} sign-in…`);
+      const notice = toast.loading(`Preparing ${p.displayName} sign-in…`);
       try {
         const result = await trpcClient.integrations.connectPost.mutate({body: {
           providerId: p.id,
@@ -433,12 +468,18 @@ export function IntegrationsSection({ active = true, navigation }: {
         if (p.mcp?.accounts || p.mcp?.endpointConfig || isRegisteredMcp(p)) await refresh();
         const authorizationUrl = result.authorizationUrl ?? ('authUrl' in result ? result.authUrl : undefined);
         if (authorizationUrl) {
-          if (isRegisteredMcp(p)) setPendingRegisteredOAuth({ id: p.id, displayName: intent?.label || p.displayName, serverId: ('serverId' in result ? result.serverId : undefined) ?? intent?.serverId, authorizationId: ('authorizationId' in result ? result.authorizationId : undefined) });
+          if (isRegisteredMcp(p)) setPendingRegisteredOAuth({ id: p.id, displayName: intent?.label || p.displayName, serverId: ('serverId' in result ? result.serverId : undefined) ?? intent?.serverId, authorizationId: ('authorizationId' in result ? result.authorizationId : undefined), noticeId: notice });
           await authorize(authorizationUrl, ('desktopFlowId' in result ? result.desktopFlowId : undefined));
+          toast.info(`Finish signing in to ${p.displayName}`, {id:notice,description:'Approve access, then return to Ri to check the connection.'});
+          setActivity(null);
           if (('desktopFlowId' in result ? result.desktopFlowId : undefined) || isRegisteredMcp(p)) setBusy(false);
         } else if (p.method === 'mcp' && ('requiresAuth' in result ? result.requiresAuth : undefined) === false) {
-          await refresh();
+          const current = await refresh();
+          const account = current.find(provider => provider.id === p.id)?.mcp?.accounts?.find(account => account.serverId === ('serverId' in result ? result.serverId : intent?.serverId));
+          if (p.id === 'slack' && account?.status !== 'ok') throw new Error(account?.error || 'Your account is signed in, but Slack tools are not ready. Test the connection to check it.');
           setBanner(`Connected ${p.displayName}`);
+          toast.success(`Connected ${p.displayName}`, {id:notice});
+          setActivity(null);
           setBusy(false);
         } else {
           throw new Error(`${p.displayName} did not provide a sign-in link. Try connecting again.`);
@@ -452,10 +493,12 @@ export function IntegrationsSection({ active = true, navigation }: {
         if ((p.method === 'oauth2' || isRegisteredMcp(p)) && (e as { body?: { error?: string } }).body?.error === 'auth_config_required') {
           setAdvancedOpen(true);
           await loadByo(p.id).catch(() => {});
-          setError(`This provider has more than one OAuth app. Pick one under ${isRegisteredMcp(p) ? 'OAuth apps' : 'Use your own OAuth app'} to connect.`);
+          setError(`Choose which ${p.displayName} app to use, then connect your account.`);
         } else {
           setError(errMsg(e));
         }
+        toast.error(slackMcpAccessIssue(errMsg(e)) ? 'Enable Slack access for this app' : errMsg(e), {id:notice});
+        setActivity(null);
         setBusy(false);
       }
     },
@@ -497,14 +540,21 @@ export function IntegrationsSection({ active = true, navigation }: {
   });
 
   const testConnection = async (id: string) => {
+    setError(null);
     setTesting(id);
+    setActivity('Checking connection and loading tools…');
+    const notice = toast.loading('Checking connection and loading tools…');
     try {
       const res = await trpcClient.integrations.testPost.mutate({body: { id }});
       setTestResults((prev) => ({ ...prev, [id]: res }));
       await refresh(); // the probe may have healed the stored status
+      if (res.ok) toast.success('Connection ready', {id:notice,description:'Account access and tools checked successfully.'});
+      else toast.error(slackMcpAccessIssue(res.error) ? 'Enable Slack access for this app' : res.error || 'Connection needs attention', {id:notice});
     } catch (e) {
       setTestResults((prev) => ({ ...prev, [id]: { ok: false, status: 'error', error: errMsg(e) } }));
+      toast.error(slackMcpAccessIssue(errMsg(e)) ? 'Enable Slack access for this app' : errMsg(e), {id:notice});
     } finally {
+      setActivity(null);
       setTesting(null);
     }
   };
@@ -612,15 +662,21 @@ export function IntegrationsSection({ active = true, navigation }: {
   if (stale && !navigation) setView(CATALOG);
 
   if (isLoading) {
-    return <SettingsSkeleton rows={5} />;
+    return <div className="space-y-3"><p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 size={14} className="animate-spin" />Loading your accounts and connection status…</p><SettingsSkeleton rows={5} /></div>;
   }
 
   if (stale && navigation) return <div role="alert" className="space-y-3 text-sm"><p>{error ?? 'This service is no longer available.'}</p><Button variant="outline" onClick={back}>Back to library</Button></div>;
 
   const onCatalog = view.kind === 'catalog' || stale;
+  const errorShownInAccount = selectedProvider?.id === 'slack' && !!error && selectedProvider.mcp?.accounts?.some(account => account.error && error.includes(account.error));
 
   return (
     <div ref={rootRef} className="@container space-y-6">
+      {activity && <p role="status" className="flex items-center gap-2 rounded-lg border p-3 text-sm"><Loader2 size={14} className="animate-spin" />{activity}</p>}
+      {pendingRegisteredOAuth && <div role="status" className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm">
+        <p className="font-medium">Waiting for {pendingRegisteredOAuth.displayName} sign-in</p><p>Approve access in the provider window, then return here. Ri will check the account and load its tools.</p>
+        <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={!!activity} onClick={() => void checkRegisteredOAuth().then(ready => { if (ready) finishRegisteredOAuth(); else toast.info('Still waiting for sign-in', {description:'Finish approving access in the provider window, then check again.'}); }).catch(failRegisteredOAuth)}>I’ve finished signing in</Button><Button size="sm" variant="ghost" onClick={() => setPendingRegisteredOAuth(null)}>Stop waiting</Button></div>
+      </div>}
       {pendingOAuth && (
         <div className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm">
           <span>Finish connecting in your browser.</span>
@@ -631,21 +687,21 @@ export function IntegrationsSection({ active = true, navigation }: {
         </div>
       )}
       {banner && (
-        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-600 dark:text-emerald-400">
+        <div role="status" className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-600 dark:text-emerald-400">
           <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
           <p className="font-medium">{banner}</p>
         </div>
       )}
 
-      {error && (
-        <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-xs text-destructive">
+      {error && !errorShownInAccount && (slackMcpAccessIssue(error) ? <SlackMcpAccessHelp error={error} /> : (
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-xs text-destructive">
           <AlertCircle size={16} className="mt-0.5 shrink-0" />
           <div className="space-y-1">
             <h5 className="font-semibold">Action Failed</h5>
             <p className="opacity-90">{error}</p>
           </div>
         </div>
-      )}
+      ))}
 
       {onCatalog ? (
         <>
@@ -811,6 +867,9 @@ export function IntegrationsSection({ active = true, navigation }: {
           copied={copied}
           byoConfigs={byoConfigs[selectedProvider.id] ?? []}
           byoForm={byoForm[selectedProvider.id] ?? EMPTY_BYO_FORM}
+          savedApp={savedApp}
+          loadingApps={loadingApps === selectedProvider.id}
+          connectDisabled={pendingRegisteredOAuth?.id === selectedProvider.id}
           onBack={back}
           onConnectOAuth={(authConfigId, intent) => connectOAuth(selectedProvider, authConfigId, intent)}
           onConnectDirect={intent => connectDirect(selectedProvider, intent)}

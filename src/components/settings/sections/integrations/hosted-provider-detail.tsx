@@ -3,8 +3,8 @@
 import dynamic from 'next/dynamic';
 import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { INTEGRATION_LABELS } from '@/constants/integrations';
-import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Loader2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { IntegrationLogo } from '@/components/integrations/integration-logo';
@@ -17,6 +17,9 @@ import { Byo, ConnectPanel, ToolList, type ProviderDetailProps } from './provide
 import { CapabilityReview } from './capability-review';
 import { providerForHostedAccount, providerForHostedDeployment } from './hosted-account-request';
 import { SlackConnectionOptions } from './slack-connection-options';
+import { SlackAppsSection } from './slack-apps-section';
+import { SlackMcpAccessHelp } from './slack-mcp-access-help';
+import { slackMcpAccessIssue } from '@/lib/integrations/slack-account-setup';
 import { connectionIdentity, isRegisteredMcp, type Connection, type HostedMcpAccount, type HostedConnectIntent } from './types';
 
 // What the server's screens may reach on the network, which the page asks the Home once it shows in the browser.
@@ -25,12 +28,24 @@ const McpAppNetwork = dynamic(() => import('./mcp-app-network').then(module => m
 /** Account-scoped controls for built-in services, including unfinished sign-ins. */
 export function HostedProviderDetail(props: ProviderDetailProps) {
   const { provider, connections, busy } = props;
+  const slack = provider.id === 'slack';
+  const savedApp = slack && props.savedApp?.providerId === provider.id ? props.savedApp : undefined;
+  const savedAppId = savedApp?.id;
+  const [connectApp, setConnectApp] = useState(savedApp?.id);
+  const [seenSavedApp, setSeenSavedApp] = useState(savedApp?.id);
+  const signInRef = useRef<HTMLDivElement>(null);
   const accounts = provider.mcp?.accounts ?? [];
   const previousConnections = connections.filter(connection => !accounts.some(account => account.connectionId === connection.id));
   const [target, setTarget] = useState<string | null>(null);
   const ids = [...accounts.map(account => account.serverId), ...previousConnections.map(connection => `previous:${connection.id}`)].join(',');
   const [seenIds, setSeenIds] = useState(ids);
   if (seenIds !== ids) { setSeenIds(ids); setTarget(null); }
+  if (savedApp && savedApp.id !== seenSavedApp) { setSeenSavedApp(savedApp.id); setConnectApp(savedApp.id); setTarget('new'); }
+  useEffect(() => {
+    if ((!savedAppId && target !== 'new') || !provider.configured || !slack) return;
+    signInRef.current?.focus();
+    signInRef.current?.scrollIntoView({block:'nearest'});
+  }, [savedAppId, provider.configured, target, connectApp, slack]);
   const active = accounts.find(account => account.serverId === target);
   const previousActive = previousConnections.find(connection => `previous:${connection.id}` === target);
   const showForm = (accounts.length === 0 && previousConnections.length === 0) || target === 'new' || !!active || !!previousActive;
@@ -41,11 +56,13 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
   const toolCount = props.toolkits.reduce((count, toolkit) => count + toolkit.actions.length, 0);
   // With accounts, a button in their section opened the form, so it goes under that heading, above them.
   const hasAccounts = accounts.length > 0 || previousConnections.length > 0;
-  const form = showForm && <ConnectFormSection opened={hasAccounts}>
+  const form = showForm && (!slack || provider.configured) && <ConnectFormSection opened={hasAccounts}>
     <GroupHeading action={hasAccounts && <Button size="xs" variant="ghost" disabled={busy} onClick={() => setTarget(null)}>Cancel</Button>}>
       {active ? `Reconnect ${active.label || provider.displayName}` : previousActive ? `Reconnect ${connectionIdentity(previousActive)}` : hasAccounts ? 'Add another account' : 'Connect'}
     </GroupHeading>
-    <HostedAccountForm key={active?.serverId ?? previousActive?.id ?? 'new'} {...props} account={active} previousConnection={previousActive} usedAuthConfigIds={usedAuthConfigIds} />
+    <div ref={signInRef} tabIndex={-1} id={slack ? 'slack-account-sign-in' : undefined} className="scroll-mt-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <HostedAccountForm key={active?.serverId ?? previousActive?.id ?? `new:${connectApp ?? ''}`} {...props} account={active} previousConnection={previousActive} usedAuthConfigIds={usedAuthConfigIds} initialAuthConfigId={connectApp} />
+    </div>
   </ConnectFormSection>;
 
   return <div className="space-y-6">
@@ -58,6 +75,8 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
 
     {provider.id === 'slack' && <SlackConnectionOptions disabled={busy} />}
 
+    {slack && <SlackAppsSection {...props} onConnectApp={id => { setConnectApp(id); setTarget('new'); }} />}
+
     {!showForm && <PluginSetupHelpButton target={{ kind: 'integration', provider }} disabled={busy} />}
 
     {(accounts.length > 0 || previousConnections.length > 0) && <section className="space-y-2">
@@ -68,22 +87,28 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
         const connection = connections.find(candidate => candidate.id === account.connectionId);
         const label = account.label || (connection && connectionIdentity(connection)) || provider.displayName;
         const result = connection ? props.testResults[connection.id] : undefined;
+        const checking = !!connection && props.testing === connection.id;
+        const problem = result?.ok === false ? result.error : account.error;
+        const accessBlocked = slack && slackMcpAccessIssue(problem);
         return <div key={account.serverId} className="space-y-3 rounded-xl border border-border bg-card/20 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0"><p className="truncate text-sm font-medium">{label}</p>
-              <p className="text-xs text-muted-foreground">{account.enabled === false ? 'Off' : account.requiresAuth ? accountKind === 'bearer' ? 'Token needed' : 'Sign-in needed' : account.status === 'ok' ? 'Connected' : 'Needs attention'}{account.toolCount !== undefined ? ` · ${account.toolCount} tools` : ''}</p>
+              <p role={checking ? 'status' : undefined} className="text-xs text-muted-foreground">{checking ? slack ? 'Checking Slack access…' : 'Checking connection…' : accessBlocked ? 'Enable access in Slack' : account.enabled === false ? 'Off' : account.requiresAuth ? accountKind === 'bearer' ? 'Token needed' : 'Sign-in needed' : account.status === 'ok' ? 'Connected' : 'Needs attention'}{!checking && account.toolCount !== undefined ? ` · ${account.toolCount} tools` : ''}</p>
             </div>
             <div className="flex flex-wrap gap-1">
               <Button size="xs" variant="ghost" disabled={busy} onClick={() => setTarget(account.serverId)}>{accountKind === 'bearer' ? 'Update token' : 'Reconnect'}</Button>
-              {connection && <Button size="xs" variant="ghost" disabled={busy || props.testing === connection.id} onClick={() => props.onTest(connection.id)}>Test</Button>}
+              {connection && <Button size="xs" variant="ghost" disabled={busy || checking} onClick={() => props.onTest(connection.id)}>{checking && <Loader2 size={12} className="animate-spin" />}{checking ? 'Checking…' : slack ? 'Test connection' : 'Test'}</Button>}
+              {!connection && accessBlocked && <Button size="xs" variant="outline" disabled={busy} onClick={() => props.onConnectOAuth(account.authConfigId, {serverId:account.serverId,label:account.label})}>Continue setup</Button>}
               {connection ? <Button size="xs" variant="ghost" disabled={busy} onClick={() => props.onDisconnect(connection.id)}>Disconnect</Button>
                 : <Button size="xs" variant="ghost" disabled={busy} onClick={() => props.onCancelSetup?.(account.serverId)}>Cancel setup</Button>}
             </div>
           </div>
           {account.endpointConfig && <HostedEndpointFields setup={account.endpointConfig} disabled />}
-          {account.authConfigId && <p className="text-xs text-muted-foreground">OAuth app: {props.byoConfigs.find(config => config.id === account.authConfigId)?.label ?? account.authConfigId}. Disconnect to change this app.</p>}
-          {account.error && <p role="status" className="text-xs text-muted-foreground">{account.error}</p>}
-          {result && <p role="status" className="text-xs text-muted-foreground">{result.ok ? 'Healthy' : result.error || result.status}</p>}
+          {account.authConfigId && <p className="text-xs text-muted-foreground">{slack ? 'Slack app' : 'OAuth app'}: {props.byoConfigs.find(config => config.id === account.authConfigId)?.label ?? account.authConfigId}. Disconnect to change this app.</p>}
+          {accessBlocked && problem ? <SlackMcpAccessHelp error={problem} /> : <>
+            {account.error && <p role="status" className="text-xs text-muted-foreground">{account.error}</p>}
+            {result && <p role="status" className="text-xs text-muted-foreground">{result.ok ? slack ? 'Connected. Slack tools are ready.' : 'Healthy' : result.error || result.status}</p>}
+          </>}
           {account.lastCheckedAt && <p className="text-[11px] text-muted-foreground">Last checked <time dateTime={account.lastCheckedAt} suppressHydrationWarning>{new Date(account.lastCheckedAt).toLocaleString()}</time></p>}
           <CapabilityReview changes={account.capabilityChanges} busy={busy} onReview={props.onReviewCapabilities ? revision => props.onReviewCapabilities!(account.serverId, revision) : undefined} />
           <McpServerSettings serverId={account.serverId} name={label} enabled={!!account.settings && !!connection && account.enabled !== false && !account.requiresAuth && account.status === 'ok'} />
@@ -101,7 +126,7 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
 
     {!hasAccounts && form}
 
-    {isRegisteredMcp(provider) && !showForm && <section className="space-y-2">
+    {isRegisteredMcp(provider) && !slack && !showForm && <section className="space-y-2">
       <Button variant="ghost" size="xs" onClick={props.onToggleAdvanced} aria-expanded={props.advancedOpen}>OAuth apps</Button>
       {props.advancedOpen && <Byo {...props} provider={providerForHostedAccount(provider, { addAccount: true })} usedAuthConfigIds={usedAuthConfigIds} connectDisabled />}
     </section>}
@@ -109,12 +134,15 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
   </div>;
 }
 
-function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAccount; previousConnection?: Connection }) {
+function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAccount; previousConnection?: Connection; initialAuthConfigId?: string }) {
   const { account, previousConnection } = props;
   const [label, setLabel] = useState(account?.label ?? previousConnection?.label ?? '');
   const [creds, setCreds] = useState<Record<string, string>>({});
   const [endpoint, setEndpoint] = useState<HostedEndpointSelection>({});
   const [setupId] = useState(() => crypto.randomUUID());
+  const appSelectId = useId();
+  const slack = props.provider.id === 'slack';
+  const [authConfigId, setAuthConfigId] = useState(props.initialAuthConfigId ?? props.byoConfigs.find(config => config.isDefault)?.id ?? (props.byoConfigs.length === 1 ? props.byoConfigs[0].id : ''));
   const baseIntent: HostedConnectIntent = account
     ? { serverId: account.serverId, existingConnectionId: account.connectionId }
     : previousConnection ? { existingConnectionId: previousConnection.id }
@@ -129,13 +157,14 @@ function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAcc
   const needsLabel = !account && !previousConnection && (provider.mcp?.authKind !== 'none' || provider.mcp?.endpointConfig?.kind === 'deployment');
   // Slack's app credentials come first. Ask for an account name when sign-in is available.
   const showLabel = needsLabel && (provider.id !== 'slack' || provider.configured);
-  const ready = !needsLabel || !!label.trim();
+  const chooseApp = slack && !account?.authConfigId;
+  const ready = (!needsLabel || !!label.trim()) && (!chooseApp || props.byoConfigs.some(config => config.id === authConfigId && config.status === 'active'));
   const intent = (): HostedConnectIntent => ({ ...baseIntent, label: label.trim() || undefined, fields: creds, ...integrationEndpointSelection(provider.mcp?.endpointConfig, endpoint) });
   const formProps: ProviderDetailProps = {
     ...props, provider, connections: props.connections.filter(connection => connection.id === (account?.connectionId ?? previousConnection?.id)),
-    creds, endpointSelection: endpoint, connectDisabled: !ready,
+    creds, endpointSelection: endpoint, connectDisabled: props.connectDisabled || !ready,
     onCredChange: (field, value) => setCreds(previous => ({ ...previous, [field]: value })),
-    onConnectOAuth: authConfigId => { if (ready) props.onConnectOAuth(authConfigId, intent()); },
+    onConnectOAuth: selected => { if (ready) props.onConnectOAuth(selected ?? (chooseApp ? authConfigId : undefined), intent()); },
     onConnectDirect: () => { if (ready) props.onConnectDirect(intent()); },
   };
   return <div className="space-y-4 rounded-xl border border-border bg-card/20 p-4">
@@ -143,10 +172,11 @@ function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAcc
       <Button type="button" size="xs" variant={method === 'oauth' ? 'secondary' : 'ghost'} disabled={props.busy} onClick={() => { setMethod('oauth'); setCreds({}); }}>Sign in</Button>
       <Button type="button" size="xs" variant={method === 'bearer' ? 'secondary' : 'ghost'} disabled={props.busy} onClick={() => { setMethod('bearer'); setCreds({}); }}>Use API key</Button>
     </div>}
+    {chooseApp && props.provider.configured && <div className="space-y-1"><label htmlFor={appSelectId} className="text-xs font-medium">Slack app</label><select id={appSelectId} value={authConfigId} onChange={event => setAuthConfigId(event.target.value)} disabled={props.busy} className="w-full rounded-md border border-border bg-background p-2 text-sm"><option value="">Choose a Slack app</option>{props.byoConfigs.filter(config => config.status === 'active').map(config => <option key={config.id} value={config.id}>{config.label ?? config.id}</option>)}</select></div>}
     {showLabel && <div className="space-y-1"><label htmlFor="hosted-account-label" className="text-xs font-medium">Account label</label><Input id="hosted-account-label" value={label} onChange={event => setLabel(event.target.value)} placeholder="Work or Personal" disabled={props.busy} required /></div>}
     {provider.mcp?.endpointConfig && <HostedEndpointFields setup={provider.mcp.endpointConfig} value={endpoint} onChange={selection => { setEndpoint(selection); setMethod('oauth'); setCreds({}); }} disabled={props.busy} />}
     <ConnectPanel {...formProps} />
-    {isRegisteredMcp(provider) && provider.configured && <div className="space-y-2">
+    {isRegisteredMcp(provider) && provider.configured && !slack && <div className="space-y-2">
       <Button variant="ghost" size="xs" onClick={props.onToggleAdvanced} aria-expanded={props.advancedOpen}>OAuth apps</Button>
       {props.advancedOpen && <Byo {...formProps} />}
     </div>}

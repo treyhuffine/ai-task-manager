@@ -25,17 +25,18 @@ beforeAll(async () => {
       const [configured,setConfigured] = useState(false), [connected,setConnected] = useState(false);
       const [form,setForm] = useState(empty), [copied,setCopied] = useState(false), [advanced,setAdvanced] = useState(false), [results,setResults] = useState({});
       const [configs,setConfigs] = useState([]);
+      const [savedApp,setSavedApp] = useState(undefined);
       const provider = {id:'slack',displayName:'Slack',method:'mcp',configured,mcp:{requiresAuth:!connected,authKind:'oauth',oauthRegistration:'registered',redirectUri:'${callback}',
         accounts:connected?[{serverId:'slack-account',connectionId:'connection',label:'Work',requiresAuth:false,status:'ok',authConfigId:'app'}]:[]}};
       return <ProviderDetail provider={provider} connections={connected?[{id:'connection',providerId:'slack',accountId:'user',label:'Work',scopes:[],status:'active'}]:[]}
         toolkits={[]} writePolicy={{}} busy={false} testing={null} testResults={results} creds={{}} selectedServices={[]}
-        advancedOpen={advanced} redirectUri="https://wrong.example/native-callback" copied={copied} byoConfigs={configs} byoForm={form}
+        advancedOpen={advanced} redirectUri="https://wrong.example/native-callback" copied={copied} byoConfigs={configs} byoForm={form} savedApp={savedApp}
         onBack={noop} onCredChange={noop} onToggleService={noop} onConnectDirect={noop} onDisconnect={noop} onSetApproval={noop}
         onConnectOAuth={(id,intent)=>{window.calls.push({operation:'authorize',id,intent});setConnected(true);}}
         onTest={id=>{window.calls.push({operation:'test',id});setResults({[id]:{ok:true,status:'ok'}});}}
         onToggleAdvanced={()=>setAdvanced(!advanced)} onCopyRedirect={()=>{navigator.clipboard.writeText('${callback}');setCopied(true);}}
         onByoField={(field,value)=>setForm(previous=>({...previous,[field]:value}))}
-        onByoAdd={()=>{window.calls.push({operation:'save',form});setConfigs([{id:'app',providerId:'slack',label:form.label,isDefault:true,status:'active'}]);setForm(empty);setConfigured(true);}}
+        onByoAdd={()=>{window.calls.push({operation:'save',form});setConfigs([{id:'app',providerId:'slack',label:form.label,isDefault:true,status:'active'}]);setSavedApp({id:'app',providerId:'slack',label:form.label});setForm(empty);setConfigured(true);}}
         onByoSetDefault={noop} onByoDelete={noop} />;
     }
     createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>
@@ -65,7 +66,7 @@ it.skipIf(!enabled).each([{width:1000,height:1000}, {width:390,height:844}])('gu
     expect(await create.getAttribute('target')).toBe('_blank');
     expect(await page.getByRole('link', { name: 'Slack reference docs', exact: true }).getAttribute('href')).toBe('https://docs.slack.dev/ai/slack-mcp-server/');
     expect(await page.getByRole('link', { name: 'Open existing Slack apps', exact: true }).getAttribute('href')).toBe('https://api.slack.com/apps');
-    expect(await page.getByRole('button', { name: 'Add app', exact: true }).isDisabled()).toBe(true);
+    expect(await page.getByRole('button', { name: 'Save app and continue', exact: true }).isDisabled()).toBe(true);
     expect(await page.getByLabel('Account label', { exact: true }).count()).toBe(0);
     expect(await page.evaluate('document.documentElement.scrollWidth <= innerWidth')).toBe(true);
     await page.screenshot({ path: `.work/slack-account-setup-${viewport.width}.png`, fullPage: true });
@@ -82,10 +83,10 @@ it.skipIf(!enabled).each([{width:1000,height:1000}, {width:390,height:844}])('gu
 
     await page.getByLabel('App label in Ri', { exact: true }).fill('My Slack app');
     await page.getByLabel('Client ID', { exact: true }).fill('fixture-client-id');
-    expect(await page.getByRole('button', { name: 'Add app', exact: true }).isDisabled()).toBe(true);
+    expect(await page.getByRole('button', { name: 'Save app and continue', exact: true }).isDisabled()).toBe(true);
     await page.getByLabel('Client secret', { exact: true }).fill('fixture-client-secret');
     expect(await page.getByLabel('Client secret', { exact: true }).getAttribute('type')).toBe('password');
-    await page.getByRole('button', { name: 'Add app', exact: true }).click();
+    await page.getByRole('button', { name: 'Save app and continue', exact: true }).click();
     await page.getByRole('heading', { name: '3. Sign in to Slack' }).waitFor();
     expect(await page.getByText('Your Slack app is saved in Ri.', { exact: false }).isVisible()).toBe(true);
     expect(await page.getByRole('link', { name: 'Create Slack app', exact: true }).count()).toBe(0);
@@ -96,14 +97,14 @@ it.skipIf(!enabled).each([{width:1000,height:1000}, {width:390,height:844}])('gu
     await page.screenshot({ path: `.work/slack-account-sign-in-${viewport.width}.png`, fullPage: true });
     await connect.click();
     await page.getByText('Connected', { exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Test', exact: true }).click();
-    await page.getByText('Healthy', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Test connection', exact: true }).click();
+    await page.getByText('Connected. Slack tools are ready.', { exact: true }).waitFor();
     // Account authorization does not hide the agent entry point.
     await page.getByRole('button', { name: 'Add your agent to Slack', exact: true }).click();
     await expect.poll(() => page.locator('[data-settings-destination]').getAttribute('data-settings-destination')).toBe('conversations');
     expect(await page.evaluate('window.calls')).toEqual([
       {operation:'save',form:{label:'My Slack app',clientId:'fixture-client-id',clientSecret:'fixture-client-secret'}},
-      {operation:'authorize',intent:{addAccount:true,setupId:expect.any(String),label:'Work',fields:{}}},
+      {operation:'authorize',id:'app',intent:{addAccount:true,setupId:expect.any(String),label:'Work',fields:{}}},
       {operation:'test',id:'connection'},
     ]);
     expect(errors).toEqual([]);

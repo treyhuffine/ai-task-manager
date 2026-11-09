@@ -72,6 +72,9 @@ export interface ProviderDetailProps {
   copied: boolean;
   byoConfigs: AuthConfigSummary[];
   byoForm: ByoForm;
+  /** The last app saved in this pane, so its sign-in step can continue in place. */
+  savedApp?: { providerId: string; id: string; label: string };
+  loadingApps?: boolean;
   onBack: () => void;
   onConnectOAuth: (authConfigId?: string, intent?: HostedConnectIntent) => void;
   onConnectDirect: (intent?: HostedConnectIntent) => void;

@@ -37,7 +37,7 @@ describe('registered hosted OAuth app setup', () => {
     const html = render({ provider: { ...registered, id: 'slack', displayName: 'Slack', mcp: { ...registered.mcp!, redirectUri: undefined } } });
     expect(html).toContain('Callback address unavailable');
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Create Slack app/);
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*?Add app/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*?Save app and continue/);
     expect(html).not.toContain('manifest_json=');
   });
 

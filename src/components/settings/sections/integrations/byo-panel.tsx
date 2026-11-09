@@ -156,7 +156,7 @@ export function ByoPanel({
         disabled={busy || !form.label.trim() || !form.clientId.trim() || (registered && (!callback || !form.clientSecret.trim()))}
         className="text-xs font-semibold"
       >
-        <Plus size={14} /> Add app
+        <Plus size={14} /> {provider.id === 'slack' ? busy ? 'Saving app…' : 'Save app and continue' : 'Add app'}
       </Button>;
 
   if (provider.id === 'slack' && registered) {

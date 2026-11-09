@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntegrationError } from '@integrations/engine';
 import type { OAuthClientProvider } from '@modelcontextprotocol/client';
-import { beginMcpAuthorization, completeMcpAuthorization } from './mcp-authorization';
+import { beginMcpAuthorization, completeMcpAuthorization, mcpSettingsReturnPath } from './mcp-authorization';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
 import type { McpServerEntry } from './mcp-servers';
 
@@ -36,6 +36,10 @@ const entry: McpServerEntry = {
 };
 
 describe('MCP authorization completion', () => {
+  it('returns to the exact provider or custom server detail', () => {
+    expect(new URL(mcpSettingsReturnPath({id:'server',providerId:'slack'}), 'https://ri.example').searchParams.get('plugin')).toBe('integrations:slack');
+    expect(new URL(mcpSettingsReturnPath({id:'server'}), 'https://ri.example').searchParams.get('plugin')).toBe('mcp:server');
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.consumeOAuthState.mockResolvedValue(true);
@@ -58,6 +62,14 @@ describe('MCP authorization completion', () => {
     mocks.consumeOAuthState.mockResolvedValue(false);
     await expect(completeMcpAuthorization(entry, 'code', 'state')).rejects.toThrow('Invalid or expired');
     expect(mocks.finishMcpOAuth).not.toHaveBeenCalled();
+  });
+
+  it('keeps Slack app enablement guidance when consent finishes but tool discovery is blocked', async () => {
+    const error = 'App is not enabled for Slack MCP server access. Please enable it here: https://api.slack.com/apps/A123/app-assistant';
+    const slack = {...entry,providerId:'slack',slug:'builtin_slack',url:'https://mcp.slack.com/mcp'};
+    mocks.get.mockReturnValue({...slack,lastStatus:'error',lastError:error});
+    await expect(completeMcpAuthorization(slack,'code','state')).rejects.toThrow(error);
+    expect(mocks.completeAuthorization).not.toHaveBeenCalled();
   });
 
   it.each(['unreachable', 'missing toolkit'])('does not report a failed integration as connected: %s', async (failure) => {

@@ -9,6 +9,7 @@ import { finalizeMcpServer } from './mcp-lifecycle';
 import { registerMcpSecrets } from './mcp-secrets';
 import type { McpServerEntry } from './mcp-servers';
 import { rememberOAuthReturn } from './oauth-return';
+import { slackMcpAccessIssue } from './slack-account-setup';
 import { getIntegrationRuntime, getMcpServerStore, invalidateIntegrationRuntime, MCP_TIMEOUT_MS, mcpOAuthProviderFor, withTimeout } from './runtime';
 
 /**
@@ -26,6 +27,7 @@ export async function completeMcpAuthorization(entry: McpServerEntry, code: stri
   const saved = getMcpServerStore().get(entry.id);
   const toolkitId = entry.providerId ?? `mcp_${entry.slug}`;
   if (!saved || (saved.enabled && (saved.lastStatus !== 'ok' || !runtime.getToolkits().some((toolkit) => toolkit.id === toolkitId)))) {
+    if (saved?.providerId === 'slack' && slackMcpAccessIssue(saved.lastError)) throw new Error(saved.lastError);
     throw new Error(`Authorization succeeded, but the ${INTEGRATION_LABELS.singular.toLowerCase()} could not load its tools. Try testing the connection again.`);
   }
   if (saved.enabled) {
@@ -41,10 +43,10 @@ function authorizationId(state: string): string {
   return createHash('sha256').update(state).digest('hex');
 }
 
-/** Custom server sign-in returns to its detail. Hosted accounts stay in Connectors. */
+/** Return to the account's provider or custom server so the person sees the result in place. */
 export function mcpSettingsReturnPath(entry: Pick<McpServerEntry, 'id' | 'providerId'>) {
   const params = new URLSearchParams({ settings: 'plugins' });
-  if (!entry.providerId) params.set('plugin', `mcp:${entry.id}`);
+  params.set('plugin', entry.providerId ? `integrations:${entry.providerId}` : `mcp:${entry.id}`);
   return `/?${params}`;
 }
 
