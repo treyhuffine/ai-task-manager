@@ -1,6 +1,16 @@
 name: Desktop and headless runtime
 on:
   workflow_dispatch:
+    inputs:
+      macos_preview:
+        description: Build only the shareable Mac preview DMG
+        type: boolean
+        default: false
+      macos_architecture:
+        description: Mac preview processor
+        type: choice
+        options: [both, arm64, x64]
+        default: both
   pull_request:
     paths:
       - 'desktop/**'
@@ -51,7 +61,13 @@ on:
 permissions:
   contents: read
 jobs:
+  macos_preview:
+    if: ${{ inputs.macos_preview }}
+    uses: ./.github/workflows/macos-preview.yml
+    with:
+      architecture: ${{ inputs.macos_architecture }}
   build:
+    if: ${{ !inputs.macos_preview }}
     name: Runtime ${{ matrix.platform }} / ${{ matrix.arch }}
     strategy:
       fail-fast: false

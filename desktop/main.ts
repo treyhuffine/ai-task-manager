@@ -1071,6 +1071,9 @@ async function start() {
   window = new BrowserWindow({ ...bounds, show: false, minWidth: 800, minHeight: 600, title: APP_NAME, icon,
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 12 } } : {}),
     backgroundColor: appearance.get() === 'dark' ? '#09090b' : '#ffffff', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), session: ses, nodeIntegration: false, contextIsolation: true, sandbox: true, webviewTag: false } });
+  // Give the covered viewer its first document before local setup opens.
+  // An empty WebContents prevents packaged Playwright startup from attaching.
+  await window.loadURL('about:blank');
   let boundsTimer: ReturnType<typeof setTimeout> | undefined;
   const saveBounds = () => {
     clearTimeout(boundsTimer);

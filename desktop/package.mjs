@@ -183,7 +183,7 @@ if (!headless) {
     files: [...SHELL_ENTRYPOINTS, 'package.json', '!node_modules/**/*'], asar: true,
     npmRebuild: false, nodeGypRebuild: false, forceCodeSigning: releaseBuild && process.platform === 'darwin',
     protocols: [{ name: 'Ri OAuth callback', schemes: ['ri'] }],
-    mac: { icon: path.join(repo, 'assets/brand/icons/icon.icns'), identity: releaseBuild ? process.env.CSC_NAME : shareBuild ? '-' : null, signIgnore: ['Contents/Resources/server/', 'Contents/Resources/node/'], hardenedRuntime: true, notarize: releaseBuild,
+    mac: { icon: path.join(repo, 'assets/brand/icons/icon.icns'), minimumSystemVersion: '13.5', identity: releaseBuild ? process.env.CSC_NAME : shareBuild ? '-' : null, signIgnore: ['Contents/Resources/server/', 'Contents/Resources/node/'], hardenedRuntime: true, notarize: releaseBuild,
       extendInfo: { NSMicrophoneUsageDescription: 'Ri uses the microphone when you record a voice message.', NSCameraUsageDescription: 'Ri uses the camera when you scan a pairing code.' } },
     linux: { executableName: 'ri', syncDesktopName: true, icon: path.join(repo, 'assets/brand/icons'), category: 'Office' },
     // The native updater obtains the eligible URL from signed Ri metadata.

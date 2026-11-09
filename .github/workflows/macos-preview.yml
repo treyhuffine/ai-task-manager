@@ -1,0 +1,89 @@
+name: Mac preview DMG
+on:
+  workflow_call:
+    inputs:
+      architecture:
+        type: string
+        default: both
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: Mac processor
+        type: choice
+        options: [both, arm64, x64]
+        default: both
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Mac preview / ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(inputs.architecture == 'both' && '["arm64","x64"]' || format('["{0}"]', inputs.architecture)) }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'macos-15' || 'macos-15-intel' }}
+    timeout-minutes: 120
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      NODE_OPTIONS: --max-old-space-size=6144
+      MACOSX_DEPLOYMENT_TARGET: '13.5'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/setup@v3
+        with:
+          version: 12.14.0
+          install: false
+          node-version-file: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.5.0'
+          cache: pnpm
+      - name: Verify the native Mac target
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e 'const a=require("node:assert/strict"); a.equal(process.platform,"darwin"); a.equal(process.arch,process.env.EXPECTED_ARCH)'
+      - run: pnpm install --frozen-lockfile
+      - name: Check types and desktop contracts
+        run: |
+          pnpm ts
+          pnpm desktop:test
+          node desktop/native-probe.mjs
+      - name: Build the production app with a bounded heap
+        env:
+          RI_ROOT: ${{ runner.temp }}/ri-preview-build-home
+          RI_DB_PATH: ''
+          RI_CONFIG_DIR: ''
+          RI_WORK_DIR: ''
+          RI_LOCAL_APPS: '0'
+          NEXT_DIST_DIR: .next-desktop
+          NODE_ENV: production
+          RI_BUILD_MEMORY_LIMIT_GB: '12'
+        run: |
+          pnpm apps:catalog --compatible
+          node scripts/next-build.mjs
+      - name: Build a DMG without Developer ID or notarization
+        run: pnpm desktop:dmg --skip-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ri-macos-${{ matrix.arch }}-preview
+          path: release/desktop/*.dmg
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Install from the DMG and check first run and persistence
+        timeout-minutes: 20
+        env:
+          RI_SERVICE_SMOKE_SUPERVISOR: install-test-job-on-disposable-github-hosted-account
+          TMPDIR: ${{ runner.temp }}/ri-dmg-test
+        run: |
+          mkdir -p "$TMPDIR"
+          pnpm exec tsx desktop/dmg-smoke.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ri-macos-${{ matrix.arch }}-qualification
+          path: |
+            release/qualification/macos-*.json
+            release/qualification/macos-*.png
+          if-no-files-found: ignore
+          retention-days: 14
