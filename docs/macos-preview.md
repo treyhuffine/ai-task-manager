@@ -33,14 +33,33 @@ and Ri explains this in notification settings.
 
 ## Qualification
 
+The Apple silicon DMG is ready for recipient testing:
+[download the artifact ZIP](https://github.com/treyhuffine/ai-task-manager/actions/runs/42707373918/artifacts/13714132891).
+It contains `Ri-0.1.0-arm64.dmg`, built from `5b71a8fb`. The installer is
+817,960,665 bytes (about 780 MiB), and the installed files occupy about 2.6 GiB.
+SHA256: `55721765537528564b1df32481f6f56ac1b16d889a3ec4503111ec25dc86d4e9`.
+
+[The qualification report and screenshot](https://github.com/treyhuffine/ai-task-manager/actions/runs/42707373918/artifacts/13716130176)
+record nine passing checks on the exact DMG bytes, using the smoke at
+`fdbbd809`. The first attempt with a custom `TMPDIR` failed service startup.
+Retesting the same DMG with the runner's normal temporary directory passed
+without changing the product. Native supervisor tests must use the OS account's
+normal environment.
+
+The local read-only audit also verified the signature, minimum macOS version,
+checksum and 100,135 regular payload files, with no suspect private paths.
+The test Home and provider account credentials are not in the installer or reports.
+Intel qualification is still pending. The checks below apply to Apple silicon
+until Intel passes separately.
+
 - [ ] Both native DMGs build in Actions
-- [ ] Mount DMG, copy Ri.app and verify its signature and native dependencies
-- [ ] First-run Home choice and service start
-- [ ] Install a real coding CLI through Settings
-- [ ] Task completion and note title/body editing
-- [ ] Streamed chat through a stand-in CLI
-- [ ] Quit/reopen and replace Ri.app while keeping data
-- [ ] Check archive contents for personal data and record the exact artifact
+- [x] Mount DMG, copy Ri.app and verify its signature and native dependencies
+- [x] First-run Home choice and service start
+- [x] Install a real coding CLI through Settings
+- [x] Task completion and note title/body editing
+- [x] Streamed chat through a stand-in CLI
+- [x] Quit/reopen and replace Ri.app while keeping data
+- [x] Check archive contents for personal data and record the exact artifact
 - [ ] Download and first-open approval on the recipient Mac
 - [ ] Real provider account sign-in and chat on the recipient Mac
 

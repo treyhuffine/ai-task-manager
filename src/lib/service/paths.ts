@@ -33,8 +33,8 @@ export function servicePaths() {
  * per Home it runs (docs/always-on-spec.md section 3.2). */
 export function getRuntimeBaseDir() {
   const base = process.env.RI_INSTALL_ROOT || (process.platform === 'darwin'
-    ? path.join(os.homedir(), 'Library/Application Support', APP_NAME, 'runtime')
-    : path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local/share'), APP_SHORT_ID, 'runtime'));
+    ? path.join(/* turbopackIgnore: true */ os.homedir(), 'Library/Application Support', APP_NAME, 'runtime')
+    : path.join(/* turbopackIgnore: true */ process.env.XDG_DATA_HOME || path.join(/* turbopackIgnore: true */ os.homedir(), '.local/share'), APP_SHORT_ID, 'runtime'));
   return canonical(path.resolve(/* turbopackIgnore: true */ base));
 }
 
