@@ -79,7 +79,7 @@ jobs:
           TMPDIR: ${{ runner.temp }}/ri-dmg-test
         run: |
           mkdir -p "$TMPDIR"
-          pnpm exec tsx desktop/dmg-smoke.ts
+          pnpm exec tsx desktop/installer-smoke.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -156,11 +156,11 @@ export class AcceptanceFixture {
     Object.assign(process.env, this.env);
   }
 
-  async launchRaw(args: string[] = [], options: { source?: boolean } = {}) {
+  async launchRaw(args: string[] = [], options: { source?: boolean; executable?: string; chromiumSandbox?: boolean } = {}) {
     this.select();
     assert(!this.app, 'Quit the current viewer before reopening it');
     console.info(`[acceptance] Launching ${this.source || options.source ? 'source' : 'packaged'} viewer with temporary home ${this.root}`);
-    this.app = await _electron.launch({ executablePath: options.source || this.source ? electron as unknown as string : this.executable, args: options.source || this.source ? [path.resolve(__dirname, '../dist/desktop/main.cjs'), ...args] : args, cwd: this.base, env: this.env, timeout: 240_000 });
+    this.app = await _electron.launch({ executablePath: options.executable ?? (options.source || this.source ? electron as unknown as string : this.executable), args: options.source || this.source ? [path.resolve(__dirname, '../dist/desktop/main.cjs'), ...args] : args, cwd: this.base, env: this.env, chromiumSandbox: options.chromiumSandbox, timeout: 240_000 });
     await this.app.firstWindow({ timeout: 30_000 });
     const page = await viewerPage(this.app);
     page.setDefaultTimeout(30_000);
@@ -177,9 +177,9 @@ export class AcceptanceFixture {
     return page;
   }
 
-  async launch(args: string[] = []) {
+  async launch(args: string[] = [], options: { executable?: string; chromiumSandbox?: boolean } = {}) {
     const started = Date.now();
-    const page = await this.launchRaw(args);
+    const page = await this.launchRaw(args, options);
     await page.waitForURL(url => url.protocol === 'https:', { timeout: 240_000 });
     this.origin = new URL(page.url()).origin;
     await page.locator('aside:visible').first().waitFor();

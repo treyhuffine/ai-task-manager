@@ -17,15 +17,17 @@ it('does not inspect an ignored runtime dependency tree during signing', async (
   const app = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-signing-walk-'));
   temporary.push(app);
   const ignored = path.join(app, 'server');
-  fs.mkdirSync(ignored);
+  const dependencies = path.join(ignored, 'node_modules');
+  fs.mkdirSync(dependencies, { recursive: true });
   const native = path.join(app, 'shell.node');
   fs.writeFileSync(native, Buffer.from([0, 0, 0, 1]));
-  fs.writeFileSync(path.join(ignored, 'dependency.node'), Buffer.from([0, 0, 0, 1]));
+  fs.writeFileSync(path.join(dependencies, 'dependency.node'), Buffer.from([0, 0, 0, 1]));
   const visited: string[] = [];
-  const files = await walkAsync(app, file => { visited.push(file); return file === ignored; });
+  // Match the contents, like the trailing slash in Ri's signIgnore rules.
+  const files = await walkAsync(app, file => { visited.push(file); return file.startsWith(`${ignored}${path.sep}`); });
   expect(files).toEqual([native]);
   expect(visited).toContain(ignored);
-  expect(visited).not.toContain(path.join(ignored, 'dependency.node'));
+  expect(visited).not.toContain(path.join(dependencies, 'dependency.node'));
 });
 
 it('still discovers a native file when no ignore rule is supplied', async () => {

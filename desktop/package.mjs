@@ -19,10 +19,9 @@ const repo = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
 const headless = process.argv.includes('--headless');
 const releaseBuild = process.argv.includes('--release');
-// A dmg to hand to someone, without a Developer ID (docs/publishing.md). Ad-hoc
-// signed, since Apple silicon won't run an app with no signature at all. macOS warns
-// on first open, and it can't update itself.
-const shareBuild = process.argv.includes('--share') && process.platform === 'darwin';
+// Installers to share without publishing a release or configuring an update feed.
+// Mac builds use an ad-hoc signature and require first-open approval.
+const shareBuild = process.argv.includes('--share');
 // A release built from a checkout for this computer (docs/always-on-spec.md
 // section 8): written straight into this folder, with no distribution copy or
 // archive, since the release store takes its files from here.
@@ -50,7 +49,9 @@ if (!fs.existsSync(path.join(repo, '.next-desktop/BUILD_ID'))) throw new Error('
 // pnpm deploy copies the package allowlist and a self-contained production graph.
 // Explicitly copy Next runtime assets afterwards. Never copy .env or a data home.
 const deployed = path.join(stage, 'deployed');
-run('pnpm', ['--filter', 'ai-task-manager', 'deploy', '--prod', '--legacy', '--ignore-scripts', deployed]);
+// The signing-tool patch belongs to a dev dependency, absent from this graph.
+// Keep normal installs strict and allow that unused patch only during deploy.
+run('pnpm', ['--config.allow-unused-patches=true', '--filter', 'ai-task-manager', 'deploy', '--prod', '--legacy', '--ignore-scripts', deployed]);
 // Workspace packages may be hardlinked to the checkout. Freeze their bytes so
 // editing source while packaging cannot change a manifest that was just made.
 // On macOS `cp -c` clones: the bytes are frozen but share disk until either
@@ -175,7 +176,7 @@ console.info(`Headless runtime: ${runtimeOutput}`);
 console.info(`Update payload: ${runtimeArchive}`);
 if (!headless) {
   const platform = process.platform === 'darwin' ? Platform.MAC : Platform.LINUX;
-  const targets = shareBuild ? ['dmg'] : releaseBuild ? (process.platform === 'darwin' ? ['dmg', 'zip'] : ['AppImage']) : ['dir'];
+  const targets = shareBuild ? (process.platform === 'darwin' ? ['dmg'] : ['AppImage', 'deb']) : releaseBuild ? (process.platform === 'darwin' ? ['dmg', 'zip'] : ['AppImage']) : ['dir'];
   const resourcesToCopy = ['server', 'node', 'desktop-config.json', 'runtime-manifest.json', ...(fs.existsSync(policy) ? ['release-policy.json'] : [])];
   const output = await build({ targets: platform.createTarget(targets, process.arch === 'arm64' ? Arch.arm64 : Arch.x64), publish: 'never', config: {
     appId: 'app.ri.desktop', productName: 'Ri', electronVersion: pkg.devDependencies.electron,
@@ -185,7 +186,7 @@ if (!headless) {
     protocols: [{ name: 'Ri OAuth callback', schemes: ['ri'] }],
     mac: { icon: path.join(repo, 'assets/brand/icons/icon.icns'), minimumSystemVersion: '13.5', identity: releaseBuild ? process.env.CSC_NAME : shareBuild ? '-' : null, signIgnore: ['Contents/Resources/server/', 'Contents/Resources/node/'], hardenedRuntime: true, notarize: releaseBuild,
       extendInfo: { NSMicrophoneUsageDescription: 'Ri uses the microphone when you record a voice message.', NSCameraUsageDescription: 'Ri uses the camera when you scan a pairing code.' } },
-    linux: { executableName: 'ri', syncDesktopName: true, icon: path.join(repo, 'assets/brand/icons'), category: 'Office' },
+    linux: { executableName: 'ri', syncDesktopName: true, icon: path.join(repo, 'assets/brand/icons'), category: 'Office', maintainer: 'Ri contributors' },
     // The native updater obtains the eligible URL from signed Ri metadata.
     publish: process.env.RI_RELEASE_FEED ? [{ provider: 'generic', url: new URL('.', process.env.RI_RELEASE_FEED).href }] : null,
     afterPack: async context => {

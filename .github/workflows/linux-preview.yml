@@ -1,0 +1,92 @@
+name: Linux preview installers
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Linux x64 preview
+    # Keep native dependencies compatible with the older supported Ubuntu.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/setup@v3
+        with:
+          version: 12.14.0
+          install: false
+          node-version-file: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.5.0'
+          cache: pnpm
+      - name: Verify the native Linux target
+        run: node -e 'const a=require("node:assert/strict"); a.equal(process.platform,"linux"); a.equal(process.arch,"x64")'
+      - name: Install desktop runtime and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y xvfb xauth openbox libgtk-3-0 libnss3 libasound2 libgbm1 libsecret-1-0 libnotify4 libxss1 libxtst6 xdg-utils libfuse2
+      - run: pnpm install --frozen-lockfile
+      - name: Check types, desktop contracts and native dependencies
+        run: |
+          pnpm ts
+          pnpm desktop:test
+          node desktop/native-probe.mjs
+      - name: Build the production app with a bounded heap
+        env:
+          RI_ROOT: ${{ runner.temp }}/ri-preview-build-home
+          RI_DB_PATH: ''
+          RI_CONFIG_DIR: ''
+          RI_WORK_DIR: ''
+          RI_LOCAL_APPS: '0'
+          NEXT_DIST_DIR: .next-desktop
+          NODE_ENV: production
+          RI_BUILD_MEMORY_LIMIT_GB: '16'
+        run: |
+          pnpm apps:catalog --compatible
+          node scripts/next-build.mjs
+      - name: Build Debian and AppImage installers without an update feed
+        run: pnpm desktop:package --share --skip-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ri-linux-x64-preview
+          path: |
+            release/desktop/*.deb
+            release/desktop/*.AppImage
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Prepare the disposable account's user service manager
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          account_uid=$(id -u)
+          sudo loginctl enable-linger "$USER"
+          sudo systemctl start "user@${account_uid}.service"
+          echo "XDG_RUNTIME_DIR=/run/user/${account_uid}" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${account_uid}/bus" >> "$GITHUB_ENV"
+      - name: Install the real packages and check first run and persistence
+        timeout-minutes: 45
+        env:
+          RI_SERVICE_SMOKE_SUPERVISOR: install-test-job-on-disposable-github-hosted-account
+          TMPDIR: ${{ runner.temp }}/ri-installer-test
+        run: |
+          mkdir -p "$TMPDIR"
+          xvfb-run --auto-servernum sh -ec '
+            openbox --sm-disable >/dev/null 2>&1 &
+            manager_pid=$!
+            trap "kill $manager_pid 2>/dev/null || true" EXIT
+            pnpm exec tsx desktop/installer-smoke.ts
+          '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ri-linux-x64-qualification
+          path: |
+            release/qualification/linux-*.json
+            release/qualification/linux-*.png
+          if-no-files-found: ignore
+          retention-days: 14

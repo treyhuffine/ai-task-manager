@@ -19,3 +19,7 @@ app signature and checked against Ri's runtime manifest.
 `desktop/signing-walk.test.ts` verifies that ignored trees are never inspected
 and that ordinary native files are still discovered. Remove this patch after
 an upstream release supports pruning ignored directories during traversal.
+
+The production `pnpm deploy` enables `allow-unused-patches` for that command
+only, because this signing dependency is absent from the deployed runtime.
+Normal installs remain strict, and a patch that cannot apply still fails.

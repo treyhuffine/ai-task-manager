@@ -11,6 +11,10 @@ on:
         type: choice
         options: [both, arm64, x64]
         default: both
+      linux_preview:
+        description: Build the shareable Linux x64 Debian package and AppImage
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'desktop/**'
@@ -66,8 +70,11 @@ jobs:
     uses: ./.github/workflows/macos-preview.yml
     with:
       architecture: ${{ inputs.macos_architecture }}
+  linux_preview:
+    if: ${{ inputs.linux_preview }}
+    uses: ./.github/workflows/linux-preview.yml
   build:
-    if: ${{ !inputs.macos_preview }}
+    if: ${{ !inputs.macos_preview && !inputs.linux_preview }}
     name: Runtime ${{ matrix.platform }} / ${{ matrix.arch }}
     strategy:
       fail-fast: false
