@@ -13,6 +13,9 @@ import { previewContents } from '@/lib/files/preview';
 import { fileBytes } from '@/lib/files/byte-delivery';
 import { filePreviewMime } from '@/lib/files/preview-types';
 import { AUTH_TOKEN_STORAGE_KEY } from '@/lib/api/client';
+import { makePdf } from '@/test/fixtures/pdf';
+import type { Attachment } from '@/db/types';
+import type { EditorSnapshot } from '@/components/chat/editor/chat-input-editor';
 
 const enabled = process.env.RI_ARTIFACT_BROWSER_TEST === '1';
 let browser: Browser;
@@ -28,6 +31,19 @@ const inferred = 'Open `/fixture/nested/plan.md` or `/fixture/missing.bin`.\n\nS
 const literalPaths = ['~/.claude.json', '~/.codex/config.toml', '~/notes/my_file.txt', '/tmp/a[1].txt', '/tmp/literal\\name.md', '/tmp/a*b.zip', '/tmp/a|b.zip', '/tmp/`name`.txt'];
 const literalExamples = literalPaths.map(target => `Open \`\`${target}\`\`.`).join('\n\n');
 const pastedName = 'pasted_text_2026-10-27-15-01-25.md';
+const draftText = '# Draft review\n\n' + 'Keep this pasted content available before sending.\n'.repeat(40);
+
+declare global {
+  interface Window {
+    draftComposer: {
+      output(): { text: string; attachments: Attachment[] };
+      snapshot(): EditorSnapshot;
+      restore(snapshot: EditorSnapshot): void;
+      focusEnd(): void;
+      submitted(): number;
+    };
+  }
+}
 
 beforeAll(async () => {
   if (!enabled) return;
@@ -40,11 +56,14 @@ beforeAll(async () => {
     'data.xlsx': XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }), 'data.csv': 'Item,Quantity\nWidget,5',
     'review.docx': makeDocx(), 'review.pptx': makePptx(), 'files.zip': makeZip({ 'docs/review.md': '# Review' }),
     'output.bin': Buffer.from([0, 1, 2, 3]), 'broken.mov': 'not a video', 'review.md': '# Shared review\n\nReady to read.',
+    'draft.md': draftText, 'draft.pdf': makePdf(['Draft PDF preview']),
+    'draft.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="teal"/></svg>',
   };
   await Promise.all(Object.entries(fixtures).map(([name, bytes]) => fs.writeFile(path.join(dir, name), bytes)));
   const bundle = await build({
     stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
-      import React,{useState}from'react';import{createRoot}from'react-dom/client';import{QueryClient,QueryClientProvider}from'@tanstack/react-query';
+      import React,{useEffect,useRef,useState}from'react';import{createRoot}from'react-dom/client';import{QueryClient,QueryClientProvider}from'@tanstack/react-query';
+      import{ChatInputEditor}from'./src/components/chat/editor/chat-input-editor';
       import{TipProvider}from'./src/components/ui/tip';import{ArtifactPreviewProvider,useBesidePreview,useBesideRegion}from'./src/components/chat-ui/artifacts/artifact-preview-provider';
       import{PREVIEW_HOST_ATTRIBUTE}from'./src/components/chat-ui/artifacts/artifact-preview-store';import{BesideFileView}from'./src/components/chat-ui/artifacts/artifact-beside';
       import{AgentResponse}from'./src/components/chat-ui/messages/agent-response';
@@ -52,8 +71,9 @@ beforeAll(async () => {
       const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
       function DetectionExamples(){return <>{['streaming','static'].map(mode=><React.Fragment key={mode}><section aria-label={mode+' path detection'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(prose)}}/></section><section aria-label={mode+' inferred files'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(inferred)}}/></section><section aria-label={mode+' literal file labels'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(literalExamples)}}/></section></React.Fragment>)}</>}
       function AttachmentExample(){return <section aria-label="Sent attachment"><Message from="user"><MessageContent><MessageFileChip tone="bubble" attachment={{fileName:'review.md',originalName:${JSON.stringify(pastedName)},mimeType:'text/markdown',size:99,uploadedAt:'2026-10-27T15:01:25Z'}}/></MessageContent></Message></section>}
+      function ComposerExample(){const editor=useRef(null);const submitted=useRef(0);useEffect(()=>{window.draftComposer={output:()=>editor.current.getMarkerOutput(),snapshot:()=>editor.current.snapshot(),restore:snapshot=>editor.current.restore(snapshot),focusEnd:()=>editor.current.focus({end:true}),submitted:()=>submitted.current}},[]);return <section aria-label="Draft attachments" className="rounded-md border"><ChatInputEditor ref={editor} ariaLabel="Draft message" onSubmit={()=>submitted.current++}/></section>}
       function Chat(){const [shown,setShown]=useState(false);const file=useBesidePreview('fixture');useBesideRegion('fixture',{available:true,side:'right',showing:shown&&!!file,show:()=>setShown(true)});
-      return <main className="flex h-screen"><section role="log" aria-label="Chat" {...{[PREVIEW_HOST_ATTRIBUTE]:'fixture'}} className="min-w-0 w-1/2 space-y-3 overflow-auto p-6"><AttachmentExample/><AgentResponse sessionId="fixture" text={${JSON.stringify(names.map(name => `[${name}](${name === 'output.bin' ? outputPath : `/fixture/${name}`})`).join('\n\n'))}}/><DetectionExamples/></section><aside className="min-w-0 w-1/2 border-l">{file&&<BesideFileView host="fixture"/>}</aside></main>}
+      return <main className="flex h-screen"><section role="log" aria-label="Chat" {...{[PREVIEW_HOST_ATTRIBUTE]:'fixture'}} className="min-w-0 w-1/2 space-y-3 overflow-auto p-6">{location.search.includes('composer')&&<ComposerExample/>}<AttachmentExample/><AgentResponse sessionId="fixture" text={${JSON.stringify(names.map(name => `[${name}](${name === 'output.bin' ? outputPath : `/fixture/${name}`})`).join('\n\n'))}}/><DetectionExamples/></section><aside className="min-w-0 w-1/2 border-l">{file&&<BesideFileView host="fixture"/>}</aside></main>}
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><TipProvider><ArtifactPreviewProvider><Chat/></ArtifactPreviewProvider></TipProvider></QueryClientProvider>);
     ` }, bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', define: { 'process.env': '{"NODE_ENV":"production"}' },
     plugins: [{ name: 'fixture-trpc', setup(builder) {
@@ -95,12 +115,20 @@ beforeAll(async () => {
           reads.push(name); res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: { message: 'File not found: /fixture/missing.bin', code: -32004, data: { code: 'NOT_FOUND', httpStatus: 404 } } })); return;
         }
-        if (!names.includes(name)) { res.writeHead(404); res.end(); return; }
+        if (!(name in fixtures)) { res.writeHead(404); res.end(); return; }
         reads.push(name);
         const file = path.join(dir, name);
         const data = await previewContents(file, name, (await fs.stat(file)).size);
         if (data.kind === 'document') data.html += '<script>window.executed=true;parent.executed=true</script><img src="/api/should-not-load">';
         res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ result: { data } })); return;
+      }
+      if (url.pathname.startsWith('/api/attachments/')) {
+        const name = url.pathname.split('/')[3];
+        if (!(name in fixtures)) { res.writeHead(404); res.end(); return; }
+        const headers = Object.fromEntries(Object.entries(req.headers).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+        const mime = name.endsWith('.svg') ? 'image/svg+xml' : name.endsWith('.pdf') ? 'application/pdf' : filePreviewMime(name);
+        const response = await fileBytes(new Request(url, { headers, method: req.method }), path.join(dir, name), name, mime, url.searchParams.has('download'));
+        res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(Buffer.from(await response.arrayBuffer())); return;
       }
       if (/^\/api\/sessions\/fixture\/(media|download)$/.test(url.pathname)) {
         const name = (url.searchParams.get('path') ?? '').split('/').at(-1) ?? '';
@@ -120,8 +148,106 @@ beforeAll(async () => {
   browser = await chromium.launch({ channel: 'chromium', headless: true, executablePath: process.env.RI_REVIEW_CHROMIUM });
 }, 90_000);
 afterAll(async () => { await browser?.close(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); if (dir) await fs.rm(dir, { recursive: true, force: true }); });
-async function page() { const context = await browser.newContext({ acceptDownloads: true, viewport: { width: 1200, height: 900 } }); const page = await context.newPage(); page.setDefaultTimeout(15_000); await page.goto(address); return page; }
+async function page(composer = false, touch = false) { const context = await browser.newContext({ acceptDownloads: true, hasTouch: touch, viewport: { width: 1200, height: 900 } }); const page = await context.newPage(); page.setDefaultTimeout(15_000); await page.goto(`${address}${composer ? '/?composer' : ''}`); return page; }
 async function open(page: Page, name: string) { await page.getByRole('button', { name: `Open file: ${name}`, exact: true }).click(); const view = page.getByRole('region', { name: `${name}, beside the chat`, exact: true }); await view.waitFor(); return view; }
+
+it.skipIf(!enabled)('previews a long paste after upload without changing or sending the draft, and removes it separately', async () => {
+  const p = await page(true);
+  let releaseUpload!: () => void;
+  const uploadReady = new Promise<void>(resolve => { releaseUpload = resolve; });
+  try {
+    await p.route('**/api/attachments', async route => {
+      await uploadReady;
+      await route.fulfill({ json: { fileName: 'draft.md', originalName: pastedName, mimeType: 'text/markdown', size: draftText.length, uploadedAt: '2026-10-27T15:01:25Z' } });
+    });
+    const editor = p.getByRole('textbox', { name: 'Draft message', exact: true });
+    await editor.fill('Please review ');
+    await editor.evaluate((element, text) => {
+      const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', text);
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+    }, draftText);
+    const pending = editor.getByRole('button', { name: /^Preview pasted_text_/ });
+    await pending.waitFor();
+    expect(await pending.isDisabled()).toBe(true);
+    expect(await editor.locator('[data-artifact-card]').count()).toBe(0);
+    releaseUpload();
+    const chip = editor.getByRole('button', { name: `Preview ${pastedName}`, exact: true });
+    await expect.poll(() => chip.isEnabled()).toBe(true);
+    const before = await p.evaluate(() => window.draftComposer.snapshot());
+    await chip.click();
+    const view = p.getByRole('region', { name: `${pastedName}, beside the chat`, exact: true });
+    await view.getByRole('heading', { name: 'Draft review', exact: true }).waitFor();
+    expect(await view.getByRole('button', { name: 'Next preview', exact: true }).count()).toBe(0);
+    await view.getByRole('button', { name: 'Source', exact: true }).click();
+    expect(await view.getByLabel('File source').innerText()).toBe(draftText);
+    await view.getByRole('button', { name: 'Show large', exact: true }).click();
+    const dialog = p.getByRole('dialog');
+    await dialog.getByRole('heading', { name: 'Draft review', exact: true }).waitFor();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect.poll(() => chip.evaluate(element => element === document.activeElement)).toBe(true);
+    await p.keyboard.press('Enter');
+    await dialog.getByRole('heading', { name: 'Draft review', exact: true }).waitFor();
+    expect(await p.evaluate(() => window.draftComposer.submitted())).toBe(0);
+    expect(await p.evaluate(() => window.draftComposer.snapshot())).toEqual(before);
+    expect((await p.evaluate(() => window.draftComposer.output())).text).toBe('Please review [[file:draft.md]]');
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect.poll(() => chip.evaluate(element => element === document.activeElement)).toBe(true);
+    await editor.getByRole('button', { name: `Remove ${pastedName}`, exact: true }).click();
+    expect(await p.getByRole('dialog').count()).toBe(0);
+    expect(await p.evaluate(() => window.draftComposer.output())).toEqual({ text: 'Please review', attachments: [] });
+    await expect.poll(() => editor.evaluate(element => element === document.activeElement)).toBe(true);
+  } finally { releaseUpload(); await p.context().close(); }
+}, 30_000);
+
+it.skipIf(!enabled).each([false, true])('previews draft images, PDFs, spreadsheets and audio, with navigation confined to the draft (touch: %s)', async touch => {
+  const p = await page(true, touch);
+  try {
+    const editor = p.getByRole('textbox', { name: 'Draft message', exact: true });
+    await editor.waitFor();
+    await p.evaluate(() => {
+      const attachments = [
+        { fileName: 'draft.svg', originalName: 'Draft image.svg', mimeType: 'image/svg+xml' },
+        { fileName: 'draft.pdf', originalName: 'Draft report.pdf', mimeType: 'application/pdf' },
+        { fileName: 'data.xlsx', originalName: 'Draft sheet.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+        { fileName: 'memo.wav', originalName: 'Draft audio.wav', mimeType: 'audio/wav' },
+      ];
+      window.draftComposer.restore({ doc: { type: 'doc', content: [{ type: 'paragraph', content: [
+        { type: 'text', text: 'Before ' },
+        ...attachments.map(attrs => ({ type: 'fileChip', attrs: { ...attrs, size: 100, uploadedAt: '2026-10-27T15:01:25Z' } })),
+        { type: 'text', text: ' after' },
+      ] }] } });
+    });
+    const before = await p.evaluate(() => window.draftComposer.snapshot());
+    const thumbnail = editor.getByRole('button', { name: 'Preview Draft image.svg', exact: true }).locator('img');
+    if (touch) await thumbnail.tap(); else await thumbnail.click();
+    let view = p.getByRole('region', { name: 'Draft image.svg, beside the chat', exact: true });
+    await expect.poll(() => view.getByRole('img', { name: 'Draft image.svg', exact: true }).evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(120);
+    expect(await view.getByText('1 of 4', { exact: true }).count()).toBe(1);
+    await view.getByRole('button', { name: 'Next preview', exact: true }).click();
+    view = p.getByRole('region', { name: 'Draft report.pdf, beside the chat', exact: true });
+    const pdf = view.getByTitle('PDF: Draft report.pdf', { exact: true });
+    await pdf.waitFor();
+    expect(await pdf.getAttribute('src')).toBe('/api/attachments/draft.pdf/Draft%20report.pdf?name=Draft%20report.pdf');
+    await view.getByRole('button', { name: 'Next preview', exact: true }).click();
+    view = p.getByRole('region', { name: 'Draft sheet.xlsx, beside the chat', exact: true });
+    await view.getByRole('cell', { name: 'Widget', exact: true }).waitFor();
+    await view.getByRole('button', { name: 'Next preview', exact: true }).click();
+    view = p.getByRole('region', { name: 'Draft audio.wav, beside the chat', exact: true });
+    await view.getByLabel('Audio player', { exact: true }).waitFor();
+    expect(await view.locator('audio').getAttribute('src')).toBe('/api/attachments/memo.wav?media=audio');
+    expect(await view.getByRole('button', { name: 'Next preview', exact: true }).isDisabled()).toBe(true);
+    expect(await p.evaluate(() => window.draftComposer.snapshot())).toEqual(before);
+    expect(await p.evaluate(() => window.draftComposer.submitted())).toBe(0);
+
+    // Backspace crosses text and removes the adjacent file atom.
+    await p.evaluate(() => window.draftComposer.focusEnd());
+    await expect.poll(() => editor.evaluate(element => element === document.activeElement)).toBe(true);
+    for (let index = 0; index < ' after'.length; index++) await p.keyboard.press('Backspace');
+    expect((await p.evaluate(() => window.draftComposer.output())).attachments).toHaveLength(4);
+    await p.keyboard.press('Backspace');
+    expect((await p.evaluate(() => window.draftComposer.output())).attachments.map(attachment => attachment.fileName)).toEqual(['draft.svg', 'draft.pdf', 'data.xlsx']);
+  } finally { await p.context().close(); }
+}, 30_000);
 
 it.skipIf(!enabled)('keeps slash-separated prose as text in streaming and static replies', async () => {
   const p = await page();

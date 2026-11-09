@@ -410,6 +410,8 @@ interface Attachment {
 3. On send → `POST /api/sessions/:id/messages` with `{ content, attachments: Attachment[] }`. Server persists the event row with `content` carrying markers and `attachments` carrying the JSON array.
 4. Transcript renderer parses markers via `parseFileMarkers`, resolves each to its `Attachment`, and renders it via `MessageFileChip`: image and PDF cards, bordered filename and size chips opening the shared viewer, or a plain download chip for a type Ri has no name for. Chip colors follow the sent message bubble in both themes. Shared/custom attachment URLs retain inline text expansion and download chips.
 
+Before sending, clicking a file chip's name or thumbnail in the composer opens the shared preview, large or beside the chat according to the person's preference. This includes long pasted text, images, PDFs and the other supported file types. Previous and Next stay within that composer's draft attachments. Uploading chips cannot open until the upload finishes. The separate remove button and Backspace still remove a chip, and previewing leaves the draft's text and attachments intact.
+
 **Sending to the model.**
 
 For execution chat (Claude Code subprocess via agentex), each `[[file:<file_name>]]` reaches the agent as:

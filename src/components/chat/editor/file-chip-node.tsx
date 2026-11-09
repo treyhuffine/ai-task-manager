@@ -17,11 +17,14 @@ import {
   Node, mergeAttributes, type NodeViewProps,
 } from '@tiptap/core';
 import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
-import { FileText, X, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { useMemo } from 'react';
+import { FileText, X, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { attachmentUrl } from '@/lib/attachments/view';
 import type { Attachment } from '@/db/types';
 import { Tip } from '@/components/ui/tip';
+import { attachmentPdfUrl } from '@/lib/sessions/reply-pdf';
+import { useArtifactPreview, useArtifactPreviewCard, type ArtifactPreview } from '@/components/chat-ui/artifacts/artifact-preview-provider';
 
 export const FILE_CHIP_NAME = 'fileChip';
 
@@ -103,6 +106,18 @@ function FileChipView({ node, editor, getPos, selected }: NodeViewProps) {
   const { fileName, originalName, mimeType, size, pending } = attrs;
   const display = originalName || fileName;
   const isImage = mimeType.startsWith('image/');
+  const ready = !pending && !!fileName;
+  const preview = useMemo<ArtifactPreview>(() => {
+    const src = attachmentUrl(fileName);
+    if (mimeType.startsWith('image/')) return { kind: 'image', src, name: display, alt: display };
+    if (mimeType === 'application/pdf') return { kind: 'pdf', src: attachmentPdfUrl(src, display), name: display, source: display };
+    return {
+      kind: 'file', name: display,
+      source: { kind: 'attachment', fileName, ...(/^(audio|video)\//.test(mimeType) ? { media: mimeType.startsWith('audio/') ? 'audio' as const : 'video' as const } : {}) },
+    };
+  }, [fileName, display, mimeType]);
+  const open = useArtifactPreview();
+  const previewRef = useArtifactPreviewCard(preview);
 
   const handleRemove = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -120,45 +135,54 @@ function FileChipView({ node, editor, getPos, selected }: NodeViewProps) {
   // contentEditable=false so caret skips over the chip rather than
   // entering it; users can still backspace-from-right to select it.
   return (
-    <Tip label={pending ? `Uploading ${display}…` : `${display}${size ? ` · ${formatSize(size)}` : ''}`}>
-      <NodeViewWrapper
-        as="span"
-        contentEditable={false}
-        data-drag-handle="false"
-        className={cn(
-          'inline-flex items-center align-middle gap-1 px-1.5 py-0.5 mx-0.5',
-          'rounded-md border bg-muted/40 text-foreground text-[12px] font-medium',
-          'border-border hover:border-foreground/30 transition-colors',
-          'cursor-default select-none',
-          selected && 'ring-2 ring-primary/40 border-primary/40',
-          pending && 'opacity-70',
-        )}
-      >
-        {pending ? (
-          <Loader2 size={11} className="text-muted-foreground/80 shrink-0 animate-spin" />
-        ) : isImage ? (
-          <img
-            src={attachmentUrl(fileName)}
-            alt={display}
-            className="w-4 h-4 rounded object-cover shrink-0"
-          />
-        ) : mimeType.startsWith('image/') ? (
-          <ImageIcon size={11} className="text-muted-foreground/80 shrink-0" />
-        ) : (
-          <FileText size={11} className="text-muted-foreground/80 shrink-0" />
-        )}
-        <span className="font-mono text-[11px] truncate max-w-[180px]">{display}</span>
+    <NodeViewWrapper
+      as="span"
+      contentEditable={false}
+      data-drag-handle="false"
+      className={cn(
+        'inline-flex items-center align-middle gap-1 px-1.5 py-0.5 mx-0.5',
+        'rounded-md border bg-muted/40 text-foreground text-[12px] font-medium',
+        'border-border hover:border-foreground/30 transition-colors',
+        'cursor-default select-none',
+        selected && 'ring-2 ring-primary/40 border-primary/40',
+        pending && 'opacity-70',
+      )}
+    >
+      <Tip label={pending ? `Uploading ${display}…` : `${display}${size ? ` · ${formatSize(size)}` : ''}`} onlyWhenTextHidden={!pending}>
         <button
+          ref={ready ? previewRef : undefined}
           type="button"
-          onMouseDown={handleRemove}
-          className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
-          aria-label={`Remove ${display}`}
-          tabIndex={-1}
+          disabled={!ready}
+          data-artifact-card={ready ? '' : undefined}
+          aria-label={`Preview ${display}`}
+          onClick={event => { event.stopPropagation(); open(preview, event.currentTarget); }}
+          className="inline-flex min-w-0 items-center gap-1 rounded-sm text-left cursor-pointer disabled:cursor-wait focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <X size={10} />
+          {pending ? (
+            <Loader2 size={11} className="text-muted-foreground/80 shrink-0 animate-spin" />
+          ) : isImage ? (
+            <img
+              src={attachmentUrl(fileName)}
+              alt=""
+              className="w-4 h-4 rounded object-cover shrink-0"
+            />
+          ) : (
+            <FileText size={11} className="text-muted-foreground/80 shrink-0" />
+          )}
+          <span className="font-mono text-[11px] truncate max-w-[180px]">{display}</span>
         </button>
-      </NodeViewWrapper>
-    </Tip>
+      </Tip>
+      <button
+        type="button"
+        onMouseDown={event => event.preventDefault()}
+        onClick={handleRemove}
+        className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
+        aria-label={`Remove ${display}`}
+        tabIndex={-1}
+      >
+        <X size={10} />
+      </button>
+    </NodeViewWrapper>
   );
 }
 

@@ -7,6 +7,8 @@ import { artifactSequence, previewCopySource, previewDownload, sameArtifact } fr
 const page = () => new DOMParser().parseFromString(`<html><body>
   <section role="log" aria-label="Chat"><p><button data-artifact-card id="a1"></button></p><div><div><button data-artifact-card id="a2"></button><button id="not-a-card"></button></div></div><button data-artifact-card id="a3"></button></section>
   <section role="log" aria-label="Other chat"><button data-artifact-card id="b1"></button></section>
+  <div role="textbox"><button data-artifact-card id="draft1"></button><button data-artifact-card id="draft2"></button></div>
+  <div role="textbox"><button data-artifact-card id="other-draft"></button></div>
   <div role="dialog"><button data-artifact-card id="d1"></button><section role="log"><button data-artifact-card id="d-log"></button></section><button data-artifact-card id="d2"></button></div>
   <button data-artifact-card id="loose1"></button><button data-artifact-card id="loose2"></button>
 </body></html>`, 'text/html');
@@ -26,6 +28,12 @@ describe('artifactSequence', () => {
     expect(ids(artifactSequence(doc.getElementById('d2')!, every, every))).toEqual(['d1', 'd2']);
     expect(ids(artifactSequence(doc.getElementById('d-log')!, every, every))).toEqual(['d-log']);
     expect(ids(artifactSequence(doc.getElementById('loose2')!, every, every))).toEqual(['loose1', 'loose2']);
+  });
+
+  it('keeps draft attachments within their own composer', () => {
+    const doc = page();
+    expect(ids(artifactSequence(doc.getElementById('draft1')!, every, every))).toEqual(['draft1', 'draft2']);
+    expect(ids(artifactSequence(doc.getElementById('other-draft')!, every, every))).toEqual(['other-draft']);
   });
 
   it('skips hidden copies, unregistered and removed cards, but keeps the trigger', () => {

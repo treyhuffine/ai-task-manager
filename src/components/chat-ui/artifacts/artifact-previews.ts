@@ -44,8 +44,9 @@ export function previewCopySource(preview: ArtifactPreview): { value: string; la
 
 /** The cards Previous and Next move between, large or beside the chat: the
  * ones in the same chat transcript (the `role="log"` around a conversation),
- * or in the same dialog or slideout. Cards in neither share the page. */
-const GROUP = '[role="log"], [role="dialog"]';
+ * composer, dialog or slideout. Draft files stay within their own textbox.
+ * Cards in none of these share the page. */
+const GROUP = '[role="log"], [role="dialog"], [role="textbox"]';
 
 /** Marks an artifact card's button (`artifact-card.tsx`). */
 const CARD = '[data-artifact-card]';
