@@ -11,6 +11,10 @@ on:
         type: choice
         options: [both, arm64, x64]
         default: both
+      macos_installer_run:
+        description: Existing Actions run to retest its Mac DMG without rebuilding
+        type: string
+        default: ''
       linux_preview:
         description: Build the shareable Linux x64 Debian package and AppImage
         type: boolean
@@ -64,12 +68,14 @@ on:
       - 'pnpm-lock.yaml'
 permissions:
   contents: read
+  actions: read
 jobs:
   macos_preview:
     if: ${{ inputs.macos_preview }}
     uses: ./.github/workflows/macos-preview.yml
     with:
       architecture: ${{ inputs.macos_architecture }}
+      installer_run: ${{ inputs.macos_installer_run }}
   linux_preview:
     if: ${{ inputs.linux_preview }}
     uses: ./.github/workflows/linux-preview.yml

@@ -5,6 +5,9 @@ on:
       architecture:
         type: string
         default: both
+      installer_run:
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       architecture:
@@ -12,8 +15,13 @@ on:
         type: choice
         options: [both, arm64, x64]
         default: both
+      installer_run:
+        description: Existing Actions run to retest its DMG without rebuilding
+        type: string
+        default: ''
 permissions:
   contents: read
+  actions: read
 jobs:
   build:
     name: Mac preview / ${{ matrix.arch }}
@@ -49,6 +57,7 @@ jobs:
           pnpm desktop:test
           node desktop/native-probe.mjs
       - name: Build the production app with a bounded heap
+        if: ${{ !inputs.installer_run }}
         env:
           RI_ROOT: ${{ runner.temp }}/ri-preview-build-home
           RI_DB_PATH: ''
@@ -64,6 +73,7 @@ jobs:
           pnpm apps:catalog --compatible
           node scripts/next-build.mjs
       - name: Build a DMG without Developer ID or notarization
+        if: ${{ !inputs.installer_run }}
         run: |
           # Indexing can keep dmgbuild's temporary volume busy during detach.
           # This job runs only on a disposable GitHub-hosted Mac account.
@@ -71,6 +81,13 @@ jobs:
           test "$RUNNER_ENVIRONMENT" = github-hosted
           sudo mdutil -a -i off || sudo mdutil -i off /System/Volumes/Data
           pnpm desktop:dmg --skip-build
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.installer_run }}
+        with:
+          name: ri-macos-${{ matrix.arch }}-preview
+          path: release/desktop
+          run-id: ${{ inputs.installer_run }}
+          github-token: ${{ github.token }}
       - name: Preserve the packaged app if DMG creation fails
         if: failure()
         env:
@@ -99,9 +116,7 @@ jobs:
         timeout-minutes: 45
         env:
           RI_SERVICE_SMOKE_SUPERVISOR: install-test-job-on-disposable-github-hosted-account
-          TMPDIR: ${{ runner.temp }}/ri-dmg-test
         run: |
-          mkdir -p "$TMPDIR"
           pnpm exec tsx desktop/installer-smoke.ts
       - uses: actions/upload-artifact@v4
         if: always()

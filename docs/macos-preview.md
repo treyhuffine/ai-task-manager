@@ -6,10 +6,17 @@ The Windows preview branch and its qualified installer stay separate.
 Run **Desktop and headless runtime** on this branch with `macos_preview` enabled
 and `macos_architecture` set to `both` (or just `arm64` or `x64`). Its reusable
 **Mac preview DMG** workflow builds on native Apple silicon and Intel runners,
-using `pnpm desktop:dmg`. It uploads only the DMG and small
-qualification reports. It never publishes a release, a tag or an update feed.
+using `pnpm desktop:dmg`. It uploads the DMG and small qualification reports.
+If disk image creation fails, it also preserves the signed app for two days so
+packaging can be repaired without recompiling. It never publishes a release,
+a tag or an update feed.
 Artifacts expire after 14 days. This repository is public, so any signed-in
 GitHub user can download them.
+
+To repeat qualification of unchanged installer bytes, set `macos_installer_run`
+to the earlier Actions run ID and select its architecture. The workflow downloads
+that run's DMG, skips the production build and packaging, and runs the installer
+checks again. The report records the DMG's SHA256.
 
 The app uses a free ad-hoc signature, with no Apple Developer ID or notarization.
 After the first attempt to open Ri, use System Settings, Privacy & Security,

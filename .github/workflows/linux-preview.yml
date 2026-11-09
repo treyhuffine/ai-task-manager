@@ -46,8 +46,11 @@ jobs:
           NODE_ENV: production
           RI_BUILD_MEMORY_LIMIT_GB: '16'
         run: |
+          # Temporary diagnosis for the remaining server-runtime trace.
+          node -e 'const fs=require("node:fs");for(let i=0;i<20000;i++)fs.writeFileSync(`src/lib/server-runtime/diagnostic-${i}.json`,"")'
           pnpm apps:catalog --compatible
           node scripts/next-build.mjs
+          node -e 'const fs=require("node:fs");for(const n of fs.readdirSync("src/lib/server-runtime"))if(n.startsWith("diagnostic-"))fs.unlinkSync(`src/lib/server-runtime/${n}`)'
       - name: Build Debian and AppImage installers without an update feed
         run: pnpm desktop:package --share --skip-build
       - uses: actions/upload-artifact@v4
@@ -72,9 +75,7 @@ jobs:
         timeout-minutes: 45
         env:
           RI_SERVICE_SMOKE_SUPERVISOR: install-test-job-on-disposable-github-hosted-account
-          TMPDIR: ${{ runner.temp }}/ri-installer-test
         run: |
-          mkdir -p "$TMPDIR"
           xvfb-run --auto-servernum sh -ec '
             openbox --sm-disable >/dev/null 2>&1 &
             manager_pid=$!

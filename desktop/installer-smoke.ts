@@ -11,6 +11,8 @@ import { desktopPackageLayout } from './package-layout';
 import { serviceStatus } from '../src/lib/service/client';
 import { hasLoginSupervision, uninstallService } from '../src/lib/service/install';
 import { digestFile } from '../src/lib/service/runtime-manifest';
+import { servicePaths } from '../src/lib/service/paths';
+import { StartupDiagnostics } from '../src/lib/service/startup-diagnostics';
 
 const mac = process.platform === 'darwin';
 assert(mac || process.platform === 'linux');
@@ -27,7 +29,7 @@ const mount = path.join(temporary, 'mounted'); fs.mkdirSync(mount);
 let installed = path.join(temporary, 'Applications with spaces é', 'Ri.app');
 if (mac) fs.mkdirSync(path.dirname(installed));
 const output = path.join(repository, 'release/qualification'); fs.mkdirSync(output, { recursive: true });
-const report: { checks: string[]; architecture: string; installer: string; sha256: string; appImageSha256?: string; payloadFiles?: number; startedAt: string; finishedAt?: string; passed?: boolean; error?: string; cleanupError?: string; limitations: string[] } = {
+const report: { checks: string[]; architecture: string; installer: string; sha256: string; appImageSha256?: string; payloadFiles?: number; startupDiagnostics?: string; companionText?: string; startedAt: string; finishedAt?: string; passed?: boolean; error?: string; cleanupError?: string; limitations: string[] } = {
   checks: [], architecture: process.arch, installer: path.basename(installer), sha256: digestFile(installer), startedAt: new Date().toISOString(),
   limitations: ['Hosted runner, not the recipient computer', 'Stand-in chat protocol, no real provider account', mac ? 'Browser download and manual Gatekeeper Open Anyway remain a recipient check' : 'AppImage extract-and-run is tested; FUSE mounting and other distributions remain recipient checks'],
 };
@@ -78,6 +80,8 @@ void (async () => {
     process.env.RI_DESKTOP_PACKAGE = installed;
     fixture = new AcceptanceFixture('installer-home', { chooseHome: false });
     fixture.env.RI_LOCAL_APPS = '0';
+    // Retain the recovery screen so a failed service can be diagnosed.
+    fixture.env.RI_DESKTOP_RECOVERY_SMOKE = '1';
     // systemd discovers units in the real disposable account's .config folder.
     // The Home, runtime store and desktop profile remain under the fixture.
     if (!mac) fixture.env.HOME = accountHome;
@@ -167,11 +171,22 @@ if(m.type==='user')reply();});
     }
   } catch (error) {
     report.error = error instanceof Error ? error.stack : String(error);
+    if (fixture) {
+      fixture.select();
+      const diagnostic = new StartupDiagnostics();
+      const log = servicePaths().log;
+      if (fs.existsSync(log)) for (const line of fs.readFileSync(log, 'utf8').slice(-64_000).split('\n')) diagnostic.capture(line);
+      report.startupDiagnostics = diagnostic.failure('Installer service startup').message;
+      if (fixture.app) report.companionText = await localPage(fixture.app, 'companion').then(page => page.locator('body').innerText({ timeout: 2_000 })).catch(() => 'Local control renderer unavailable');
+    }
     await fixture?.page?.screenshot({ path: path.join(output, `${platform}-${process.arch}-failure.png`), timeout: 5_000 }).catch(() => {});
     throw error;
   } finally {
     try {
-      if (fixture) { await fixture.quit(); fixture.select(); if (await hasLoginSupervision()) await uninstallService(); await fixture.cleanup(); }
+      if (fixture) {
+        await fixture.quit().catch(() => { fixture!.app?.process().kill('SIGKILL'); fixture!.app = undefined; fixture!.page = undefined; });
+        fixture.select(); if (await hasLoginSupervision()) await uninstallService(); await fixture.cleanup();
+      }
       if (mounted) execFileSync('/usr/bin/hdiutil', ['detach', mount], { timeout: 60_000 });
       if (linuxInstalled) removeDeb();
     } catch (error) { report.cleanupError = String(error); process.exitCode = 1; }
