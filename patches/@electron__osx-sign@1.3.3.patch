@@ -1,0 +1,86 @@
+diff --git a/dist/cjs/sign.js b/dist/cjs/sign.js
+index 080036e410e2e4b0445f841416b3d5966915c66a..df78038bd6f8911f6dc52280f9904b66b855e033 100644
+--- a/dist/cjs/sign.js
++++ b/dist/cjs/sign.js
+@@ -169,7 +169,7 @@ async function signApplication(opts, identity) {
+         }
+         return false;
+     }
+-    const children = await (0, util_1.walkAsync)((0, util_1.getAppContentsPath)(opts));
++    const children = await (0, util_1.walkAsync)((0, util_1.getAppContentsPath)(opts), shouldIgnoreFilePath);
+     if (opts.binaries)
+         children.push(...opts.binaries);
+     const args = ['--sign', identity.hash || identity.name, '--force'];
+diff --git a/dist/cjs/util.d.ts b/dist/cjs/util.d.ts
+index e1ef5b76d7ab29e36a49b68467a675bd72cff31c..dd18760b6f4b39100f60f2abcc86786da6ba2034 100644
+--- a/dist/cjs/util.d.ts
++++ b/dist/cjs/util.d.ts
+@@ -32,5 +32,5 @@ export declare function validateOptsPlatform(opts: BaseSignOptions): Promise<Ele
+  * @returns {Promise} Promise resolving child paths needing signing in order.
+  * @internal
+  */
+-export declare function walkAsync(dirPath: string): Promise<string[]>;
++export declare function walkAsync(dirPath: string, shouldIgnore?: (filePath: string) => boolean): Promise<string[]>;
+ export {};
+diff --git a/dist/cjs/util.js b/dist/cjs/util.js
+index 77e64b56872bc65bcb0f60ecfbec84eb3da02c6f..7d44f78bfaa38ef73a2bda0a37961a87901d5015 100644
+--- a/dist/cjs/util.js
++++ b/dist/cjs/util.js
+@@ -147,12 +147,13 @@ exports.validateOptsPlatform = validateOptsPlatform;
+  * @returns {Promise} Promise resolving child paths needing signing in order.
+  * @internal
+  */
+-async function walkAsync(dirPath) {
++async function walkAsync(dirPath, shouldIgnore = () => false) {
+     (0, exports.debugLog)('Walking... ' + dirPath);
+     async function _walkAsync(dirPath) {
+         const children = await fs.readdir(dirPath);
+         return await Promise.all(children.map(async (child) => {
+             const filePath = path.resolve(dirPath, child);
++            if (shouldIgnore(filePath)) return null;
+             const stat = await fs.stat(filePath);
+             if (stat.isFile()) {
+                 switch (path.extname(filePath)) {
+diff --git a/dist/esm/sign.js b/dist/esm/sign.js
+index c1615966d19abb6e9ee7b0a8afd76ad011c6d382..2f2e03bdab70e50c8fb77a27f4d9bf0080a350ea 100644
+--- a/dist/esm/sign.js
++++ b/dist/esm/sign.js
+@@ -140,7 +140,7 @@ async function signApplication(opts, identity) {
+         }
+         return false;
+     }
+-    const children = await walkAsync(getAppContentsPath(opts));
++    const children = await walkAsync(getAppContentsPath(opts), shouldIgnoreFilePath);
+     if (opts.binaries)
+         children.push(...opts.binaries);
+     const args = ['--sign', identity.hash || identity.name, '--force'];
+diff --git a/dist/esm/util.d.ts b/dist/esm/util.d.ts
+index e1ef5b76d7ab29e36a49b68467a675bd72cff31c..dd18760b6f4b39100f60f2abcc86786da6ba2034 100644
+--- a/dist/esm/util.d.ts
++++ b/dist/esm/util.d.ts
+@@ -32,5 +32,5 @@ export declare function validateOptsPlatform(opts: BaseSignOptions): Promise<Ele
+  * @returns {Promise} Promise resolving child paths needing signing in order.
+  * @internal
+  */
+-export declare function walkAsync(dirPath: string): Promise<string[]>;
++export declare function walkAsync(dirPath: string, shouldIgnore?: (filePath: string) => boolean): Promise<string[]>;
+ export {};
+diff --git a/dist/esm/util.js b/dist/esm/util.js
+index d3f66d54b1a88e7410d78affe17de87302db02a3..bc0ae9706bfd16f3232515719594617afa1ecc98 100644
+--- a/dist/esm/util.js
++++ b/dist/esm/util.js
+@@ -111,12 +111,13 @@ export async function validateOptsPlatform(opts) {
+  * @returns {Promise} Promise resolving child paths needing signing in order.
+  * @internal
+  */
+-export async function walkAsync(dirPath) {
++export async function walkAsync(dirPath, shouldIgnore = () => false) {
+     debugLog('Walking... ' + dirPath);
+     async function _walkAsync(dirPath) {
+         const children = await fs.readdir(dirPath);
+         return await Promise.all(children.map(async (child) => {
+             const filePath = path.resolve(dirPath, child);
++            if (shouldIgnore(filePath)) return null;
+             const stat = await fs.stat(filePath);
+             if (stat.isFile()) {
+                 switch (path.extname(filePath)) {

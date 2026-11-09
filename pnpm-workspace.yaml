@@ -30,6 +30,7 @@ allowBuilds:
   unrs-resolver: false
 patchedDependencies:
   '@agentex/agent@0.0.48': patches/@agentex__agent@0.0.48.patch
+  '@electron/osx-sign@1.3.3': patches/@electron__osx-sign@1.3.3.patch
 # Our agentex releases are taken up immediately. Other packages keep the wait.
 minimumReleaseAgeExclude:
   - "@agentex/*"

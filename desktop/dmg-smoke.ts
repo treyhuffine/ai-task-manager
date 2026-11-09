@@ -69,7 +69,9 @@ if(m.type==='user')reply();});
     assert(!fs.existsSync(path.join(fixture.root, 'data.db')));
     await setup.locator('#create-home').click();
     const page = fixture.page!;
-    await page.waitForURL(url => url.protocol === 'https:', { timeout: 240_000 });
+    // The hosted Mac took eleven minutes to verify one runtime inventory.
+    // First install also stages that runtime before the Home can start.
+    await page.waitForURL(url => url.protocol === 'https:', { timeout: 20 * 60_000 });
     await page.waitForFunction(() => !!window.riDesktop?.setupHarness);
     fixture.origin = new URL(page.url()).origin;
     pass('First-run Home choice creates a Home, starts its service and opens the native app');
