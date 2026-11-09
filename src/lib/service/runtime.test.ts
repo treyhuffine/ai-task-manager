@@ -31,6 +31,20 @@ it('stages a complete runtime that survives the source app being removed', () =>
   expect(fs.readFileSync(installed.launcher, 'utf8')).toContain('active-release');
 });
 
+it.skipIf(process.platform === 'win32')('publishes release metadata readable by users of a system-owned installer', () => {
+  createRuntimeManifest(resources);
+  const files = ['runtime-manifest.json', 'server/ri-compatibility.json'].map(file => path.join(resources, file));
+  // Replacing metadata must also correct the private mode of an earlier build.
+  for (const file of files) fs.chmodSync(file, 0o600);
+  const manifest = createRuntimeManifest(resources);
+  for (const file of files) {
+    const mode = fs.statSync(file).mode;
+    expect(mode & 0o444).toBe(0o444);
+    expect(mode & 0o022).toBe(0);
+  }
+  expect(verifyRuntime(resources).id).toBe(manifest.id);
+});
+
 it('detects file changes, extra files, and escaped symlinks', () => {
   createRuntimeManifest(resources);
   fs.writeFileSync(path.join(resources, 'server/injected.js'), 'changed');

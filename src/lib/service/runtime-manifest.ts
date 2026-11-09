@@ -68,15 +68,22 @@ function manifestId(manifest: Omit<RuntimeManifest, 'id'>) {
   return createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
 }
 
+/** Public release metadata must remain readable when an installer owns the
+ * runtime as root. Home credentials still use atomicWriteFile's private mode. */
+function writeRuntimeMetadata(file: string, value: unknown) {
+  atomicWriteFile(file, JSON.stringify(value));
+  fs.chmodSync(file, 0o644);
+}
+
 export function createRuntimeManifest(resources: string): RuntimeManifest {
   const pkg = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ resources, 'server/package.json'), 'utf8'));
   // Keep release envelope 1 parseable by old updaters. This metadata is
   // authenticated transitively by the existing signed runtime inventory.
-  atomicWriteFile(path.join(/* turbopackIgnore: true */ resources, 'server/ri-compatibility.json'), JSON.stringify(CURRENT_COMPATIBILITY));
+  writeRuntimeMetadata(path.join(/* turbopackIgnore: true */ resources, 'server/ri-compatibility.json'), CURRENT_COMPATIBILITY);
   const content = { format: 1 as const, version: pkg.version as string, platform: process.platform, arch: process.arch,
     node: process.versions.node, files: inventory(resources) };
   const manifest = { ...content, id: manifestId(content) };
-  atomicWriteFile(path.join(/* turbopackIgnore: true */ resources, 'runtime-manifest.json'), JSON.stringify(manifest));
+  writeRuntimeMetadata(path.join(/* turbopackIgnore: true */ resources, 'runtime-manifest.json'), manifest);
   return manifest;
 }
 
