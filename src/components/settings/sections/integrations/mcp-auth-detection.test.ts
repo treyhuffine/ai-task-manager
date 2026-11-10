@@ -24,8 +24,12 @@ const hasSecret = (html: string) => html.includes('id="mcp-secret"');
 /** The method whose radio is checked, or null when none is. */
 const checked = (html: string) => (html.match(/<input type="radio"[^>]*>/g) ?? [])
   .find((input) => input.includes('name="mcp-auth"') && input.includes('checked=""'))?.match(/value="(\w+)"/)?.[1] ?? null;
-/** One method's row, from its radio to the end of its label. */
-const option = (html: string, kind: string) => html.slice(html.indexOf(`value="${kind}"`), html.indexOf('</label>', html.indexOf(`value="${kind}"`)));
+/** One method's block: its radio, title, description and any fields under it, up to the next method's radio. */
+const option = (html: string, kind: string) => {
+  const start = html.indexOf(`value="${kind}"`);
+  const next = html.indexOf('name="mcp-auth"', start);
+  return html.slice(start, next === -1 ? html.indexOf('</form>') : next);
+};
 const submitDisabled = (html: string) => /<button[^>]*type="submit"[^>]*>/.exec(html)?.[0].includes('disabled=""') ?? false;
 /** The methods marked Detected. */
 const detectedLabels = (html: string) => [...html.matchAll(/value="(\w+)"(?:(?!value=").)*?>Detected</g)].map((m) => m[1]);
@@ -148,6 +152,9 @@ describe('the add form', () => {
     expect(detectedLabels(keyHtml)).toEqual(['bearer']);
     expect(hasSecret(keyHtml)).toBe(true);
     expect(keyHtml).not.toContain('id="mcp-header"');
+    // The fields open under the method that needs them, not after the whole list.
+    expect(option(keyHtml, 'bearer')).toContain('id="mcp-secret"');
+    expect(option(keyHtml, 'bearer')).toContain('The secret is sealed in your Ri');
 
     const headerHtml = render({}, done(headerKey));
     expect(checked(headerHtml)).toBe('header');
@@ -155,6 +162,8 @@ describe('the add form', () => {
     expect(headerHtml).toContain('id="mcp-header"');
     expect(headerHtml).toContain('placeholder="X-API-Key"');
     expect(hasSecret(headerHtml)).toBe(true);
+    expect(option(headerHtml, 'header')).toContain('id="mcp-header"');
+    expect(option(headerHtml, 'header')).toContain('id="mcp-secret"');
   });
 
   it('shows a finding that may not work in amber, still on the detected method', () => {
@@ -177,7 +186,8 @@ describe('the add form', () => {
     const html = render({ authKind: 'bearer', authChosen: true }, done(oauth));
     expect(checked(html)).toBe('bearer');
     expect(detectedLabels(html)).toEqual(['oauth']);
-    expect(hasSecret(html)).toBe(true);
+    expect(option(html, 'bearer')).toContain('id="mcp-secret"');
+    expect(option(html, 'oauth')).not.toContain('id="mcp-secret"');
     expect(html).toContain('Add and connect');
   });
 

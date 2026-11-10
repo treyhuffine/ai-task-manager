@@ -311,35 +311,36 @@ export function McpServerForm({
             />
           </Field>
           <div className="pt-1 @lg:col-span-2">
-            <McpAuthChoice detection={detection} url={url} selected={selected} busy={busy} onChoose={choose} />
+            <McpAuthChoice detection={detection} url={url} selected={selected} busy={busy} onChoose={choose} fields={usesSecret && (
+              <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">
+                {selected === 'header' && (
+                  <Field label="Header name" htmlFor="mcp-header">
+                    <Input
+                      id="mcp-header"
+                      value={form.header}
+                      onChange={(e) => onChange({ header: e.target.value })}
+                      placeholder={headerHint ?? 'X-API-Key'}
+                      className="h-8 rounded-lg font-mono text-xs"
+                    />
+                  </Field>
+                )}
+                <Field label="Secret" htmlFor="mcp-secret" wide={selected !== 'header'}>
+                  <Input
+                    id="mcp-secret"
+                    type="password"
+                    autoComplete="off"
+                    value={form.secret}
+                    onChange={(e) => onChange({ secret: e.target.value })}
+                    placeholder="Token or key"
+                    className="h-8 rounded-lg font-mono text-xs"
+                  />
+                </Field>
+                <p className="text-[11px] leading-normal text-muted-foreground @lg:col-span-2">The secret is sealed in your Ri and never shown to the model.</p>
+              </div>
+            )} />
           </div>
-          {selected === 'header' && (
-            <Field label="Header name" htmlFor="mcp-header">
-              <Input
-                id="mcp-header"
-                value={form.header}
-                onChange={(e) => onChange({ header: e.target.value })}
-                placeholder={headerHint ?? 'X-API-Key'}
-                className="h-8 rounded-lg font-mono text-xs"
-              />
-            </Field>
-          )}
-          {usesSecret && (
-            <Field label="Secret" htmlFor="mcp-secret" wide={selected !== 'header'}>
-              <Input
-                id="mcp-secret"
-                type="password"
-                autoComplete="off"
-                value={form.secret}
-                onChange={(e) => onChange({ secret: e.target.value })}
-                placeholder="Token or key"
-                className="h-8 rounded-lg font-mono text-xs"
-              />
-            </Field>
-          )}
         </div>
         <p className="text-[11px] leading-normal text-muted-foreground">
-          {usesSecret && 'The secret is sealed in your Ri and never shown to the model. '}
           If an agent session is already running, restart it to use newly added tools.
         </p>
         <Button type="submit" size="sm" disabled={busy || !ready} className="text-xs font-semibold">
@@ -362,14 +363,17 @@ const MCP_AUTH_OPTIONS: readonly { kind: McpForm['authKind']; title: string; des
  * How the server authenticates, as one list of methods. The detected one
  * carries a Detected badge and the probe's own finding in place of the
  * generic description, in amber when sign-in may not work. A probe with
- * nothing to go on says why above the list and marks nothing.
+ * nothing to go on says why above the list and marks nothing. The fields a
+ * method needs open under that method, so they read as part of the choice.
  */
-function McpAuthChoice({ detection, url, selected, busy, onChoose }: {
+function McpAuthChoice({ detection, url, selected, busy, onChoose, fields }: {
   detection: McpAuthDetectionState;
   url: string;
   selected: McpForm['authKind'] | null;
   busy: boolean;
   onChoose: (kind: McpForm['authKind']) => void;
+  /** What the selected method needs filled in, if anything. */
+  fields?: ReactNode;
 }) {
   if (!url) return <p className="text-[11px] leading-normal text-muted-foreground">Enter the server URL and Ri works out how it authenticates.</p>;
   const detected = detectionFor(detection, url);
@@ -392,35 +396,37 @@ function McpAuthChoice({ detection, url, selected, busy, onChoose }: {
           <span><span className="font-semibold">{summary.title}.</span> {summary.detail}</span>
         </p>
       )}
-      <div role="radiogroup" aria-labelledby="mcp-auth-label" className="-mx-2 space-y-0.5">
+      {/* A group, not a radiogroup: the selected method's text fields sit inside it. */}
+      <div role="group" aria-labelledby="mcp-auth-label" className="-mx-2 space-y-0.5">
         {MCP_AUTH_OPTIONS.map((option) => {
           const isDetected = option.kind === detectedKind;
           const warn = isDetected && summary?.tone === 'warn';
           return (
-            <label
-              key={option.kind}
-              className={cn('flex items-start gap-2.5 rounded-lg px-2 py-1.5 transition-colors', busy ? 'opacity-60' : 'cursor-pointer hover:bg-muted/40')}
-            >
-              <input
-                type="radio"
-                name="mcp-auth"
-                value={option.kind}
-                checked={selected === option.kind}
-                disabled={busy}
-                onChange={() => onChoose(option.kind)}
-                className="mt-px size-3.5 shrink-0 appearance-none rounded-full border border-muted-foreground/50 transition-[border-color,border-width] checked:border-4 checked:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring enabled:cursor-pointer"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="flex flex-wrap items-center gap-1.5 text-xs font-medium leading-4 text-foreground">
-                  {option.title}
-                  {isDetected && <span className="rounded-full border border-border px-1.5 text-[10px] font-medium leading-4 text-muted-foreground">Detected</span>}
+            <div key={option.kind}>
+              <label className={cn('flex items-start gap-2.5 rounded-lg px-2 py-1.5 transition-colors', busy ? 'opacity-60' : 'cursor-pointer hover:bg-muted/40')}>
+                <input
+                  type="radio"
+                  name="mcp-auth"
+                  value={option.kind}
+                  checked={selected === option.kind}
+                  disabled={busy}
+                  onChange={() => onChoose(option.kind)}
+                  className="mt-px size-3.5 shrink-0 appearance-none rounded-full border border-muted-foreground/50 transition-[border-color,border-width] checked:border-4 checked:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring enabled:cursor-pointer"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-1.5 text-xs font-medium leading-4 text-foreground">
+                    {option.title}
+                    {isDetected && <span className="rounded-full border border-border px-1.5 text-[10px] font-medium leading-4 text-muted-foreground">Detected</span>}
+                  </span>
+                  <span className={cn('mt-0.5 flex items-start gap-1 text-[11px] leading-normal', warn ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>
+                    {warn && <AlertCircle size={12} className="mt-0.5 shrink-0" aria-hidden />}
+                    <span>{isDetected && summary ? summary.detail : option.description}</span>
+                  </span>
                 </span>
-                <span className={cn('mt-0.5 flex items-start gap-1 text-[11px] leading-normal', warn ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>
-                  {warn && <AlertCircle size={12} className="mt-0.5 shrink-0" aria-hidden />}
-                  <span>{isDetected && summary ? summary.detail : option.description}</span>
-                </span>
-              </span>
-            </label>
+              </label>
+              {/* Indented to the option's text: padding, radio and gap. */}
+              {selected === option.kind && fields && <div className="pb-2 pl-8 pr-2 pt-1">{fields}</div>}
+            </div>
           );
         })}
       </div>

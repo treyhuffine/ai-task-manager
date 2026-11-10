@@ -19,6 +19,9 @@ never moves when the probe answers:
 | API key in a custom header | Custom header | Header name and secret |
 | No sign-in | None | None |
 
+A method's fields open under that method when it is chosen, indented to its
+text, so they read as part of the choice and move with it.
+
 While the probe runs (a moment after typing stops), the heading says it is
 checking, no method is chosen, and the add waits, unless the person picks one
 first. When it answers, it checks the method it found and marks it
