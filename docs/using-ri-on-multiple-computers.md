@@ -23,7 +23,7 @@ Connecting opens the same Ri. It does not create or copy a tasks database on the
 
 If you removed this computer from Devices and want to connect it again, create a new pairing link on your Home. On the disconnected computer, choose **Sign in again** and paste the new link. Ri accepts the new device while keeping the previous device's local work records separately. You do not need to clear the app's data.
 
-Removing a device also turns off its access to run agents. After reconnecting, you can enable agents again in **Desktop Settings**, under **Agents on this computer**.
+Removing a device also turns off its access to run agents. After reconnecting, open **Settings**, then **Devices**, choose **Open desktop settings**, and enable agents under **Agents on this computer**.
 
 ## Decide where agents can work
 
@@ -31,7 +31,9 @@ Your Home runs agents locally. A connected computer can also run work using its 
 
 **Run agents on this computer** starts unchecked. Leave it off to view and manage work only. Enable it when you want your Home to run agents on this computer using the folders you set up here.
 
-You can enable local agents later in the application menu under **Desktop Settings**, then **Agents on this computer**. The same section lets you stop and resume local execution. Stopping execution here leaves your Home and work on other computers running.
+You can enable local agents later from inside the desktop app: open **Settings**, then **Devices** or **General**, and choose **Open desktop settings**. Under **Agents on this computer**, choose **Enable local execution**. The same section lets you stop and resume local execution. Stopping execution here leaves your Home and work on other computers running.
+
+These desktop controls apply to the computer showing the window, even when your Ri lives on another computer. They also remain available through **Desktop Settings** in the application menu. Ordinary browsers do not show the desktop settings button.
 
 ## When a computer is offline
 

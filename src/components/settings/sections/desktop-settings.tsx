@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { apiErrorText } from '@/lib/api/client';
 import type { DesktopSettingsAction, DesktopSettingsStatus } from '@/lib/client/desktop-settings';
 import type { RiDesktop } from '@/lib/client/desktop';
+import { DesktopControls } from '@/components/settings/desktop-controls';
 
 function ShortcutForm({ status, busy, save }: { status: DesktopSettingsStatus['shortcut']; busy: boolean; save(action: DesktopSettingsAction): Promise<void> }) {
   const [accelerator, setAccelerator] = useState(status.accelerator);
@@ -32,7 +33,7 @@ export function DesktopSettings() {
   useEffect(() => setDesktop(window.riDesktop?.settings ? window.riDesktop : undefined), []);
   const client = useQueryClient(); const [busy, setBusy] = useState(false);
   const query = useQuery({ queryKey: ['desktop-settings'], queryFn: () => desktop!.settings!({ type: 'status' }), enabled: !!desktop, refetchInterval: 5000, retry: false });
-  if (!desktop) return null;
+  if (!desktop) return <DesktopControls />;
   const save = async (action: DesktopSettingsAction) => {
     setBusy(true);
     try {
@@ -46,6 +47,7 @@ export function DesktopSettings() {
   const status = query.data;
   return <section className="space-y-3">
     <h3 className="text-[12px] font-medium">Desktop</h3>
+    <DesktopControls />
     {query.error && <p role="alert" className="text-xs text-destructive">Desktop settings are unavailable. <button className="underline" onClick={() => void query.refetch()}>Retry</button></p>}
     {!status ? <p className="text-xs text-muted-foreground">Reading desktop settings…</p> : <>
       <ShortcutForm key={`${status.shortcut.enabled}:${status.shortcut.accelerator}`} status={status.shortcut} busy={busy || !!query.error} save={save} />
@@ -57,7 +59,7 @@ export function DesktopSettings() {
         <p role="status" className="text-xs text-muted-foreground">{status.login.detail ?? (status.login.enabled ? 'Ri is registered to open at login.' : 'Ri will open when you launch it.')}</p>
         {['moved', 'requires-approval', 'error'].includes(status.login.state) && <Button variant="outline" size="sm" disabled={busy} onClick={() => void save({ type: 'login', enabled: true })}>Retry login setup</Button>}
         {status.login.state === 'requires-approval' && <Button variant="ghost" size="sm" disabled={busy} onClick={() => void save({ type: 'login', enabled: false })}>Cancel login setup</Button>}
-        <p className="text-xs text-muted-foreground">This controls the desktop app. Background service startup is managed separately in the Tools menu.</p>
+        <p className="text-xs text-muted-foreground">This controls the desktop app. Choose whether Ri keeps running in Desktop settings.</p>
       </div>
     </>}
   </section>;
