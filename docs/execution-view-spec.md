@@ -173,8 +173,12 @@ open large.
 - **Files** (`workbench/files-view.tsx`): tree and file side by side. A
   thin bar across the whole view holds its controls (show or hide the
   tree, New file or folder, recent files, open the worktree in an app), so
-  the tree column keeps only search (⌘P) and the full-width All / Changes
-  switch, whose count caps at 99+. Beside search, one button collapses
+  the tree column keeps only search (⌘P) and a small Changes only switch.
+  Off shows all files, on shows changed files, including an empty view
+  when there are none. Its separate count badge has horizontal padding,
+  reserves room for 99+, and shows the exact count in a tooltip above 99.
+  Below 176px of filter width, the visible label shortens to Changes while
+  its accessible name stays Changes only. Beside search, one button collapses
   every folder while any shows open and expands them all once none does.
   Expand all opens folders that appear later too. During a search it acts
   on the results only, and the tree returns to its own folders when search
@@ -340,7 +344,7 @@ columns from collapsing into uselessness.
 | Editor + diff library              | CodeMirror 6 + `@codemirror/merge`                                    |
 | Resizable panels                   | `react-resizable-panels` via shadcn `<Resizable*>`                    |
 | File tree                          | Hand-rolled Tailwind component (no library)                           |
-| Tree views                         | `[Changed (N)] [All]` segmented control                               |
+| Tree views                         | Changes only switch with a padded count badge, capped at 99+         |
 | Tree sort                          | Alphabetical by path. Stable. No user-configurable sort in v1.        |
 | Recency signal                     | Subtle relative-time text on changed files, like the rail (`5m`/`2h`) |
 | Initial file focus                 | Most recently changed file (by git mtime + executor events)           |
@@ -726,7 +730,7 @@ unblock later ones.
       and renders the tree list. Persists view mode per-session in
       localStorage (`ri.execution.tree-view.<id>`).
 - [x] Build `src/components/executions/file-tree/tree-view-toggle.tsx` —
-      `[Changed (N)] [All]` segmented control. N comes from
+      Changes only switch with a padded count badge. The count comes from
       `entries.filter(e => e.status).length`.
 - [x] Build `src/components/executions/file-tree/tree-list.tsx` —
       virtualized list (`@tanstack/react-virtual`, already in deps).

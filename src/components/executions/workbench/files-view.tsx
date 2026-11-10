@@ -54,8 +54,8 @@ function readTreeHidden(): boolean {
  * The Files view: the worktree's tree and the open file, side by side, like
  * the workbench always had. A thin bar across the top holds the view's
  * controls (show or hide the tree, New, recent files, open the worktree in
- * an app), so the tree column keeps only search and the All / Changes
- * switch, and never crowds at narrow widths. With nothing open, the viewer
+ * an app), so the tree column keeps only search and the Changes only
+ * filter, and never crowds at narrow widths. With nothing open, the viewer
  * side offers what the agent changed and what was opened recently.
  */
 export function FilesView({

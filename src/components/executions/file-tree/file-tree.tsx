@@ -344,7 +344,7 @@ export function FileTree({
   const totalCount = entries.length;
   // Always honor the user's chosen mode — including when it's 'changed'
   // with zero matches, which renders an empty list and is a valid "no
-  // changes yet" signal next to the toggle's `(0)`.
+  // changes yet" signal next to the filter's zero count.
   const effectiveMode: TreeViewMode = mode;
 
   // Match count drives the small "n/m" pill in the search bar — the same
@@ -723,7 +723,7 @@ export function FileTree({
       )}
 
       {/* Find first, then narrow: search on top with Collapse / Expand
-          all beside it, the full-width All / Changes switch under it. */}
+          all beside it, the Changes only filter under it. */}
       <div className="flex flex-col gap-1.5 border-b border-border p-2 min-w-0">
         <div className="flex items-center gap-1 min-w-0">
           <div className="flex-1 min-w-0">

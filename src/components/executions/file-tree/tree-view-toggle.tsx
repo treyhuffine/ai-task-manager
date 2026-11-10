@@ -1,7 +1,9 @@
 'use client';
 
-import { cn } from '@/lib/utils';
+import { useId } from 'react';
+import { Switch } from '@/components/ui/switch';
 import { Tip } from '@/components/ui/tip';
+import { cn } from '@/lib/utils';
 
 export type TreeViewMode = 'changed' | 'all';
 
@@ -17,50 +19,41 @@ interface TreeViewToggleProps {
 }
 
 /**
- * Segmented control `[All] [Changes (N)]` for switching the file tree
- * between "everything in the tree" and "just what the agent touched".
- * Renders full-width with 50/50 tabs so it can claim its own row in
- * the tree header — narrow tree columns can't fit it inline alongside
- * the title and create button. Always rendered, including when the
- * count is zero — the static `(0)` is preferable to a layout shift the
- * moment the first edit lands.
+ * One filter: off shows all files, on shows changes. The small switch
+ * leaves room for a padded count badge. Only the visible word "only"
+ * folds away in narrow tree columns, keeping the accessible name stable.
  */
 export function TreeViewToggle({
   mode,
   onChange,
   changedCount,
 }: TreeViewToggleProps) {
+  const id = useId();
+
   return (
-    <div className="grid w-full grid-cols-2 items-center rounded-md border border-border bg-muted/40 p-0.5 text-[11px] font-medium">
-      <button
-        type="button"
-        onClick={() => onChange('all')}
-        className={cn(
-          'px-2 py-0.5 rounded transition-colors text-center',
-          mode === 'all'
-            ? 'bg-background text-foreground shadow-sm'
-            : 'text-muted-foreground hover:text-foreground',
-        )}
-      >
-        All
-      </button>
-      <Tip label={changedCount > 99 ? `${changedCount.toLocaleString()} changed files` : undefined}>
-        <button
-          type="button"
-          onClick={() => onChange('changed')}
+    <div className="@container/tree-filter w-full">
+      <label htmlFor={id} className="flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-1 text-[11px] font-medium">
+        <Switch
+          id={id}
+          size="sm"
+          aria-label="Changes only"
+          checked={mode === 'changed'}
+          onCheckedChange={(checked) => onChange(checked ? 'changed' : 'all')}
+        />
+        <span
           className={cn(
-            'px-2 py-0.5 rounded transition-colors text-center',
-            mode === 'changed'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground',
+            'whitespace-nowrap',
+            mode === 'changed' ? 'text-foreground' : 'text-muted-foreground',
           )}
         >
-          Changes{' '}
-          <span className="tabular-nums text-muted-foreground/70">
-            ({formatChangedCount(changedCount)})
+          Changes<span className="hidden @[11rem]/tree-filter:inline"> only</span>
+        </span>
+        <Tip label={changedCount > 99 ? `${changedCount.toLocaleString()} changed files` : undefined}>
+          <span className="ml-auto min-w-8 shrink-0 rounded-full bg-muted px-1.5 text-center text-[10px] tabular-nums text-muted-foreground">
+            {formatChangedCount(changedCount)}
           </span>
-        </button>
-      </Tip>
+        </Tip>
+      </label>
     </div>
   );
 }

@@ -15,7 +15,7 @@ interface TreeCollapseAllButtonProps {
  * One button beside the tree's search that folds the whole tree: Collapse
  * all while any folder shows open, Expand all once none does. It stays in
  * place when there's nothing to fold, disabled and saying why, so the
- * search field never shifts as the All / Changes switch flips.
+ * search field never shifts as the Changes only filter flips.
  */
 export function TreeCollapseAllButton({ anyOpen, onClick, disabledReason }: TreeCollapseAllButtonProps) {
   const action = anyOpen ? 'Collapse all folders' : 'Expand all folders';

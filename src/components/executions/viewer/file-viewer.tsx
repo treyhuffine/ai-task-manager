@@ -593,7 +593,7 @@ function RevealButton({ source, root, path, outside }: RevealButtonProps) {
  * opens with no file selected, so this is what the user lands on. It has
  * to read as "ready when you are" rather than "something failed to
  * load", which is why it points at the two tree affordances (the
- * All / Changes toggle and search) instead of just saying "empty".
+ * Changes only filter and search) instead of just saying "empty".
  */
 /** `kind` picks the wording (a worktree the agent works in, or the agent's
  *  own folder), `writable` whether editing is on offer. */

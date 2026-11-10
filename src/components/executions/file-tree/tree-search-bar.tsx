@@ -16,7 +16,7 @@ interface TreeSearchBarProps {
 }
 
 /**
- * Search field at the top of the tree, above the All / Changes switch.
+ * Search field at the top of the tree, above the Changes only filter.
  * Substring match on the full path — fuzzy ranking would be nicer for
  * a flat command-palette but adds little here, where the tree itself
  * already groups by directory and the user is mostly trying to jump to
