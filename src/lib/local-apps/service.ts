@@ -974,7 +974,9 @@ export class LocalAppsService {
     } catch (error) {
       await fs.rm(root, { recursive: true, force: true });
       console.error('[local-apps] Draft preparation failed:', error instanceof Error ? error.message.slice(0, 1500) : 'Unknown preparation error');
-      throw error;
+      if (error instanceof Error && error.name === 'AppError') throw error;
+      // The generic fallback names an app and its activity, and a draft has neither yet.
+      throw new AppError('app_failed', `${source ? "Ri couldn't copy this app into a new draft." : "Ri couldn't set up the starter files for a new app."} Run ri logs to see why.`);
     }
   }
   async catalog() {requireLocalApps();return (await import('./catalog')).listCatalog();}

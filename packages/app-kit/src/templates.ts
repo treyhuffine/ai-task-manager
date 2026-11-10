@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { appKitToolchain } from './build.js';
 import { execFile } from "node:child_process";
@@ -11,20 +12,8 @@ export async function createAppTemplate(
   profile: "react" | "html" | "static",
   id: string,
 ) {
-  const {packageDir: kit, pnpm} = appKitToolchain();
-  await fs.mkdir(path.join(/* turbopackIgnore: true */ dir, "vendor"), { recursive: true });
-  await exec(
-    process.execPath,
-    [pnpm, "pack", "--pack-destination", path.join(/* turbopackIgnore: true */ dir, "vendor")],
-    {
-      cwd: kit,
-      env: runtimeEnvironment(process.execPath, dir),
-      maxBuffer: 1024 * 1024,
-    },
-  );
-  const tarball = (await fs.readdir(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "vendor"))).find((file) =>
-    file.endsWith(".tgz"),
-  )!;
+  const {pnpm} = appKitToolchain();
+  const tarball = await packAppKit(path.join(/* turbopackIgnore: true */ dir, "vendor"), dir);
   await writeAppTemplate(dir, profile, id, `file:vendor/${tarball}`);
   await exec(
     process.execPath,
@@ -36,6 +25,46 @@ export async function createAppTemplate(
       maxBuffer: 1024 * 1024,
     },
   );
+}
+
+/**
+ * Pack the installed kit into `destination` and return the tarball's file name.
+ *
+ * pnpm packs a staged copy holding what an app installs: the kit's `files` and
+ * its manifest without dev dependencies or scripts. Packing the kit's own
+ * folder works only in this repository's workspace. An installed Ri carries
+ * the kit's manifest as written, `workspace:` dev dependencies included, and
+ * pnpm refuses to pack a workspace dependency that isn't installed beside it
+ * (ERR_PNPM_CANNOT_RESOLVE_WORKSPACE_PROTOCOL), so every new app failed there.
+ */
+export async function packAppKit(destination: string, tempDir: string, kit = appKitToolchain().packageDir): Promise<string> {
+  const {pnpm} = appKitToolchain();
+  const manifest = JSON.parse(await fs.readFile(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ kit, "package.json"), "utf8")) as Record<string, unknown> & { files?: string[] };
+  const consumer = { ...manifest };
+  delete consumer.devDependencies;
+  delete consumer.scripts;
+  const stage = await fs.mkdtemp(path.join(os.tmpdir(), "ri-app-kit-"));
+  try {
+    await fs.writeFile(path.join(stage, "package.json"), `${JSON.stringify(consumer, null, 2)}\n`);
+    for (const entry of manifest.files ?? []) {
+      const source = path.join(/* turbopackIgnore: true */ kit, entry);
+      // `files` may name a folder a given build doesn't produce, as pnpm itself allows.
+      try { await fs.cp(/* turbopackIgnore: true */ source, path.join(stage, entry), { recursive: true }); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    }
+    await fs.mkdir(/* turbopackIgnore: true */ destination, { recursive: true });
+    const before = new Set(await fs.readdir(/* turbopackIgnore: true */ destination));
+    await exec(process.execPath, [pnpm, "pack", "--pack-destination", destination], {
+      cwd: stage,
+      env: runtimeEnvironment(process.execPath, tempDir),
+      maxBuffer: 1024 * 1024,
+    });
+    const tarball = (await fs.readdir(/* turbopackIgnore: true */ destination)).find((file) => file.endsWith(".tgz") && !before.has(file));
+    if (!tarball) throw new Error("pnpm pack finished without writing the app kit tarball");
+    return tarball;
+  } finally {
+    await fs.rm(stage, { recursive: true, force: true });
+  }
 }
 
 /** The source template shared by production packaging and offline SDK fixtures. */
