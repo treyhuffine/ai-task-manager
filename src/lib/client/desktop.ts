@@ -1,6 +1,7 @@
 import type { DesktopNotificationAction, DesktopNotificationStatus } from '@/lib/notifications/desktop-contract';
 import type { DesktopSettingsAction, DesktopSettingsStatus } from './desktop-settings';
 import type { DesktopConnectionAction, DesktopConnectionState } from '@/lib/connection/desktop-contract';
+import type { DesktopDeviceSettingsAction, DesktopDeviceSettingsStatus } from './desktop-device-settings';
 
 export type DesktopComputerAction = { type: 'status' } | { type: 'keep-running'; on: boolean } | { type: 'add-to-terminal' };
 export interface DesktopComputerStatus { appVersion: string; keepRunning: boolean; canKeepRunning: boolean; message?: string }
@@ -15,6 +16,9 @@ export interface RiDesktop {
   connection?(action: DesktopConnectionAction): Promise<DesktopConnectionState>;
   onConnectionChange?(callback: (state: DesktopConnectionState) => void): () => void;
   settings?(action: DesktopSettingsAction): Promise<DesktopSettingsStatus>;
+  /** This computer's controls, including while viewing a Home elsewhere. Changes retain native consent. */
+  deviceSettings?(action: DesktopDeviceSettingsAction): Promise<DesktopDeviceSettingsStatus>;
+  onOpenSettings?(callback: () => void): () => void;
   /** Settings > This computer, for a Home on this computer. */
   computer?(action: DesktopComputerAction): Promise<DesktopComputerStatus>;
   /** Fixed Install and Sign in buttons for a coding tool, for a Home on this computer. */

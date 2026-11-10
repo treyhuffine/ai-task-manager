@@ -83,6 +83,7 @@ function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupCheckli
 export function SettingsModal() {
   const { open, section, autoLand, anchor } = useSettingsStore();
   const def = getSection(section);
+  useEffect(() => window.riDesktop?.onOpenSettings?.(() => openSettings('this-computer')), []);
 
   // Single source for setup state: drives the Get-started tab + count. Only
   // fetches while open.

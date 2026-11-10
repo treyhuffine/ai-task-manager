@@ -7,6 +7,7 @@ import type { RiDesktop } from '@/lib/client/desktop';
 import { DesktopControls } from './desktop-controls';
 import { DesktopSettings } from './sections/desktop-settings';
 import { DevicesSettingsSection } from './sections/devices-section';
+import { closeSettings, useSettingsStore } from './settings-store';
 
 vi.mock('@/components/settings/remote-base-url', () => ({ RemoteBaseUrlSection: () => null }));
 vi.mock('@/components/settings/devices-section', () => ({ DevicesSection: () => null }));
@@ -33,7 +34,21 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   client.clear();
+  closeSettings();
   vi.unstubAllGlobals();
+});
+
+it('opens the This computer tab in a current desktop shell', async () => {
+  const connection = remoteDesktop();
+  window.riDesktop!.deviceSettings = vi.fn();
+  function Preview() {
+    const state = useSettingsStore();
+    return createElement('div', null, createElement(DesktopControls), createElement('output', null, state.section));
+  }
+  await mount(Preview);
+  await act(async () => container.querySelector('button')!.click());
+  expect(container.querySelector('output')?.textContent).toBe('this-computer');
+  expect(connection).not.toHaveBeenCalled();
 });
 
 async function mount(Component: ComponentType) {

@@ -32,7 +32,10 @@ import { createDesktopLogin } from './login';
 import { desktopSettingsAction } from './settings';
 import { DesktopActivity } from './activity';
 import { desktopActivityPath, type DesktopActivitySnapshot } from '../src/lib/sessions/desktop-activity-contract';
-import { companionWindow } from './companion-window';
+import { companionWindow, type CompanionAction } from './companion-window';
+import { deviceSettingsRequests } from './device-settings';
+import type { DesktopDeviceSettingsStatus } from '../src/lib/client/desktop-device-settings';
+import type { UpdateCoordinator } from '../src/lib/service/update';
 import { createLocalWindow } from './local-window';
 import { createFindBars, editMenu } from './find-bar';
 import { desktopAppearance, localPageAssets } from './appearance';
@@ -146,6 +149,7 @@ let updatingShell = false;
 const desktopLogin = createDesktopLogin({ app });
 let captureShortcut: CaptureShortcut | undefined;
 let captureReady = false;
+let settingsReady = false;
 let capturePending = false;
 let activity: DesktopActivity | undefined;
 let activityState: DesktopActivitySnapshot = { connection: 'connecting' };
@@ -582,8 +586,7 @@ const remoteNotifications = remoteNotificationChanges({
   },
 });
 
-const companion = companionWindow(async (action, value) => {
-  if (action === 'status') {
+async function companionStatus(includeNotifications = true) {
     const setup = await connectionRequest<ConnectionSetupStatus>({ action: 'inspect' }).catch(error => ({
       role: 'conflict' as const, homeSelected: false, home: null, deviceId: null, workerEnrolled: false,
       reason: error instanceof Error ? error.message : 'This installation needs attention.',
@@ -591,13 +594,15 @@ const companion = companionWindow(async (action, value) => {
     const service = await serviceStatus().catch(() => null);
     const discover = setup.role === 'first-run' && !setup.homeSelected;
     if (discover) void detectedInstallation();
-    const update = service ? await serviceRequest<{ update: unknown }>('/update').catch(() => null) : null;
+    const update = service ? await serviceRequest<{ update: ReturnType<UpdateCoordinator['status']> }>('/update').catch(() => null) : null;
     const teamStatus = (() => { try { return teams?.status(); } catch { return undefined; } })();
     return { ...setup, ...teamStatus, desktop: app.getVersion(), service, worker: service?.worker, update: update?.update, connectionError: selectionError, connection: desktopConnection.snapshot(), connecting, hasViewer: !!viewerTransitions.current,
       detectedInstallation: discover ? discovered : null,
       login: { enabled: hasLoginSupervision() }, preferences: captureShortcut ? { shortcut: captureShortcut.status(), login: desktopLogin.status() } : null,
-      notifications: notifications ? await notifications.action('status').catch(() => ({ supported: Notification.isSupported(), enabled: notificationPermission?.enabled() ?? false, error: 'Waiting for your Ri to reconnect.' })) : null };
-  }
+      notifications: includeNotifications && notifications ? await notifications.action('status').catch(() => ({ supported: Notification.isSupported(), enabled: notificationPermission?.enabled() ?? false, error: 'Waiting for your Ri to reconnect.' })) : null };
+}
+async function companionAction(action: CompanionAction, value?: unknown): Promise<unknown> {
+  if (action === 'status') return companionStatus();
   if (action === 'preferences') return changeDesktopPreferences(value);
   if (action === 'use-detected') {
     const setup = await connectionRequest<ConnectionSetupStatus>({ action: 'inspect' });
@@ -712,7 +717,27 @@ const companion = companionWindow(async (action, value) => {
     finally { if (guarded && !quitting && window && !window.isDestroyed()) window.webContents.send('desktop:resume'); }
   }
   throw new Error('Unknown companion action.');
-}, localSurface);
+}
+const companion = companionWindow(companionAction, localSurface);
+const viewerDeviceSettings = deviceSettingsRequests({
+  local: () => localViewer,
+  status: async (): Promise<DesktopDeviceSettingsStatus> => {
+    // The in-app local controls do not wait for a notification fetch from the Home.
+    const state = await companionStatus(false);
+    return {
+      role: state.role, appVersion: state.desktop, runtimeVersion: state.service?.version,
+      home: state.home ? { name: state.home.name, hostName: state.home.hostName } : null,
+      serviceAvailable: !!state.service, startsAtLogin: state.login.enabled, preferences: state.preferences,
+      worker: state.worker ? { state: state.worker.state, enabled: state.worker.enabled, reason: state.worker.reason, error: state.worker.error } : undefined,
+      update: state.update ? { phase: state.update.phase, configured: state.update.configured, reason: state.update.reason, error: state.update.error } : null,
+    };
+  },
+  request: companionAction,
+  openConnection: () => showSetup('connect'),
+  confirm: async (message, detail) => (await dialog.showMessageBox(dialogWindow(), {
+    type: 'question', message, detail, buttons: ['Cancel', 'Confirm change'], defaultId: 0, cancelId: 0,
+  })).response === 1,
+});
 
 /** The `ri-desktop` command an earlier app wrote, which `ri` replaces (section 4.2). */
 function removeOldTerminalCommand() {
@@ -1089,7 +1114,7 @@ async function start() {
     else void quit(true);
   });
   window.on('close', event => { if (!quitting) { event.preventDefault(); void hideWindow(); } });
-  window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) captureReady = false; });
+  window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { captureReady = false; settingsReady = false; } });
   ipcMain.on('desktop:appearance', (event, theme: unknown) => {
     if (!trustedViewerFrame({ senderId: event.sender.id, windowId: window?.webContents.id,
       mainFrame: event.senderFrame === window?.webContents.mainFrame, url: event.senderFrame?.url ?? '', origin: appOrigin })) return;
@@ -1104,6 +1129,14 @@ async function start() {
   });
   ipcMain.on('desktop:bridge-mode', event => {
     event.returnValue = localViewer && trustedViewerFrame({ senderId: event.sender.id, windowId: window?.webContents.id, mainFrame: event.senderFrame === window?.webContents.mainFrame, url: event.senderFrame?.url ?? '', origin: appOrigin }) ? 'local' : 'viewer';
+  });
+  for (const channel of ['desktop:settings-ready', 'desktop:settings-closed']) ipcMain.on(channel, event => {
+    if (!trustedViewerFrame({ senderId: event.sender.id, windowId: window?.webContents.id, mainFrame: event.senderFrame === window?.webContents.mainFrame, url: event.senderFrame?.url ?? '', origin: appOrigin })) return;
+    settingsReady = channel === 'desktop:settings-ready';
+  });
+  ipcMain.handle('desktop:device-settings', (event, raw: unknown) => {
+    if (!trustedViewerFrame({ senderId: event.sender.id, windowId: window?.webContents.id, mainFrame: event.senderFrame === window?.webContents.mainFrame, url: event.senderFrame?.url ?? '', origin: appOrigin })) throw new Error('Untrusted window');
+    return viewerDeviceSettings(raw);
   });
   ipcMain.handle('desktop:settings', (event, raw: unknown) => {
     if (!localViewer) throw new Error('Use Ri on this device in the application menu to change local settings.');
@@ -1174,7 +1207,10 @@ async function start() {
   const actions = {
     show: showWindow, hide: hideWindow, quit: () => { void quit(); },
     capture: requestQuickCapture,
-    preferences: () => { void showSetup('settings'); },
+    preferences: () => {
+      if (settingsReady && window && !window.isDestroyed()) { showAppWindow(); window.webContents.send('desktop:open-settings'); }
+      else void showSetup('settings');
+    },
     notifications: () => { if (appOrigin) showAppWindow(); else showWindow(); if (appOrigin) void navigateSafely(`${appOrigin}/?settings=notifications`); },
     update: () => { void checkDesktopUpdate(); }, status: () => { void serviceCommand('status'); },
     recovery: () => { if (!quitting) void showRecovery(); },

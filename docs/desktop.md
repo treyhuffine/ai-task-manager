@@ -22,6 +22,10 @@ The first-run screen makes **Start a new Ri** the primary action and **Connect t
 
 The welcome and connection screens link to an offline guide, **Using Ri on multiple computers**. Its repository counterpart is [the user guide](using-ri-on-multiple-computers.md). It explains why an always-on Home is useful, how other computers connect, where agents run, and what happens when the Home is offline. Team connections remain part of the personal Ri application. Choosing a local or remote Home does not create a team or change its authority. Team-only browser users do not need a personal Home.
 
+Local desktop controls also live in **Settings**, **This computer**, including while the main window displays a connected Home. The optional `deviceSettings` bridge exposes only fixed local requests and public presentation fields, never service credentials, paths or arbitrary companion commands. Connected Home requests retain native confirmation for preference changes, service startup, resuming execution and update activation. Enrollment and Stop reuse their existing native confirmations. The menu opens this tab when its listener is ready, with the standalone local screen retained for startup, older Home pages and recovery. Older shells keep the existing opener until rebuilt. Local builds without a publisher feed explain manual updates in the tab. Replacing a shell alone does not upgrade an existing staged worker runtime, which can be updated from a checkout with `ri update --from <checkout>`.
+
+`pnpm desktop:build` followed by `pnpm exec tsx desktop/settings-tab-smoke.ts` checks the tab in source Electron against a disposable development Home. The same driver accepts `RI_DESKTOP_PACKAGE` for a built package. It checks that the menu opens the tab in place, local status loads without exposing service credentials, and the window, bounds and viewer document are preserved. The companion acceptance driver also uses the tab for remote enrollment and stopping.
+
 | Situation | Visible experience |
 | --- | --- |
 | Fresh installation | Welcome, two choices, help, and collapsed Advanced |

@@ -2,10 +2,9 @@
 
 import { DefaultCoordinationSetting } from '@/components/chat-ui/coordination/controls';
 import { useMemo, useState } from 'react';
-import { Moon, Sun } from 'lucide-react';
 import Link from 'next/link';
 import { closeSettings } from '@/components/settings/settings-store';
-import { DesktopSettings } from './desktop-settings';
+import { DesktopControls } from '../desktop-controls';
 import { ApiTransportSettings } from './api-transport';
 import { ResultPilotSettings } from '@/components/results/result-pilot-settings';
 import { WorkResultGuidanceField } from './work-result-guidance-field';
@@ -132,7 +131,7 @@ export function GeneralSection() {
         <p className="mt-1 text-[11px] text-muted-foreground">Explore interactive chat interfaces and see where each comes from.</p>
         <Link href="/gallery" onClick={closeSettings} className="mt-2 inline-block text-xs font-medium text-primary hover:underline">Open gallery</Link>
       </section>
-      <DesktopSettings />
+      <DesktopControls />
       <ApiTransportSettings />
       <DefaultCoordinationSetting />
       <ResultPilotSettings />

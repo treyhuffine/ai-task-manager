@@ -67,7 +67,24 @@ it('remote Home viewers get save/capture hooks and may ask for notifications, wi
   expect(bridge.onQuickCapture).toBeTypeOf('function');
   expect(bridge.connection).toBeTypeOf('function');
   expect(bridge.onConnectionChange).toBeTypeOf('function');
+  await bridge.deviceSettings({ type: 'status' });
+  expect(mocks.invoke).toHaveBeenLastCalledWith('desktop:device-settings', { type: 'status' });
   mocks.sendSync.mockReturnValue('local');
+});
+
+it('opens the in-app settings tab from the native menu without exposing the IPC event', async () => {
+  vi.stubGlobal('process', { ...process, isMainFrame: true });
+  await import('./preload');
+  const bridge = mocks.expose.mock.calls[0][1];
+  const callback = vi.fn();
+  const off = bridge.onOpenSettings(callback);
+  const listener = mocks.on.mock.calls.find(call => call[0] === 'desktop:open-settings')![1];
+  expect(mocks.send).toHaveBeenLastCalledWith('desktop:settings-ready');
+  listener({ sender: { invoke: vi.fn() } }, 'ignored');
+  expect(callback).toHaveBeenCalledExactlyOnceWith();
+  off();
+  expect(mocks.remove).toHaveBeenLastCalledWith('desktop:open-settings', listener);
+  expect(mocks.send).toHaveBeenLastCalledWith('desktop:settings-closed');
 });
 
 it('connection updates expose only presentation data and remove their exact listener', async () => {

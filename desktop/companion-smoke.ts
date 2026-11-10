@@ -33,13 +33,15 @@ async function companion(fixture: AcceptanceFixture) {
   await page.locator('#heading').waitFor();
   return page;
 }
-async function openCompanion(fixture: AcceptanceFixture) {
+async function openDesktopSettings(fixture: AcceptanceFixture) {
   await fixture.app!.evaluate(({ Menu, BrowserWindow }) => {
     const item = Menu.getApplicationMenu()?.getMenuItemById('ri-desktop-preferences');
     if (!item?.enabled) throw new Error('The local companion menu is unavailable');
     item.click(item, BrowserWindow.getAllWindows()[0], {} as never);
   });
-  return companion(fixture);
+  const controls = fixture.page!.getByRole('region', { name: 'Agents on this computer', exact: true });
+  await controls.waitFor();
+  return controls;
 }
 async function mainPage(fixture: AcceptanceFixture, origin?: string) {
   const page = fixture.page!;
@@ -210,14 +212,14 @@ void (async () => {
     assert.equal((await api<{ body: string }>(page, `/api/notes/${sharedNote.id}`)).body, 'Stored only on the disposable Home.');
     await page.locator('aside:visible').first().waitFor();
     await page.screenshot({ path: path.join(connected.base, 'viewer.png') });
-    const bridge = await page.evaluate(() => ({ settings: typeof window.riDesktop?.settings, notifications: typeof window.riDesktop?.notifications,
+    const bridge = await page.evaluate(() => ({ settings: typeof window.riDesktop?.settings, notifications: typeof window.riDesktop?.notifications, deviceSettings: typeof window.riDesktop?.deviceSettings,
       require: typeof (window as unknown as { require?: unknown }).require, companion: typeof (window as unknown as { riCompanion?: unknown }).riCompanion }));
-    assert.deepEqual(bridge, { settings: 'undefined', notifications: 'undefined', require: 'undefined', companion: 'undefined' });
+    assert.deepEqual(bridge, { settings: 'undefined', notifications: 'function', deviceSettings: 'function', require: 'undefined', companion: 'undefined' });
     assert.equal((await serviceStatus())?.role, 'viewer');
     assert.equal(fs.existsSync(path.join(connected.root, '.config/worker.json')), false);
     assert.equal(fs.existsSync(path.join(connected.root, 'data.db')), false);
     assert.deepEqual(seenCapabilities, []);
-    passed('First-run setup and remote Home share one native window without resize, local task database, worker, or privileged remote bridge');
+    passed('First-run setup and remote Home share one native window with consent-mediated settings, no local task database and no arbitrary native bridge');
 
     await remoteNotificationConsent(page, pair.device.id);
 
@@ -225,16 +227,15 @@ void (async () => {
     // worker stream, stop, persisted preference and reconnect are real.
     await consentToExecution(connected);
     const viewerBeforeSettings = { url: page.url(), timeOrigin: await page.evaluate(() => performance.timeOrigin) };
-    const controls = await openCompanion(connected);
+    const controls = await openDesktopSettings(connected);
     assertSameNativeWindow(connectedWindow, await nativeWindowSnapshot(connected.app!));
-    assert.equal(page.url(), viewerBeforeSettings.url);
+    assert.equal(new URL(page.url()).searchParams.get('settings'), 'this-computer');
     assert.equal(await page.evaluate(() => performance.timeOrigin), viewerBeforeSettings.timeOrigin);
-    await assertLocalIsolation(connected.app!, controls, 'companion');
-    await controls.locator('#execution > summary').click();
     await controls.getByRole('button', { name: 'Enable local execution', exact: true }).click();
     await waitWorker('connected');
     const worker = await serviceStatus();
-    await (await openCompanion(connected)).screenshot({ path: path.join(connected.base, 'worker.png') });
+    await controls.getByRole('status').filter({ hasText: 'This computer can run agents' }).waitFor();
+    await controls.screenshot({ path: path.join(connected.base, 'worker.png') });
     assert.equal(worker?.role, 'worker');
     const enrollment = JSON.parse(fs.readFileSync(path.join(connected.root, '.config/worker.json'), 'utf8'));
     assert.equal(enrollment.deviceId, pair.device.id);
@@ -253,8 +254,9 @@ void (async () => {
     await connected.launchRaw();
     await mainPage(connected, proxyOrigin);
     await consentToExecution(connected);
-    const reopened = await openCompanion(connected);
-    await reopened.locator('#execution > summary').click();
+    await connected.navigate('/?settings=this-computer');
+    await connected.page!.getByRole('region', { name: 'Agents on this computer', exact: true }).waitFor();
+    const reopened = await openDesktopSettings(connected);
     await reopened.getByRole('button', { name: 'Stop local execution', exact: true }).click();
     await waitWorker('stopped');
     const stopped = await serviceStatus();

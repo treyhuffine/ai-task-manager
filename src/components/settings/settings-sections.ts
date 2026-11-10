@@ -161,7 +161,7 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     description: 'How execution previews open on your phone and other devices.',
   },
   { id: 'updates', label: 'Updates', icon: Download, title: 'Updates', description: 'How Ri keeps itself up to date.' },
-  { id: 'this-computer', label: 'This computer', icon: Laptop, title: 'This computer', description: 'Whether Ri is running here, which version, and how it stays running.' },
+  { id: 'this-computer', label: 'This computer', icon: Laptop, title: 'This computer', description: 'Local agents, desktop preferences, startup, and updates for this computer.' },
 ];
 
 export const DEFAULT_SECTION: SectionId = 'profile';

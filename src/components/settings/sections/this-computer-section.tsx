@@ -8,11 +8,27 @@ import type { RiDesktop } from '@/lib/client/desktop';
 import { describeHomeStatus } from '@/lib/service/home-status';
 import { trpcClient } from '@/lib/trpc/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
+import { DesktopDeviceSettings } from './desktop-device-settings';
+import { DesktopSettings } from './desktop-settings';
+import { DesktopControls } from '../desktop-controls';
 
 /** The same status `ri status` prints, and what's specific to this computer (4.2). */
+function subscribeDesktop() { return () => {}; }
+function desktopSnapshot() { return window.riDesktop ?? null; }
+function serverDesktopSnapshot() { return undefined; }
+
 export function ThisComputerSection() {
+  // Electron installs its immutable bridge before this document loads.
+  const desktop = useSyncExternalStore(subscribeDesktop, desktopSnapshot, serverDesktopSnapshot);
+  if (desktop === undefined) return <p className="text-sm text-muted-foreground">Checking this computer…</p>;
+  if (desktop?.deviceSettings) return <DesktopDeviceSettings desktop={desktop} />;
+  if (desktop && !desktop.computer) return <div className="space-y-3"><DesktopControls /><p className="text-xs text-muted-foreground">Update the Ri desktop app to manage these settings in this tab.</p></div>;
+  return <div className="space-y-5"><DesktopSettings /><HomeComputerSection /></div>;
+}
+
+function HomeComputerSection() {
   const id = useId();
   const client = useQueryClient();
   const [desktop, setDesktop] = useState<RiDesktop>();

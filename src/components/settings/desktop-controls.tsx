@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { RiDesktop } from '@/lib/client/desktop';
+import { openSettings } from './settings-store';
 
 /** Opens trusted local controls, including when this window views a remote Home. */
 export function DesktopControls() {
@@ -15,6 +16,7 @@ export function DesktopControls() {
   if (!desktop) return null;
 
   const open = async () => {
+    if (desktop.deviceSettings) { openSettings('this-computer'); return; }
     setOpening(true);
     setError('');
     try { await desktop.connection!('settings'); }

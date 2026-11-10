@@ -14,6 +14,13 @@ if (process.isMainFrame) {
     notifications: (action: unknown) => ipcRenderer.invoke('desktop:notifications', action),
     openNotificationSettings: (): Promise<void> => ipcRenderer.invoke('desktop:notification-settings'),
     connection: (action: DesktopConnectionAction): Promise<DesktopConnectionState> => ipcRenderer.invoke('desktop:connection', action),
+    deviceSettings: (action: unknown) => ipcRenderer.invoke('desktop:device-settings', action),
+    onOpenSettings: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('desktop:open-settings', listener);
+      ipcRenderer.send('desktop:settings-ready');
+      return () => { ipcRenderer.removeListener('desktop:open-settings', listener); ipcRenderer.send('desktop:settings-closed'); };
+    },
     onConnectionChange: (callback: (state: DesktopConnectionState) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, state: DesktopConnectionState) => callback(state);
       ipcRenderer.on('desktop:connection', listener);
