@@ -3,7 +3,7 @@ import { Button, ButtonRow, EmptyState, SegmentedControl, SplitView, StatusLabel
 import type { Commitment, Coverage, Fact, TaskLink } from '../schemas.js';
 import { dateLabel, dayLabel, meetingLabel } from './format.js';
 import { CommitmentRow, FactRow, PersonWorkspace } from './person.js';
-import { CoverageFooter, Failure, Loading, TaskStatus, usePeople } from './shared.js';
+import { CoverageFooter, Failure, Loading, NameLink, TaskStatus, usePeople } from './shared.js';
 
 type FollowItem = { kind: 'commitment'; commitment: Commitment } | { kind: 'task'; task: TaskLink; subject: { kind: string; id: string; name: string } | null };
 interface Today {
@@ -37,53 +37,52 @@ export function TodayView() {
   const item = (key: string, id: string | null | undefined, top: string, name: string, bottom: string, extra?: React.ReactNode) => id ? (
     <li key={key}>
       <button type="button" className="pe-today-item" aria-current={focus === id ? 'true' : undefined} onClick={() => ui.openPerson(id)}>
-        <span className="pe-small">{top}</span>
         <strong>{name}</strong>
-        <span className="pe-small">{bottom}</span>
-        {extra}
+        <span className="pe-today-item__when">{top}</span>
+        <span className="pe-today-item__what">{bottom}</span>
+        {extra && <span className="pe-today-item__extra">{extra}</span>}
       </button>
     </li>
   ) : null;
   const list = (
     <nav className="pe-today-list" aria-label="Today">
       <section className="pe-today-group">
-        <h2>Coming up</h2>
+        <h2>Coming up{data.meetings.length > 0 && <span>{data.meetings.length}</span>}</h2>
         {data.meetings.length ? <ul>{data.meetings.flatMap((meeting) => meeting.people.slice(0, 1).map((person) => item(meeting.id, person.id, meetingLabel(meeting.at), meeting.people.length > 1 ? `${person.name} and ${meeting.people.length - 1} more` : person.name, meeting.title, meeting.declined ? <span className="pe-small">You declined</span> : undefined)))}</ul>
           : <p className="pe-today-empty">No meetings in the next seven days.</p>}
       </section>
       <section className="pe-today-group">
-        <h2>Next action</h2>
+        <h2>Next action{data.iOwe.length > 0 && <span>{data.iOwe.length}</span>}</h2>
         {data.iOwe.length ? <ul>{data.iOwe.map((entry) => {
           const who = personOf(entry);
           const label = entry.kind === 'commitment' ? entry.commitment.action : entry.task.title;
           const due = entry.kind === 'commitment' ? entry.commitment.dueDate : entry.task.dueAt?.slice(0, 10) ?? null;
-          return who ? item(entry.kind === 'commitment' ? entry.commitment.id : entry.task.id, who.id, due ? `Chosen for ${dateLabel(due)}` : 'Chosen follow-up', who.name, label, entry.kind === 'task' && entry.task.status !== 'linked' ? <TaskStatus link={entry.task} /> : undefined)
-            : <li key={entry.kind === 'task' ? entry.task.id : entry.commitment.id} className="pe-today-item"><span className="pe-small">Chosen follow-up</span><strong>{label}</strong></li>;
+          return who ? item(entry.kind === 'commitment' ? entry.commitment.id : entry.task.id, who.id, due ? dateLabel(due) : '', who.name, label, entry.kind === 'task' && entry.task.status !== 'linked' ? <TaskStatus link={entry.task} /> : undefined)
+            : <li key={entry.kind === 'task' ? entry.task.id : entry.commitment.id}><div className="pe-today-item" style={{ cursor: 'default' }}><strong>{label}</strong><span className="pe-today-item__when">{due ? dateLabel(due) : ''}</span></div></li>;
         })}</ul> : <p className="pe-today-empty">No follow-ups chosen.</p>}
       </section>
       {data.waitingOn.length > 0 && (
         <section className="pe-today-group">
-          <h2>Waiting on</h2>
-          <ul>{data.waitingOn.map((entry) => { const who = personOf(entry); return item(entry.kind === 'commitment' ? entry.commitment.id : entry.task.id, who?.id, entry.kind === 'commitment' && entry.commitment.occurredAt ? `Offered ${dayLabel(entry.commitment.occurredAt)}` : 'Waiting on', who?.name ?? 'Someone', entry.kind === 'commitment' ? entry.commitment.action : entry.task.title); })}</ul>
+          <h2>Waiting on<span>{data.waitingOn.length}</span></h2>
+          <ul>{data.waitingOn.map((entry) => { const who = personOf(entry); return item(entry.kind === 'commitment' ? entry.commitment.id : entry.task.id, who?.id, entry.kind === 'commitment' && entry.commitment.occurredAt ? `Since ${dayLabel(entry.commitment.occurredAt)}` : '', who?.name ?? 'Someone', entry.kind === 'commitment' ? entry.commitment.action : entry.task.title); })}</ul>
         </section>
       )}
       {data.keepInTouch.length > 0 && (
         <section className="pe-today-group">
-          <h2>Keep in touch</h2>
-          <ul>{data.keepInTouch.map((person) => item(`k-${person.id}`, person.id, person.lastExchangeAt ? `Last exchange ${dayLabel(person.lastExchangeAt)}` : 'No exchange found', person.name, `Every ${person.intervalDays} days`))}</ul>
+          <h2>Keep in touch<span>{data.keepInTouch.length}</span></h2>
+          <ul>{data.keepInTouch.map((person) => item(`k-${person.id}`, person.id, person.lastExchangeAt ? dayLabel(person.lastExchangeAt) : 'Never', person.name, `Every ${person.intervalDays} days`))}</ul>
         </section>
       )}
       {(data.review.suggestionCount > 0 || data.review.factCount > 0 || data.review.identityCount > 0) && (
         <section className="pe-today-group">
           <h2>To review</h2>
-          <p className="pe-small pe-muted">{[data.review.suggestionCount ? `${data.review.suggestionCount} suggested commitment${data.review.suggestionCount === 1 ? '' : 's'}` : null, data.review.factCount ? `${data.review.factCount} sourced detail${data.review.factCount === 1 ? '' : 's'}` : null, data.review.identityCount ? `${data.review.identityCount} identity review${data.review.identityCount === 1 ? '' : 's'}` : null].filter(Boolean).join(', ')}. Suggestions stay separate until you accept them.</p>
+          <p className="pe-small pe-muted">{[data.review.suggestionCount ? `${data.review.suggestionCount} suggested commitment${data.review.suggestionCount === 1 ? '' : 's'}` : null, data.review.factCount ? `${data.review.factCount} sourced detail${data.review.factCount === 1 ? '' : 's'}` : null, data.review.identityCount ? `${data.review.identityCount} identity review${data.review.identityCount === 1 ? '' : 's'}` : null].filter(Boolean).join(', ')}.</p>
           <ButtonRow>
             {data.review.suggestionCount > 0 && <Button size="sm" onClick={() => ui.go({ section: 'follow-ups', record: null, query: { filter: 'suggestions' } })}>Review suggestions</Button>}
             {data.review.identityCount > 0 && ui.data.owner && <Button size="sm" variant="quiet" onClick={() => ui.go({ section: 'sources', record: null, query: { panel: 'review' } })}>Review identities</Button>}
           </ButtonRow>
         </section>
       )}
-      <p className="pe-small pe-muted">A little context. A clear next step.</p>
     </nav>
   );
   return (
@@ -155,19 +154,19 @@ export function FollowUpsView() {
   return (
     <div className="pe-stack pe-stack--loose">
       <SegmentedControl label="Follow-up type" value={filter} onChange={(value) => ui.setQuery({ filter: value === 'i_owe' ? null : value })} options={[{ id: 'i_owe', label: 'I owe' }, { id: 'waiting_on', label: 'Waiting on' }, { id: 'suggestions', label: 'Suggestions' }, { id: 'completed', label: 'Resolved' }]} />
-      {filter === 'suggestions' && <p className="pe-small pe-muted">Suggestions come from bounded extraction of your conversations. Each names its evidence, and none becomes a commitment or task until you choose.</p>}
+      {filter === 'suggestions' && <p className="pe-small pe-muted">Found in your conversations, each with its source. None becomes a commitment or task until you choose.</p>}
       {list.error && !list.data ? <Failure error={list.error} reload={list.reload} /> : !list.data ? <Loading label="Loading follow-ups" /> : items.length === 0 ? (
         <EmptyState compact title={emptyText}>
           {list.data.coverage.partial ? <>Coverage is partial: {list.data.coverage.summary} Missing evidence is not proof that nothing is owed.</> : filter === 'waiting_on' ? 'No confirming message found in the indexed history either way.' : null}
         </EmptyState>
       ) : (
-        <ul className="pe-stack" aria-label="Follow-ups">
+        <ul className="pe-follow-list" aria-label="Follow-ups">
           {items.map((entry) => (
             <li key={entry.kind === 'commitment' ? entry.commitment.id : entry.task.id} className="pe-follow">
               {entry.kind === 'commitment' ? (
                 <>
                   <div className="pe-follow__head">
-                    <span className="pe-small pe-muted">{entry.commitment.person ? <button type="button" className="pe-link" onClick={() => ui.openPerson(entry.commitment.person!.id)}>{entry.commitment.person.name}</button> : entry.commitment.organization?.name}{entry.commitment.organization && entry.commitment.person ? ` · ${entry.commitment.organization.name}` : ''}</span>
+                    <span className="pe-chips">{entry.commitment.person && <NameLink kind="person" id={entry.commitment.person.id} name={entry.commitment.person.name} />}{entry.commitment.organization && <NameLink kind="company" id={entry.commitment.organization.id} name={entry.commitment.organization.name} />}</span>
                     {entry.commitment.state === 'withdrawn' || entry.commitment.state === 'completed' || entry.commitment.state === 'dismissed' ? <StatusLabel tone={entry.commitment.state === 'completed' ? 'success' : 'neutral'}>{entry.commitment.state === 'completed' ? 'Completed' : entry.commitment.state === 'dismissed' ? 'Dismissed' : 'Withdrawn'}</StatusLabel> : null}
                   </div>
                   <CommitmentRow commitment={entry.commitment} reload={list.reload} />
@@ -175,7 +174,7 @@ export function FollowUpsView() {
                 </>
               ) : (
                 <>
-                  <div className="pe-follow__head"><span className="pe-section-label">Chosen follow-up</span><TaskStatus link={entry.task} /></div>
+                  <div className="pe-follow__head"><span className="pe-small pe-muted">Chosen follow-up</span><TaskStatus link={entry.task} /></div>
                   <p className="pe-follow__title">{entry.task.title}</p>
                   <p className="pe-small pe-muted">{entry.subject ? <button type="button" className="pe-link" onClick={() => entry.subject!.kind === 'person' ? ui.openPerson(entry.subject!.id) : entry.subject!.kind === 'organization' ? ui.openCompany(entry.subject!.id) : ui.openOpportunity(entry.subject!.id)}>{entry.subject.name}</button> : 'Record no longer available'}{entry.task.dueAt ? ` · Due ${dateLabel(entry.task.dueAt.slice(0, 10))}` : ''}</p>
                 </>

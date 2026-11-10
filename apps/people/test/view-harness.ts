@@ -40,7 +40,8 @@ export async function openHarness(options: { html: string; invoke: Invoke; width
   const server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end(`<html><head><style>html,body{margin:0;height:100%}#mount{height:100vh}</style></head><body><div id="mount"></div><script>${hostScript}</script></body></html>`); });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = (server.address() as { port: number }).port;
-  const browser = await chromium.launch({ executablePath: CHROME, headless: true, chromiumSandbox: true, args: ['--disable-features=IsolateSandboxedIframes'], env: { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR } });
+  // Playwright's own Chromium runs as its headless shell. Launching the full Chrome for Testing binary headless hangs in browser.close() on macOS 26, so its path is only for an installed Chrome or Brave.
+  const browser = await chromium.launch({ ...(CHROME === chromium.executablePath() ? {} : { executablePath: CHROME }), headless: true, chromiumSandbox: true, args: ['--disable-features=IsolateSandboxedIframes'], env: { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR } });
   const page = await browser.newPage({ viewport: { width: options.width, height: options.height ?? 900 } });
   const state = { prompts: [] as string[], contexts: [] as unknown[], downloads: [] as unknown[], calls: [] as { action: string; input: unknown }[], locations: [] as string[], hostLinks: [] as string[] };
   let location = options.path ?? '/today';
@@ -89,12 +90,13 @@ export async function openHarness(options: { html: string; invoke: Invoke; width
     }, { guest, data: data as never, id: randomUUID(), pathname: url.pathname, query: Object.fromEntries(url.searchParams), theme: options.theme ?? 'light' });
     const view = page.frameLocator('#mount iframe').frameLocator('iframe');
     try {
-      await view.locator('.ri-title').first().waitFor({ timeout: 20000 });
+      // The main view starts at its section bar. The chat access chooser keeps the kit's titled shell.
+      await view.locator('.pe-top, .ri-title').first().waitFor({ timeout: 20000 });
     } catch (error) {
       fs.mkdirSync(path.join(root, 'artifacts'), { recursive: true });
       await page.screenshot({ path: path.join(root, 'artifacts', 'render-failure.png') }).catch(() => undefined);
       const text = await view.locator('body').innerText({ timeout: 2000 }).catch(() => 'unreadable');
-      const frames = await Promise.all(page.frames().map(async (frame) => `${frame.url().slice(0, 40)} title=${await frame.evaluate(() => document.querySelector('.ri-title')?.textContent ?? 'none').catch((e: Error) => `err ${e.message.slice(0, 80)}`)}`));
+      const frames = await Promise.all(page.frames().map(async (frame) => `${frame.url().slice(0, 40)} title=${await frame.evaluate(() => document.querySelector('.pe-top, .ri-title')?.textContent ?? 'none').catch((e: Error) => `err ${e.message.slice(0, 80)}`)}`));
       throw new Error(`The view did not render: ${text.slice(0, 300)} :: ${(error as Error).message.split('\n')[0]}. Frames: ${frames.join(' | ')}. Browser errors: ${errors.join(' | ') || 'none'}`);
     }
   };

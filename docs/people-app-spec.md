@@ -62,6 +62,18 @@ No one must classify a network before receiving value. Pin and Keep in touch are
 
 Today is the populated default. If it has no meetings or chosen work, show "Nothing needs your attention" and offer the directory. Remember an explicitly chosen landing view. Do not manufacture urgent work to populate a dashboard.
 
+### Visual language
+
+Revised November 10, 2026, after the first build read as a set of landing pages. People is a working surface in the manner of modern CRMs such as Twenty and Attio, not a page of headlines.
+
+- Ri's own header names the app and holds Ask Ri, so the view starts at one compact bar: section tabs, Add view and the one Add action. No eyebrow, headline or tagline.
+- Directories are dense tables with grid lines, small avatars and related records as chips. An empty cell is blank to the eye and named for assistive technology.
+- A record has a fields column beside its sections when it has the width (about 46rem of its own), and puts the fields two or three to a row above the sections when it does not.
+- Sections inside a record are flat, separated by space and hairlines. Cards are for board cards, setup choices and source accounts only.
+- A sourced statement ends in a small Source citation that opens the source inspector, never an underlined "View evidence" sentence.
+- One radius scale: 6 px for controls and cards, 4 px for chips and pills. Tone shows in an icon and, for warnings and failures, a tinted surface. Never a colored edge on a rounded box. This rule holds for the shared app kit too.
+- Labels are sentence case. Explanations of what the app will never do live in dialogs and Sources, not under every list.
+
 ### Directory and saved views
 
 The directory should feel like a polished CRM working surface, not a collection of large profile cards. Use the neutral Finances palette, restrained borders, compact text and real records. No colored avatar rainbow, relationship score or generic KPI row.
@@ -94,7 +106,7 @@ Selecting a row opens an inspector and preserves query, cursor, scroll and selec
 
 On Today, use a compact list of actionable people beside a generous selected-person workspace. On a directory, the full record is reached through its inspector. Avoid simultaneously squeezing list, inspector, record and chat into narrow columns.
 
-The person header shows neutral initials or a chosen image, name, sourced role/company with observation date, last direct exchange and next meeting. Actions are Add note, Follow up and Ask Ri. Timeline, Notes and Details are record sections. Related companies and opportunities are compact links, not competing dashboards.
+The person header shows neutral initials or a chosen image, name and sourced role/company. Actions are Add note, Follow up and Ask Ri. Beside the sections sits a fields column: email, last direct exchange, next meeting, next action, keep in touch, lists, how the person was found, when they were added, the affiliation's observation date and linked opportunities. Overview (the briefing and commitments), Timeline, Notes and Details are record sections. Related companies and opportunities are compact chips and rows, not competing dashboards.
 
 Before you meet gives a short, sourced briefing: recent discussion, explicit notes, open promises on each side and what remains unknown. Every factual item opens evidence. A source inspector shows account, participants, source date, exact passage and an original-message link when available. Opening chat retains the selected record and stages editable text through Ri's native composer.
 

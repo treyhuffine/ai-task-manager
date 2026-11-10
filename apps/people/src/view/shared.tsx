@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
-  Button, ButtonRow, Dialog, ErrorState, FollowUpDialog, InlineError, LoadingState, Notice, SectionTabs, SourceLine, StatusLabel, useAnnounce, useMutation, useQuery, useRiApp,
+  Button, ButtonRow, Dialog, DocumentIcon, ErrorState, FollowUpDialog, InlineError, LoadingState, Notice, SectionTabs, SourceLine, StatusLabel, useAnnounce, useMutation, useQuery, useRiApp,
 } from '@ri/app-kit/ui';
 import type { OpenData } from '../actions/common.js';
 import type { Coverage, Evidence, TaskLink } from '../schemas.js';
-import { coverageLines, dateLabel, isOverdue, uuid } from './format.js';
+import { coverageLines, dateLabel, initials, isOverdue, uuid } from './format.js';
 
 export type Section = 'today' | 'people' | 'follow-ups' | 'companies' | 'pipelines' | 'sources';
 export interface Route { section: Section; record: { kind: 'person' | 'company' | 'opportunity'; id: string } | null; query: Record<string, string> }
@@ -87,9 +87,55 @@ export function Failure({ error, reload }: { error: string; reload?: () => void 
   );
 }
 
+/** A related person or company as a small chip that opens the record, the way a CRM shows a relation. */
 export function NameLink({ id, name, kind }: { id: string; name: string; kind: 'person' | 'company' }) {
   const ui = usePeople();
-  return <button type="button" className="pe-link" onClick={() => (kind === 'person' ? ui.openPerson(id) : ui.openCompany(id))}>{name}</button>;
+  return (
+    <button type="button" className={`pe-chip pe-chip--${kind}`} onClick={() => (kind === 'person' ? ui.openPerson(id) : ui.openCompany(id))}>
+      <span className="pe-chip__mark" aria-hidden="true">{initials(name).slice(0, kind === 'company' ? 1 : 2)}</span>
+      <span className="pe-chip__name">{name}</span>
+    </button>
+  );
+}
+
+/** The same chip without an action, for places that are already a button, such as a directory row. */
+export function RecordChip({ name, kind }: { name: string; kind: 'person' | 'company' }) {
+  return (
+    <span className={`pe-chip pe-chip--${kind} pe-chip--static`}>
+      <span className="pe-chip__mark" aria-hidden="true">{initials(name).slice(0, kind === 'company' ? 1 : 2)}</span>
+      <span className="pe-chip__name">{name}</span>
+    </span>
+  );
+}
+
+/** A quiet citation that opens the source inspector. Every sourced statement keeps one. */
+export function Cite({ evidenceId, passage }: { evidenceId: string; passage?: string | null }) {
+  const ui = usePeople();
+  return (
+    <button type="button" className="pe-cite" aria-label="View source" onClick={() => ui.showEvidence(evidenceId, passage)}>
+      <DocumentIcon aria-hidden="true" />Source
+    </button>
+  );
+}
+
+/** One label and value row in a record's fields column. An empty value reads as `empty`. */
+export function Field({ label, children, empty = 'None' }: { label: string; children?: ReactNode; empty?: string }) {
+  const missing = children === null || children === undefined || children === false || children === '' || (Array.isArray(children) && children.length === 0);
+  return (
+    <div className="pe-field">
+      <dt className="pe-field__label">{label}</dt>
+      <dd className="pe-field__value">{missing ? <span className="pe-field__empty">{empty}</span> : children}</dd>
+    </div>
+  );
+}
+
+/** A table cell with no value: blank to the eye, named for assistive technology. */
+export function EmptyCell({ label = 'Not recorded' }: { label?: string }) {
+  return <span className="pe-empty-cell"><span className="ri-sr-only">{label}</span></span>;
+}
+
+export function PlusIcon() {
+  return <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true"><path d="M8 3.25v9.5M3.25 8h9.5" /></svg>;
 }
 
 export function DueLabel({ date }: { date: string | null }) {

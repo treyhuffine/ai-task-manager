@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AppShell, AskRiButton, Button, ButtonRow, Dialog, InlineError, LoadingState, Notice, SectionPanel, SectionTabs, Select, TextInput, useAnnounce, useQuery, useRiApp,
+  AppShell, Button, ButtonRow, Dialog, InlineError, LoadingState, Notice, SectionPanel, SectionTabs, Select, TextInput, useAnnounce, useQuery, useRiApp,
 } from '@ri/app-kit/ui';
 import type { OpenData } from '../actions/common.js';
 import { Directory } from './directory.js';
@@ -8,16 +8,7 @@ import { AffiliationDialog } from './person.js';
 import { OpportunityDialog, PipelinesView } from './pipelines.js';
 import { AccessView, SourcesView } from './sources.js';
 import { FollowUpsView, TodayView } from './today.js';
-import { EvidenceDialog, FollowUpHost, UiProvider, useSave, type PeopleUi, type Route, type Section } from './shared.js';
-
-const TITLES: Record<Section, [string, string]> = {
-  today: ['Pick up where you left off.', 'The conversations, context and commitments that matter today.'],
-  people: ['Your people.', 'One useful place for the people in your life and work.'],
-  'follow-ups': ['Keep the conversation moving.', 'Your commitments and theirs, with the context to act.'],
-  companies: ['Your companies.', 'The people, conversations and next steps around each organization. Communities, funds and schools work too.'],
-  pipelines: ['Work worth following through.', 'A small pipeline for the outcomes you choose to track.'],
-  sources: ['Connected, on your terms.', 'Choose what stays up to date and what gets analyzed.'],
-};
+import { EvidenceDialog, FollowUpHost, PlusIcon, UiProvider, useSave, type PeopleUi, type Route, type Section } from './shared.js';
 
 function routeFrom(data: OpenData): Route {
   const query = { ...(data.query ?? {}) };
@@ -108,38 +99,27 @@ function Main({ data }: { data: OpenData }) {
     if (id.startsWith('pin:')) { const view = pinned.find((item) => item.id === id.slice(4)); commit({ section: view?.recordKind === 'organization' ? 'companies' : 'people', record: null, query: { view: `view:${id.slice(4)}` } }); return; }
     commit({ section: id as Section, record: null, query: {} });
   };
-  const [title, context] = TITLES[route.section];
   const primary = route.section === 'companies' ? 'company' : route.section === 'pipelines' ? 'opportunity' : 'person';
-  const ask = {
-    today: 'Using the People app, what needs my attention today? Cover upcoming meetings, what I offered to do and what I am waiting on. Cite sources.',
-    people: 'Using the People app, look at the people in my current view and suggest who I should reconnect with and why. Cite sources. Do not send anything.',
-    'follow-ups': 'What am I waiting on, and what did I offer to do? Use the People app and cite the evidence.',
-    companies: 'Using the People app, which companies have open next actions or opportunities? Cite linked records.',
-    pipelines: 'Using the People app, review my pipeline. What is each opportunity\'s next step? Values are per opportunity and must not be added together.',
-    sources: 'What does the People app have access to, and is any coverage partial?',
-  }[route.section];
+  const sectionLabel = tabs.find((tab) => tab.id === activeTab)?.label ?? 'People';
   const notice = data.fixture
-    ? <Notice tone="info" title="Fictional preview">These people, companies and messages are invented. Nothing here reads an account or sends anything.</Notice>
+    ? <Notice tone="info" title="Fictional preview">Invented people and messages. Nothing reads an account or sends anything.</Notice>
     : data.attention.reconnect > 0 ? <Notice tone="warning" title={`${data.attention.reconnect} account${data.attention.reconnect === 1 ? ' needs' : 's need'} reconnecting`} action={<Button size="sm" onClick={() => void app.manageAccess()}>Reconnect</Button>}>Saved records stay available. Updates resume after you reconnect in Ri.</Notice>
       : offerCompanies ? <Notice tone="info" title="Show Companies in navigation?" action={<ButtonRow><Button size="sm" onClick={async () => { await navigation.run({ companies: 'shown', companiesOffered: true }); navigation.reset(); setOfferCompanies(false); announce('Companies added to navigation'); }}>Show Companies</Button><Button size="sm" variant="quiet" onClick={async () => { await navigation.run({ companiesOffered: true }); navigation.reset(); setOfferCompanies(false); }}>Not now</Button></ButtonRow>}>You can always open a company from a person.</Notice>
         : undefined;
   const panelId = 'pe-section';
   return (
     <UiProvider value={ui}>
-      <AppShell
-        eyebrow="People"
-        title={title}
-        context={context}
-        notice={notice}
-        secondaryActions={<AskRiButton prompt={ask} />}
-        primaryAction={data.canWrite && route.section !== 'sources' ? <Button variant="primary" onClick={() => setCreate(primary)}>{primary === 'company' ? 'Add company' : primary === 'opportunity' ? 'Add opportunity' : 'Add person'}</Button> : undefined}
-        tabs={(
-          <div className="pe-tabs-row">
-            <SectionTabs label="People sections" panelId={panelId} value={activeTab} onChange={onTab} items={tabs} />
-            {data.owner && <Button size="sm" variant="quiet" className="pe-add-view" onClick={() => setAddView(true)}>Add view</Button>}
+      {/* Ri's header names the app and holds Ask Ri, so the view starts at its sections: no page headline. */}
+      <main className="pe-shell">
+        <h1 className="ri-sr-only">People: {sectionLabel}</h1>
+        <header className="pe-top">
+          <SectionTabs label="People sections" panelId={panelId} value={activeTab} onChange={onTab} items={tabs} />
+          <div className="pe-top__actions">
+            {data.owner && <Button size="sm" variant="quiet" onClick={() => setAddView(true)}>Add view</Button>}
+            {data.canWrite && route.section !== 'sources' && <Button size="sm" variant="primary" onClick={() => setCreate(primary)}><PlusIcon />{primary === 'company' ? 'Add company' : primary === 'opportunity' ? 'Add opportunity' : 'Add person'}</Button>}
           </div>
-        )}
-      >
+        </header>
+        {notice && <div className="pe-notice-slot">{notice}</div>}
         <SectionPanel panelId={panelId} value={activeTab}>
           {route.section === 'today' && <TodayView />}
           {route.section === 'people' && <Directory kind="person" />}
@@ -153,7 +133,7 @@ function Main({ data }: { data: OpenData }) {
           {route.section === 'pipelines' && <PipelinesView onCreate={() => setCreate('opportunity')} />}
           {route.section === 'sources' && <SourcesView />}
         </SectionPanel>
-      </AppShell>
+      </main>
       <EvidenceDialog request={evidence} onClose={() => setEvidence(null)} />
       <FollowUpHost request={follow} onClose={() => setFollow(null)} />
       {create === 'person' && <AddPersonDialog onClose={(id) => { setCreate(null); if (id) ui.openPerson(id); }} />}

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AskRiButton, Avatar, Button, ButtonRow, Checkbox, ConflictNotice, DateInput, Dialog, EmptyState, InlineError, KeyValueList, Menu, Notice, SectionPanel,
-  Select, StatusLabel, TextArea, TextInput, Timeline, useAnnounce, useQuery, useRiApp, type TimelineItem as KitTimelineItem,
+  Select, TextArea, TextInput, Timeline, useAnnounce, useQuery, useRiApp, type TimelineItem as KitTimelineItem,
 } from '@ri/app-kit/ui';
 import type { Affiliation, Briefing, Commitment, Fact, Identity, Note, PersonDetail, TimelineItem } from '../schemas.js';
-import { dayLabel, meetingLabel, updatedLabel } from './format.js';
-import { CoverageFooter, DueLabel, Failure, Loading, NameLink, RecordTabs, TaskStatus, useSave, usePeople } from './shared.js';
+import { dateLabel, dayLabel, meetingLabel, updatedLabel } from './format.js';
+import { Cite, CoverageFooter, DueLabel, Failure, Field, Loading, NameLink, RecordTabs, TaskStatus, useSave, usePeople } from './shared.js';
 
 type Saved<T> = { status: 'saved'; record: T } | { status: 'conflict'; current: T; message: string };
 
@@ -13,20 +13,21 @@ export function PersonWorkspace({ id, headingLevel = 2 }: { id: string; headingL
   const ui = usePeople();
   const detail = useQuery<PersonDetail & { merges: { id: string; revision: number; survivorId: string; mergedId: string; createdAt: string }[] }>('get_person', { id }, { keepPrevious: false });
   const briefing = useQuery<Briefing>('get_briefing', { subjectKind: 'person', subjectId: id }, { keepPrevious: false });
-  const [tab, setTab] = useState(ui.route.query.tab ?? 'timeline');
+  const [tab, setTab] = useState(ui.route.query.tab || 'overview');
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [noteFocus, setNoteFocus] = useState(0);
   const save = useSave<Saved<unknown>>('save_person');
   const announce = useAnnounce();
   const { ask } = useRiApp();
-  useEffect(() => { setTab(ui.route.query.tab ?? 'timeline'); }, [id]);
+  useEffect(() => { setTab(ui.route.query.tab || 'overview'); }, [id]);
   if (detail.error && !detail.data) return <Failure error={detail.error} reload={detail.reload} />;
   if (!detail.data) return <Loading label="Loading person" />;
   const person = detail.data.person, header = detail.data.header;
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
   const canWrite = ui.data.canWrite;
   const first = person.name.split(/\s+/)[0] ?? person.name;
+  const role = header.role ?? person.headline;
   const prompt = header.nextMeeting
     ? `Prepare me for my meeting with ${person.name} (${meetingLabel(header.nextMeeting.at)}). Use the People app's permitted records: recent exchanges, my notes, that meeting and open commitments on both sides. Cite sources and say what is unknown.`
     : `Using the People app, summarize what I know about ${person.name}: recent exchanges, my notes and open commitments. Cite sources and say what is unknown.`;
@@ -35,7 +36,7 @@ export function PersonWorkspace({ id, headingLevel = 2 }: { id: string; headingL
     announce(result.status === 'saved' ? (person.pinned ? 'Unpinned' : 'Pinned') : 'This person changed. Reloaded the latest version');
     void detail.reload();
   };
-  const selectTab = (next: string) => { setTab(next); ui.setQuery({ tab: next === 'timeline' ? null : next }); };
+  const selectTab = (next: string) => { setTab(next); ui.setQuery({ tab: next === 'overview' ? null : next }); };
   const more = [
     ...(canWrite ? [{ id: 'edit', label: 'Edit details' }] : []),
     ...(canWrite ? [{ id: 'pin', label: person.pinned ? 'Unpin' : 'Pin' }] : []),
@@ -47,14 +48,14 @@ export function PersonWorkspace({ id, headingLevel = 2 }: { id: string; headingL
       <header className="pe-record-head">
         <div className="pe-record-head__who">
           <Avatar name={person.name} size="lg" />
-          <div className="pe-stack" style={{ gap: '0.25rem' }}>
+          <div className="pe-record-head__text">
             <Heading className="pe-record-title">{person.name}</Heading>
             <p className="pe-record-sub">
-              {header.role ?? (header.company ? null : 'Role not recorded')}
-              {header.role && header.company && ' · '}
+              {role && <span>{role}</span>}
               {header.company && <NameLink kind="company" id={header.company.id} name={header.company.name} />}
+              {person.pinned && <span className="pe-pill">Pinned</span>}
+              {person.archived && <span className="pe-pill">Archived</span>}
             </p>
-            <p className="pe-small pe-muted">{header.affiliationNote}{person.pinned ? ' · Pinned' : ''}{person.archived ? ' · Archived' : ''}</p>
           </div>
         </div>
         <ButtonRow>
@@ -69,32 +70,71 @@ export function PersonWorkspace({ id, headingLevel = 2 }: { id: string; headingL
           }} />
         </ButtonRow>
       </header>
-      <div className="pe-record-meta">
-        <span>{header.lastExchangeAt ? `Last direct exchange ${dayLabel(header.lastExchangeAt)}` : 'No direct exchange in the indexed history'}</span>
-        <span>{header.nextMeeting ? `${header.nextMeeting.title} · ${meetingLabel(header.nextMeeting.at)}` : 'No meeting scheduled'}</span>
-        {person.keepInTouchDays && <span>Keep in touch every {person.keepInTouchDays} days</span>}
-      </div>
       {detail.data.reviews.length > 0 && ui.data.owner && (
         <Notice tone="info" title="Identity review" action={<Button size="sm" onClick={() => ui.go({ section: 'sources', record: null, query: { panel: 'review' } })}>Review</Button>}>
           {detail.data.reviews[0]!.summary}
         </Notice>
       )}
-      <BriefingCard briefing={briefing.data} error={briefing.error} detail={detail.data} reload={() => { void briefing.reload(); void detail.reload(); }} />
-      <RecordTabs label={`${person.name} sections`} panelId={`pe-person-${id}`} value={tab} onChange={selectTab}
-        items={[{ id: 'timeline', label: 'Timeline' }, { id: 'notes', label: 'Notes', badge: detail.data.notes.length || undefined }, { id: 'details', label: 'Details' }]} />
-      <SectionPanel panelId={`pe-person-${id}`} value={tab}>
-        {tab === 'timeline' && <PersonTimeline id={id} />}
-        {tab === 'notes' && <NotesPanel subjectKind="person" subjectId={id} notes={detail.data.notes} reload={detail.reload} focusNew={noteFocus} />}
-        {tab === 'details' && <PersonDetails detail={detail.data} reload={detail.reload} />}
-      </SectionPanel>
-      <ButtonRow>
-        <AskRiButton variant="primary" prompt={prompt}>Prepare with Ri</AskRiButton>
-        {canWrite && tab !== 'notes' && <Button onClick={() => selectTab('notes')}>Add note</Button>}
-      </ButtonRow>
-      <CoverageFooter coverage={detail.data.coverage} />
+      <div className="pe-record-body">
+        <PersonFields detail={detail.data} onEdit={canWrite ? () => setEditing(true) : undefined} />
+        <div className="pe-record-main">
+          <RecordTabs label={`${person.name} sections`} panelId={`pe-person-${id}`} value={tab} onChange={selectTab}
+            items={[{ id: 'overview', label: 'Overview' }, { id: 'timeline', label: 'Timeline' }, { id: 'notes', label: 'Notes', badge: detail.data.notes.length || undefined }, { id: 'details', label: 'Details' }]} />
+          <SectionPanel panelId={`pe-person-${id}`} value={tab}>
+            {tab === 'overview' && <BriefingCard briefing={briefing.data} error={briefing.error} detail={detail.data} reload={() => { void briefing.reload(); void detail.reload(); }} />}
+            {tab === 'timeline' && <PersonTimeline id={id} />}
+            {tab === 'notes' && <NotesPanel subjectKind="person" subjectId={id} notes={detail.data.notes} reload={detail.reload} focusNew={noteFocus} />}
+            {tab === 'details' && <PersonDetails detail={detail.data} reload={detail.reload} />}
+          </SectionPanel>
+          <CoverageFooter coverage={detail.data.coverage} />
+        </div>
+      </div>
       {editing && <EditPersonDialog detail={detail.data} onClose={() => { setEditing(false); void detail.reload(); }} />}
       {removing && <RemoveDialog kind="person" id={person.id} name={person.name} revision={person.revision} onClose={() => setRemoving(false)} />}
     </article>
+  );
+}
+
+/** The record's fields column: how to reach them, where things stand, and what links to them. */
+function PersonFields({ detail, onEdit }: { detail: PersonDetail; onEdit?: () => void }) {
+  const ui = usePeople();
+  const { person, header, identities } = detail;
+  const of = (kind: Identity['kind']) => identities.filter((identity) => identity.kind === kind);
+  const emails = of('email').slice(0, 3);
+  const phones = of('phone').slice(0, 2);
+  const profiles = [...of('linkedin'), ...of('website')].slice(0, 3);
+  const action = header.nextAction;
+  return (
+    <aside className="pe-fields" aria-label={`${person.name} fields`}>
+      <section className="pe-fields__group">
+        <div className="pe-fields__head"><span>Fields</span>{onEdit && <Button size="sm" variant="quiet" onClick={onEdit}>Edit</Button>}</div>
+        <dl>
+          <Field label="Email">{emails.length ? emails.map((identity) => <div key={identity.keyId} className="pe-field__line">{identity.value}</div>) : null}</Field>
+          {phones.length > 0 && <Field label="Phone">{phones.map((identity) => <div key={identity.keyId} className="pe-field__line">{identity.value}</div>)}</Field>}
+          {profiles.length > 0 && <Field label="Profiles">{profiles.map((identity) => <div key={identity.keyId} className="pe-field__line">{identity.value}</div>)}</Field>}
+          <Field label="Last exchange">{header.lastExchangeAt ? dayLabel(header.lastExchangeAt) : null}</Field>
+          <Field label="Next meeting">{header.nextMeeting ? <>{meetingLabel(header.nextMeeting.at)}<div className="pe-small pe-muted">{header.nextMeeting.title}</div></> : null}</Field>
+          <Field label="Next action">{action ? <>{action.label}{action.dueDate && <div className="pe-small pe-muted">{dateLabel(action.dueDate)}</div>}</> : null}</Field>
+          <Field label="Keep in touch" empty="Off">{person.keepInTouchDays ? `Every ${person.keepInTouchDays} days` : null}</Field>
+          <Field label="Lists">{detail.lists.length ? <span className="pe-chips">{detail.lists.map((list) => <span key={list.id} className="pe-pill">{list.name}</span>)}</span> : null}</Field>
+          <Field label="Found through">{person.originLabel}</Field>
+          <Field label="Added">{dayLabel(person.createdAt)}</Field>
+        </dl>
+        {header.company && <p className="pe-small pe-muted">{header.affiliationNote}</p>}
+      </section>
+      {detail.opportunities.length > 0 && (
+        <section className="pe-fields__group" aria-label="Opportunities">
+          <div className="pe-fields__head"><span>Opportunities</span><span>{detail.opportunities.length}</span></div>
+          <div className="pe-related">
+            {detail.opportunities.map((opportunity) => (
+              <button key={opportunity.id} type="button" className="pe-related__row" onClick={() => ui.openOpportunity(opportunity.id)}>
+                <span className="pe-related__text"><span className="pe-related__name">{opportunity.title}</span><span className="pe-related__detail">{opportunity.pipelineName} · {opportunity.stageLabel}</span></span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+    </aside>
   );
 }
 
@@ -121,38 +161,41 @@ function BriefingCard({ briefing, error, detail, reload }: { briefing: Briefing 
     reload();
   };
   const commitments = detail.commitments;
+  const items = briefing?.items.filter((item) => item.kind !== 'i_owe' && item.kind !== 'waiting_on') ?? [];
   return (
-    <section className="pe-briefing" aria-label={briefing?.title ?? 'Recent context'}>
-      <div className="pe-row pe-between">
-        <h3 className="ri-h3">{briefing?.title ?? 'Recent context'}</h3>
-        {briefing && briefing.coverage.extraction === 'on' && briefing.origin !== 'generated' && (
-          <Button size="sm" variant="quiet" busy={request.pending || step.pending} onClick={() => void prepare()}>Prepare briefing</Button>
-        )}
-      </div>
-      {error && !briefing ? <InlineError>{error}</InlineError> : !briefing ? <Loading label="Loading briefing" /> : (
-        <>
-          {briefing.items.filter((item) => item.kind !== 'i_owe' && item.kind !== 'waiting_on').length ? (
-            <ul className="pe-briefing__items">
-              {briefing.items.filter((item) => item.kind !== 'i_owe' && item.kind !== 'waiting_on').map((item, index) => (
-                <li key={index} className="pe-briefing__item">
-                  <p>{item.text}</p>
-                  {item.evidenceIds[0] && <span><button type="button" className="pe-link pe-small" onClick={() => ui.showEvidence(item.evidenceIds[0]!)}>View evidence</button></span>}
-                </li>
-              ))}
-            </ul>
-          ) : <p className="pe-muted">No recent conversation, note or meeting in the permitted records.</p>}
-          {briefing.unknowns.length > 0 && <p className="pe-small pe-muted">{briefing.unknowns.join(' ')}</p>}
-          <p className="pe-small pe-muted">{briefing.origin === 'generated' && briefing.generatedAt ? `Generated ${updatedLabel(briefing.generatedAt).replace('Updated ', '')} from cited records. ` : ''}{briefing.statusLabel}</p>
-        </>
-      )}
-      {commitments.length > 0 && <div className="pe-briefing__divider" />}
-      {commitments.length > 0 && (
-        <div className="pe-stack">
-          <p className="pe-section-label">Relationship context</p>
-          {commitments.slice(0, 4).map((commitment) => <CommitmentRow key={commitment.id} commitment={commitment} reload={reload} />)}
+    <div className="pe-stack pe-stack--loose">
+      <section className="pe-section" aria-label={briefing?.title ?? 'Recent context'}>
+        <div className="pe-section__head">
+          <h3 className="pe-section__title">{briefing?.title ?? 'Recent context'}</h3>
+          {briefing && briefing.coverage.extraction === 'on' && briefing.origin !== 'generated' && (
+            <Button size="sm" variant="quiet" busy={request.pending || step.pending} onClick={() => void prepare()}>Prepare briefing</Button>
+          )}
         </div>
+        {error && !briefing ? <InlineError>{error}</InlineError> : !briefing ? <Loading label="Loading briefing" /> : (
+          <>
+            {items.length ? (
+              <ul className="pe-briefing__items">
+                {items.map((item, index) => (
+                  <li key={index} className="pe-briefing__item">
+                    {item.text}{item.evidenceIds[0] && <Cite evidenceId={item.evidenceIds[0]} />}
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="pe-muted">No recent conversation, note or meeting in the permitted records.</p>}
+            {briefing.unknowns.length > 0 && <p className="pe-small pe-muted">{briefing.unknowns.join(' ')}</p>}
+            <p className="pe-briefing__meta">{briefing.origin === 'generated' && briefing.generatedAt ? `Generated ${updatedLabel(briefing.generatedAt).replace('Updated ', '')} from cited records. ` : ''}{briefing.statusLabel}</p>
+          </>
+        )}
+      </section>
+      {commitments.length > 0 && (
+        <section className="pe-section" aria-label="Commitments">
+          <div className="pe-section__head"><h3 className="pe-section__title">Commitments</h3>{commitments.length > 4 && <Button size="sm" variant="quiet" onClick={() => ui.go({ section: 'follow-ups', record: null, query: {} })}>All follow-ups</Button>}</div>
+          <div className="pe-commitments">
+            {commitments.slice(0, 4).map((commitment) => <CommitmentRow key={commitment.id} commitment={commitment} reload={reload} />)}
+          </div>
+        </section>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -173,9 +216,9 @@ export function CommitmentRow({ commitment, reload, showSubject }: { commitment:
   const tomorrow = new Date(Date.now() + 864e5 * 7).toISOString().slice(0, 10);
   return (
     <div className="pe-commitment">
-      <div className="pe-row">
-        <span className="pe-section-label">{commitment.state === 'suggested' ? 'Suggestion from email' : commitment.direction === 'i_owe' ? 'You owe' : 'Waiting on'}</span>
-        {commitment.state === 'accepted' && <StatusLabel tone="neutral">Accepted</StatusLabel>}
+      <div className="pe-commitment__kind">
+        <span>{commitment.state === 'suggested' ? 'Suggestion from email' : commitment.direction === 'i_owe' ? 'You owe' : 'Waiting on'}</span>
+        {commitment.state === 'accepted' && <span className="pe-pill">Accepted</span>}
         {commitment.snoozedUntil && <span className="pe-pill">Snoozed until {dayLabel(commitment.snoozedUntil)}</span>}
       </div>
       <p className="pe-commitment__action">{text}.{showSubject && subject && <> <span className="pe-muted">({subject.name})</span></>}</p>
@@ -183,6 +226,7 @@ export function CommitmentRow({ commitment, reload, showSubject }: { commitment:
         <DueLabel date={commitment.dueDate} />
         {commitment.occurredAt && <> · From {commitment.sourceLabel}, {dayLabel(commitment.occurredAt)}</>}
         {commitment.confirmation && <> · {commitment.confirmation}</>}
+        {commitment.evidenceId && <Cite evidenceId={commitment.evidenceId} passage={commitment.passage} />}
       </p>
       {commitment.previousDecision && <Notice tone="info">{commitment.previousDecision}</Notice>}
       {commitment.completionEvidenceId && commitment.state === 'accepted' && (
@@ -192,7 +236,6 @@ export function CommitmentRow({ commitment, reload, showSubject }: { commitment:
       )}
       {commitment.taskLink && <div><TaskStatus link={commitment.taskLink} /></div>}
       <ButtonRow>
-        {commitment.evidenceId && <Button size="sm" variant="link" onClick={() => ui.showEvidence(commitment.evidenceId!, commitment.passage)}>View evidence</Button>}
         {ui.data.canWrite && commitment.state === 'suggested' && <Button size="sm" onClick={() => void decide('accept')} busy={review.pending}>Accept</Button>}
         {ui.data.canWrite && (commitment.state === 'suggested' || commitment.state === 'accepted') && !commitment.taskLink && (
           <Button size="sm" onClick={() => ui.followUp({ subject: { kind: 'commitment', id: commitment.id }, title: commitment.action, dueDate: commitment.dueDate, label: subject?.name ?? 'This commitment' })}>{commitment.state === 'suggested' ? 'Accept and create task' : 'Create follow-up'}</Button>
@@ -300,7 +343,7 @@ export function NotesPanel({ subjectKind, subjectId, notes, reload, focusNew = 0
     <div className="pe-stack pe-stack--loose">
       {ui.data.canWrite && <NoteEditor key="new" subjectKind={subjectKind} subjectId={subjectId} onSaved={reload} focus={focusNew} />}
       {notes.length === 0 && <p className="pe-muted">No notes yet. Notes stay in your collection and are never shared with a company or a chat unless you share that collection.</p>}
-      {notes.map((note) => <NoteEditor key={note.id} note={note} subjectKind={subjectKind} subjectId={subjectId} onSaved={reload} />)}
+      {notes.length > 0 && <div>{notes.map((note) => <NoteEditor key={note.id} note={note} subjectKind={subjectKind} subjectId={subjectId} onSaved={reload} />)}</div>}
     </div>
   );
 }
@@ -333,12 +376,12 @@ function NoteEditor({ note, subjectKind, subjectId, onSaved, focus = 0 }: { note
     onSaved();
   };
   if (note && !editing) return (
-    <div className="pe-card pe-stack" style={{ gap: '0.5rem' }}>
+    <div className="pe-note">
       <div className="pe-row pe-between">
         <p className="pe-small pe-muted">{note.title ? `${note.title} · ` : ''}{note.collectionLabel} · {dayLabel(note.updatedAt)}</p>
         {ui.data.canWrite && <Button size="sm" variant="quiet" onClick={() => setEditing(true)}>Edit</Button>}
       </div>
-      <p style={{ whiteSpace: 'pre-wrap' }}>{note.body}</p>
+      <p className="pe-note__body">{note.body}</p>
     </div>
   );
   return (
@@ -399,11 +442,10 @@ function PersonDetails({ detail, reload }: { detail: PersonDetail & { merges: { 
           <ul className="pe-list">
             {detail.affiliations.map((item) => (
               <li key={item.id} className="pe-stack" style={{ gap: '0.25rem' }}>
-                <p><strong>{item.role ?? 'Role not recorded'}</strong> · <NameLink kind="company" id={item.organizationId} name={item.organizationName} /></p>
-                <p className="pe-small pe-muted">{item.description}{item.validFrom ? ` · From ${item.validFrom}` : ''}{item.validTo ? ` · Until ${item.validTo}` : ''}</p>
+                <p className="pe-row" style={{ gap: '0.375rem' }}><strong>{item.role ?? 'Role not recorded'}</strong> <NameLink kind="company" id={item.organizationId} name={item.organizationName} /></p>
+                <p className="pe-small pe-muted">{item.description}{item.validFrom ? ` · From ${item.validFrom}` : ''}{item.validTo ? ` · Until ${item.validTo}` : ''}{item.evidenceId && <Cite evidenceId={item.evidenceId} />}</p>
                 {ui.data.canWrite && (
                   <ButtonRow>
-                    {item.evidenceId && <Button size="sm" variant="link" onClick={() => ui.showEvidence(item.evidenceId!)}>View evidence</Button>}
                     {item.confidence !== 'confirmed' && <Button size="sm" onClick={async () => { await decideAffiliation.run({ id: item.id, expectedRevision: item.revision, decision: 'confirm', status: 'current' }, 'Confirmed as current'); decideAffiliation.reset(); reload(); }}>Confirm as current</Button>}
                     {item.confidence === 'confirmed' && item.status !== 'former' && <Button size="sm" onClick={() => setAffiliation(item)}>Edit or end</Button>}
                     <Button size="sm" variant="quiet" onClick={async () => { await decideAffiliation.run({ id: item.id, expectedRevision: item.revision, decision: 'reject' }, 'Removed. It will not come back on resync'); decideAffiliation.reset(); reload(); }}>{item.confidence === 'suggested' ? 'Not correct' : 'Remove'}</Button>
@@ -442,10 +484,8 @@ function PersonDetails({ detail, reload }: { detail: PersonDetail & { merges: { 
         </section>
       )}
       <KeyValueList stacked items={[
-        { label: 'How this person was found', value: person.originLabel },
         { label: 'Collection', value: person.collection === 'manual' ? 'Your records' : person.collection },
         { label: 'Names seen in sources', value: person.observedNames.length ? person.observedNames.map((name) => `${name.name} (${name.sourceLabel})`).join(', ') : 'Not recorded' },
-        { label: 'Added', value: dayLabel(person.createdAt) },
       ]} />
       {detail.merges.length > 0 && ui.data.owner && (
         <section className="pe-stack" aria-label="Merges">
@@ -465,14 +505,13 @@ export function FactRow({ fact, reload }: { fact: Fact; reload(): void }) {
   const review = useSave<Saved<Fact>>('review_fact');
   const decide = async (decision: string) => { await review.run({ id: fact.id, expectedRevision: fact.revision, decision }, decision === 'accept' ? 'Accepted' : 'Saved'); review.reset(); reload(); };
   return (
-    <div className="pe-card pe-stack" style={{ gap: '0.5rem' }}>
-      <div className="pe-row"><span className="pe-section-label">{fact.label}</span>{fact.status === 'suggested' ? <StatusLabel tone="warning">Suggestion</StatusLabel> : <StatusLabel>Confirmed by you</StatusLabel>}</div>
-      <p><strong>{fact.userValue ?? fact.value}</strong></p>
-      <p className="pe-small pe-muted">From {fact.sourceLabel}, {dayLabel(fact.observedAt)}. {fact.origin === 'signature' ? 'Read from an email signature.' : fact.origin === 'extraction' ? 'Suggested by relationship extraction.' : 'From an import.'}</p>
+    <div className="pe-commitment">
+      <div className="pe-commitment__kind"><span>{fact.label}</span><span className="pe-pill">{fact.status === 'suggested' ? 'Suggestion' : 'Confirmed by you'}</span></div>
+      <p className="pe-commitment__action">{fact.userValue ?? fact.value}</p>
+      <p className="pe-small pe-muted">From {fact.sourceLabel}, {dayLabel(fact.observedAt)}. {fact.origin === 'signature' ? 'Read from an email signature.' : fact.origin === 'extraction' ? 'Suggested by relationship extraction.' : 'From an import.'}{fact.evidenceId && <Cite evidenceId={fact.evidenceId} passage={fact.passage} />}</p>
       {fact.previousDecision && <Notice tone="info">{fact.previousDecision}</Notice>}
       {ui.data.canWrite && (
         <ButtonRow>
-          {fact.evidenceId && <Button size="sm" variant="link" onClick={() => ui.showEvidence(fact.evidenceId!, fact.passage)}>View evidence</Button>}
           {fact.status === 'suggested' && <Button size="sm" busy={review.pending} onClick={() => void decide('accept')}>Accept</Button>}
           {fact.status === 'suggested' && <Button size="sm" variant="quiet" onClick={() => void decide('reject')}>Reject</Button>}
           {fact.status === 'active' && <Button size="sm" variant="quiet" onClick={() => void decide('withdraw')}>Remove from context</Button>}

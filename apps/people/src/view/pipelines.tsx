@@ -6,7 +6,7 @@ import {
 import type { Coverage, OpportunityDetail, OpportunitySummary, Pipeline } from '../schemas.js';
 import { dateLabel, dayLabel } from './format.js';
 import { FactRow, NotesPanel, PersonTimeline } from './person.js';
-import { CoverageFooter, Failure, Loading, NameLink, TaskStatus, useSave, usePeople } from './shared.js';
+import { CoverageFooter, EmptyCell, Failure, Field, Loading, NameLink, RecordChip, TaskStatus, useSave, usePeople } from './shared.js';
 
 type Saved<T> = { status: 'saved'; record: T } | { status: 'conflict'; current: T; message: string };
 
@@ -43,19 +43,17 @@ export function PipelinesView({ onCreate }: { onCreate(): void }) {
   const narrow = layout === 'narrow';
   const board = (
     <div className="pe-stack">
-      <div className="pe-row pe-between">
-        <div>
-          <h2 className="ri-h2">{pipeline.name}</h2>
-          <p className="pe-small pe-muted">{items.length} {items.length === 1 ? 'opportunity' : 'opportunities'}{items.length && items.every((item) => item.nextAction) ? ' · Each one has a clear next step' : ''}</p>
+      <div className="pe-board-head">
+        <div className="pe-board-head__title">
+          <h2>{pipeline.name}</h2>
+          <span className="pe-small pe-muted">{items.length} {items.length === 1 ? 'opportunity' : 'opportunities'}</span>
         </div>
-        <ButtonRow>
+        <div className="pe-board-head__tools">
           {pipelines.data.items.length > 1 && <Select hideLabel label="Pipeline" value={pipeline.id} onChange={(value) => ui.setQuery({ pipeline: value })} options={pipelines.data.items.map((item) => ({ value: item.id, label: item.name }))} />}
-          {ui.data.owner && <Menu size="sm" variant="quiet" label="Pipeline" items={[{ id: 'stages', label: 'Edit stages' }, { id: 'new', label: 'Add another pipeline' }, { id: 'hide', label: 'Hide this view' }]} onSelect={(choice) => { if (choice === 'stages') setEditing(pipeline); if (choice === 'new') setSetup(true); if (choice === 'hide') void hide(); }} />}
-        </ButtonRow>
-      </div>
-      <div className="pe-row pe-between">
-        <SegmentedControl label="Pipeline layout" value={mode} onChange={(value) => ui.setQuery({ layout: value === 'board' ? null : value })} options={[{ id: 'board', label: 'Board' }, { id: 'list', label: 'List' }]} />
-        <Button size="sm" aria-pressed={showValues} onClick={() => ui.setQuery({ values: showValues ? null : '1' })}>{showValues ? 'Hide values' : 'Show values'}</Button>
+          <SegmentedControl label="Pipeline layout" value={mode} onChange={(value) => ui.setQuery({ layout: value === 'board' ? null : value })} options={[{ id: 'board', label: 'Board' }, { id: 'list', label: 'List' }]} />
+          <Button size="sm" variant="quiet" aria-pressed={showValues} onClick={() => ui.setQuery({ values: showValues ? null : '1' })}>{showValues ? 'Hide values' : 'Show values'}</Button>
+          {ui.data.owner && <Menu size="sm" variant="quiet" label="Pipeline" align="end" items={[{ id: 'stages', label: 'Edit stages' }, { id: 'new', label: 'Add another pipeline' }, { id: 'hide', label: 'Hide this view' }]} onSelect={(choice) => { if (choice === 'stages') setEditing(pipeline); if (choice === 'new') setSetup(true); if (choice === 'hide') void hide(); }} />}
+        </div>
       </div>
       {opportunities.error && !opportunities.data ? <Failure error={opportunities.error} reload={opportunities.reload} /> : !opportunities.data ? <Loading label="Loading opportunities" /> : mode === 'board' ? (
         narrow ? (
@@ -67,7 +65,7 @@ export function PipelinesView({ onCreate }: { onCreate(): void }) {
           <div className="pe-board" role="list" aria-label={`${pipeline.name} board`}>
             {pipeline.stages.map((column) => (
               <section key={column.id} className="pe-column" role="listitem" aria-label={`${column.label}, ${byStage(column.id).length}`}>
-                <div className="pe-column__head">{column.label}<span>{byStage(column.id).length}</span></div>
+                <div className="pe-column__head"><span className="pe-stage" data-kind={column.kind}>{column.label}</span><span>{byStage(column.id).length}</span></div>
                 {byStage(column.id).length ? byStage(column.id).map((item) => <OpportunityCard key={item.id} item={item} pipeline={pipeline} showValue={showValues} reload={opportunities.reload} />) : <p className="pe-column__empty">No opportunities here</p>}
               </section>
             ))}
@@ -77,14 +75,13 @@ export function PipelinesView({ onCreate }: { onCreate(): void }) {
         <DataTable caption="Opportunities" captionHidden rows={items} rowKey="id" selectedKey={open} onSelect={(id) => ui.openOpportunity(id)}
           columns={[
             { key: 'title', label: 'Opportunity', render: (row) => row.title },
-            { key: 'organization', label: 'Company', render: (row) => row.organization ? row.organization.name : <span className="pe-unavailable">Not recorded</span> },
-            { key: 'stage', label: 'Stage', render: (row) => row.stageLabel },
-            { key: 'next', label: 'Next action', render: (row) => row.nextAction ? `${row.nextAction}${row.nextActionDate ? ` · ${dateLabel(row.nextActionDate)}` : ''}` : <span className="pe-unavailable">None chosen</span> },
-            ...(showValues ? [{ key: 'value', label: 'Value', align: 'end' as const, render: (row: OpportunitySummary) => row.value ? formatMoney(row.value.minor, row.value.currency) : <span className="pe-unavailable">Not recorded</span> }] : []),
+            { key: 'organization', label: 'Company', render: (row) => row.organization ? <RecordChip kind="company" name={row.organization.name} /> : <EmptyCell /> },
+            { key: 'stage', label: 'Stage', render: (row) => <span className="pe-stage" data-kind={pipeline.stages.find((stage) => stage.id === row.stageId)?.kind}>{row.stageLabel}</span> },
+            { key: 'next', label: 'Next action', render: (row) => row.nextAction ? <>{row.nextAction}{row.nextActionDate && <span className="pe-cell-due">{dateLabel(row.nextActionDate)}</span>}</> : <EmptyCell label="None chosen" /> },
+            ...(showValues ? [{ key: 'value', label: 'Value', align: 'end' as const, render: (row: OpportunitySummary) => row.value ? formatMoney(row.value.minor, row.value.currency) : <EmptyCell /> }] : []),
           ]}
           empty={<EmptyState compact title="No opportunities yet" action={ui.data.canWrite ? <Button onClick={onCreate}>Add opportunity</Button> : undefined}>Add the first one when there is a concrete outcome to follow.</EmptyState>} />
       )}
-      <p className="pe-small pe-muted">Stages belong to opportunities. Your people stay people. Moving a card never sends a message or completes a task. Values are never added together.</p>
       <CoverageFooter coverage={opportunities.data?.coverage} />
       {setup && <PipelineSetupDialog onClose={(id) => { setSetup(false); void pipelines.reload(); if (id) ui.setQuery({ pipeline: id }); }} />}
       {editing && <StagesDialog pipeline={editing} onClose={() => { setEditing(null); void pipelines.reload(); void opportunities.reload(); }} />}
@@ -102,20 +99,20 @@ function OpportunityCard({ item, pipeline, showValue, reload }: { item: Opportun
   const announce = useAnnounce();
   return (
     <article className="pe-opp" aria-label={item.title}>
-      <span className="pe-small pe-muted">{item.organization?.name ?? item.people[0]?.name ?? 'No company or person linked'}</span>
       <button type="button" className="pe-opp__title" onClick={() => ui.openOpportunity(item.id)}>{item.title}</button>
-      {showValue && item.value && <span className="pe-small">{formatMoney(item.value.minor, item.value.currency)}</span>}
-      <div className="pe-opp__next">
-        {item.nextAction ? <>{item.nextAction}<div className="pe-muted" style={{ marginTop: '0.25rem' }}>{item.nextActionDate ? dateLabel(item.nextActionDate) : 'No date'}</div></> : <span className="pe-muted">No next action</span>}
-      </div>
+      <div className="pe-opp__field"><span>With</span>{item.organization ? <RecordChip kind="company" name={item.organization.name} /> : item.people[0] ? <RecordChip kind="person" name={item.people[0].name} /> : <span className="pe-muted">Nobody linked</span>}</div>
+      <div className="pe-opp__field"><span>Next</span><span>{item.nextAction ?? <span className="pe-muted">None chosen</span>}{item.nextAction && item.nextActionDate && <span className="pe-cell-due">{dateLabel(item.nextActionDate)}</span>}</span></div>
+      {showValue && item.value && <div className="pe-opp__field"><span>Value</span><span>{formatMoney(item.value.minor, item.value.currency)}</span></div>}
       {ui.data.canWrite && (
-        <Menu size="sm" variant="quiet" label="Move to stage" selectedId={item.stageId} items={pipeline.stages.map((stage) => ({ id: stage.id, label: stage.label }))} onSelect={async (stageId) => {
+        <div className="pe-opp__foot">
+        <Menu size="sm" variant="quiet" label="Move" ariaLabel="Move to stage" align="end" selectedId={item.stageId} items={pipeline.stages.map((stage) => ({ id: stage.id, label: stage.label }))} onSelect={async (stageId) => {
           if (stageId === item.stageId) return;
           const result = await move.run({ id: item.id, expectedRevision: item.revision, stageId });
           move.reset();
           announce(result.status === 'saved' ? `Moved to ${pipeline.stages.find((stage) => stage.id === stageId)?.label}. Tasks are unchanged` : 'Someone moved it first. Showing the latest stage');
           reload();
         }} />
+        </div>
       )}
     </article>
   );
@@ -131,13 +128,13 @@ function OpportunityWorkspace({ id, reload }: { id: string; reload(): void }) {
   if (!detail.data) return <Loading label="Loading opportunity" />;
   const opp = detail.data.opportunity;
   const refresh = () => { void detail.reload(); reload(); };
+  const stageKind = detail.data.stages.find((stage) => stage.id === opp.stageId)?.kind;
   return (
     <article className="pe-record" aria-label={opp.title}>
       <header className="pe-record-head">
-        <div className="pe-stack" style={{ gap: '0.25rem' }}>
+        <div className="pe-record-head__text">
           <h2 className="pe-record-title">{opp.title}</h2>
-          <p className="pe-record-sub">{opp.pipelineName} · {opp.stageLabel}{opp.closed ? ' · Closed' : ''}</p>
-          <p className="pe-small pe-muted">{opp.organization ? <NameLink kind="company" id={opp.organization.id} name={opp.organization.name} /> : 'No company linked'}{opp.people.length ? ' · ' : ''}{opp.people.map((person, index) => <span key={person.id}>{index ? ', ' : ''}<NameLink kind="person" id={person.id} name={person.name} /></span>)}</p>
+          <p className="pe-record-sub"><span>{opp.pipelineName}</span><span className="pe-stage" data-kind={stageKind}>{opp.stageLabel}</span>{opp.closed && <span className="pe-pill">Closed</span>}</p>
         </div>
         <ButtonRow>
           {ui.data.canWrite && <Menu size="sm" label="Move to stage" selectedId={opp.stageId} items={detail.data.stages.map((stage) => ({ id: stage.id, label: stage.label }))} onSelect={async (stageId) => {
@@ -151,37 +148,52 @@ function OpportunityWorkspace({ id, reload }: { id: string; reload(): void }) {
           <AskRiButton size="sm" prompt={`Review the ${opp.title} opportunity${opp.organization ? ` at ${opp.organization.name}` : ''} in the People app. What is the next step? Cite linked records.`} />
         </ButtonRow>
       </header>
-      <div className="pe-company-grid">
-        <div className="pe-stack pe-stack--loose">
-          <section className="pe-card pe-stack" aria-label="Next action">
-            <p className="pe-section-label">Next action</p>
-            <h3 className="ri-h3">{opp.nextAction ?? 'None chosen'}</h3>
-            <p className="pe-small pe-muted">{opp.nextActionDate ? `Target ${dateLabel(opp.nextActionDate)}` : 'No date'}{opp.targetDate ? ` · Opportunity target ${dateLabel(opp.targetDate)}` : ''}</p>
-            {opp.taskLink ? <TaskStatus link={opp.taskLink} /> : ui.data.canWrite && <ButtonRow><Button size="sm" onClick={() => ui.followUp({ subject: { kind: 'opportunity', id: opp.id }, title: opp.nextAction ?? opp.title, dueDate: opp.nextActionDate, label: opp.title })}>Create follow-up</Button></ButtonRow>}
+      <div className="pe-record-body">
+        <aside className="pe-fields" aria-label={`${opp.title} fields`}>
+          <section className="pe-fields__group">
+            <div className="pe-fields__head"><span>Fields</span></div>
+            <dl>
+              <Field label="Company">{opp.organization ? <NameLink kind="company" id={opp.organization.id} name={opp.organization.name} /> : null}</Field>
+              <Field label="People">{opp.people.length ? <span className="pe-chips">{opp.people.map((person) => <NameLink key={person.id} kind="person" id={person.id} name={person.name} />)}</span> : null}</Field>
+              <Field label="Target date">{opp.targetDate ? dateLabel(opp.targetDate) : null}</Field>
+              <Field label="Value" empty="Not recorded">{opp.value ? formatMoney(opp.value.minor, opp.value.currency) : null}</Field>
+            </dl>
+          </section>
+          <section className="pe-fields__group" aria-label="Stage history">
+            <div className="pe-fields__head"><span>Stage history</span></div>
+            <ol className="pe-list">
+              {detail.data.history.map((change) => (
+                <li key={change.id} className="pe-small">
+                  <strong>{change.fromStage ? `${change.fromStage} to ${change.toStage}` : `Created in ${change.toStage}`}</strong>
+                  {change.fromPipeline && change.fromPipeline !== change.toPipeline ? ` (${change.fromPipeline} to ${change.toPipeline})` : ''}
+                  <div className="pe-muted">{change.actor} · {dayLabel(change.at)}{change.reason && change.reason !== 'Created' ? ` · ${change.reason}` : ''}</div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        </aside>
+        <div className="pe-record-main">
+          <section className="pe-section" aria-label="Next action">
+            <div className="pe-section__head">
+              <h3 className="pe-section__title">Next action</h3>
+              {!opp.taskLink && ui.data.canWrite && <Button size="sm" variant="quiet" onClick={() => ui.followUp({ subject: { kind: 'opportunity', id: opp.id }, title: opp.nextAction ?? opp.title, dueDate: opp.nextActionDate, label: opp.title })}>Create follow-up</Button>}
+            </div>
+            <div className="pe-next">
+              <p className="pe-next__label">{opp.nextAction ?? 'None chosen'}</p>
+              <p className="pe-small pe-muted">{opp.nextActionDate ? dateLabel(opp.nextActionDate) : 'No date'}</p>
+              {opp.taskLink && <div><TaskStatus link={opp.taskLink} /></div>}
+            </div>
           </section>
           {detail.data.suggestions.length > 0 && (
-            <section className="pe-stack" aria-label="Stage suggestions">
-              <h3 className="ri-h3">Suggested from email</h3>
+            <section className="pe-section" aria-label="Stage suggestions">
+              <div className="pe-section__head"><h3 className="pe-section__title">Suggested from email</h3></div>
               <p className="pe-small pe-muted">A suggestion never moves the card on its own.</p>
-              {detail.data.suggestions.map((fact) => <FactRow key={fact.id} fact={fact} reload={refresh} />)}
+              <div className="pe-commitments">{detail.data.suggestions.map((fact) => <FactRow key={fact.id} fact={fact} reload={refresh} />)}</div>
             </section>
           )}
-          <section className="pe-stack" aria-label="Linked activity"><h3 className="ri-h3">Linked activity</h3><PersonTimeline id={opp.id} subjectKind="opportunity" /></section>
-          <section className="pe-stack" aria-label="Notes"><h3 className="ri-h3">Notes</h3><NotesPanel subjectKind="opportunity" subjectId={opp.id} notes={detail.data.notes} reload={refresh} /></section>
+          <section className="pe-section" aria-label="Linked activity"><div className="pe-section__head"><h3 className="pe-section__title">Linked activity</h3></div><PersonTimeline id={opp.id} subjectKind="opportunity" /></section>
+          <section className="pe-section" aria-label="Notes"><div className="pe-section__head"><h3 className="pe-section__title">Notes</h3></div><NotesPanel subjectKind="opportunity" subjectId={opp.id} notes={detail.data.notes} reload={refresh} /></section>
         </div>
-        <aside className="pe-card pe-stack" aria-label="Stage history">
-          <h3 className="ri-h3">Stage history</h3>
-          {opp.value && <p className="pe-small">Recorded value {formatMoney(opp.value.minor, opp.value.currency)}</p>}
-          <ol className="pe-list">
-            {detail.data.history.map((change) => (
-              <li key={change.id} className="pe-small">
-                <strong>{change.fromStage ? `${change.fromStage} to ${change.toStage}` : `Created in ${change.toStage}`}</strong>
-                {change.fromPipeline && change.fromPipeline !== change.toPipeline ? ` (${change.fromPipeline} to ${change.toPipeline})` : ''}
-                <div className="pe-muted">{change.actor} · {dayLabel(change.at)}{change.reason && change.reason !== 'Created' ? ` · ${change.reason}` : ''}</div>
-              </li>
-            ))}
-          </ol>
-        </aside>
       </div>
       {editing && <OpportunityDialog existing={detail.data} onClose={() => { setEditing(false); refresh(); }} />}
     </article>

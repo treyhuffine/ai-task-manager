@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AvatarLabel, Avatar, Button, ButtonRow, Checkbox, DataTable, Dialog, EmptyState, InlineError, Menu, SearchField, Select, SplitView, TextInput, useAnnounce, useQuery,
+  Avatar, Button, ButtonRow, Checkbox, DataTable, Dialog, EmptyState, InlineError, Menu, SearchField, Select, SplitView, TextInput, useAnnounce, useQuery,
   type DataColumn, type DataTableSort,
 } from '@ri/app-kit/ui';
 import type { Coverage, OrganizationSummary, PeopleFilters, PersonSummary, SavedView } from '../schemas.js';
-import { coverageLines, dayLabel, meetingLabel, nextActionText } from './format.js';
+import { coverageLines, dateLabel, dayLabel, isOverdue, meetingLabel } from './format.js';
 import { CompanyWorkspace } from './company.js';
 import { PersonWorkspace } from './person.js';
-import { Failure, Loading, NameLink, useSave, usePeople } from './shared.js';
+import { EmptyCell, Failure, Loading, RecordChip, useSave, usePeople } from './shared.js';
 
 type Kind = 'person' | 'organization';
 type Page<T> = { items: T[]; nextCursor: string | null; total: number; coverage: Coverage; revision: string; unavailableFilters: string[]; columns: string[] };
-const PERSON_COLUMNS: Record<string, string> = { company: 'Company / role', last_exchange: 'Last exchange', next_action: 'Next action', next_meeting: 'Next meeting', primary_email: 'Primary email', lists: 'Lists', coverage: 'Sources', added: 'Date added' };
+const PERSON_COLUMNS: Record<string, string> = { company: 'Company', last_exchange: 'Last exchange', next_action: 'Next action', next_meeting: 'Next meeting', primary_email: 'Primary email', lists: 'Lists', coverage: 'Sources', added: 'Date added' };
 const COMPANY_COLUMNS: Record<string, string> = { people: 'People you know', last_exchange: 'Last exchange', next_action: 'Next action', domain: 'Website', lists: 'Lists', coverage: 'Sources', added: 'Date added' };
 const SORT_FOR: Record<string, string> = { name: 'name', last_exchange: 'last_exchange', next_action: 'next_action', next_meeting: 'next_meeting', added: 'added' };
 
@@ -66,22 +66,26 @@ export function Directory({ kind }: { kind: Kind }) {
       </span>
     ) }] : []),
     { key: 'name', label: kind === 'person' ? 'Name' : 'Company', sortable: true, render: (row) => kind === 'person'
-      ? <AvatarLabel name={row.name} detail={row.role ?? (row.company ? undefined : row.pinned ? 'Pinned' : undefined)} />
-      : <span className="pe-name-cell"><Avatar name={row.name} size="sm" className="pe-square" /><span className="pe-name-cell__text"><span className="pe-name-cell__name">{row.name}</span><span className="pe-name-cell__detail">{row.domain ?? (row.state === 'provisional' ? 'Provisional' : '')}</span></span></span> },
+      ? <span className="pe-name-cell"><Avatar name={row.name} size="sm" /><span className="pe-name-cell__name">{row.name}</span></span>
+      : <span className="pe-name-cell"><Avatar name={row.name} size="sm" className="pe-square" /><span className="pe-name-cell__name">{row.name}</span>{row.state === 'provisional' && <span className="pe-pill">Provisional</span>}</span> },
     ...columns.map((column): DataColumn<PersonSummary & OrganizationSummary> => ({
       key: column, label: (kind === 'person' ? PERSON_COLUMNS : COMPANY_COLUMNS)[column] ?? column, sortable: !!SORT_FOR[column] && !(kind === 'organization' && column === 'next_meeting'),
       render: (row) => {
         switch (column) {
-          case 'company': return row.company ? <NameLink kind="company" id={row.company.id} name={row.company.name} /> : <span className="pe-unavailable">Not recorded</span>;
-          case 'people': return String(row.peopleCount);
-          case 'last_exchange': return row.lastExchangeAt ? dayLabel(row.lastExchangeAt) : <span className="pe-unavailable">None found</span>;
-          case 'next_action': return row.nextAction ? nextActionText(row.nextAction) : <span className="pe-unavailable">No follow-up chosen</span>;
-          case 'next_meeting': return row.nextMeeting ? meetingLabel(row.nextMeeting.at) : <span className="pe-unavailable">None scheduled</span>;
-          case 'primary_email': return row.primaryEmail ?? <span className="pe-unavailable">Not recorded</span>;
-          case 'domain': return row.domain ?? <span className="pe-unavailable">Not recorded</span>;
-          case 'lists': return row.lists.length ? row.lists.map((list) => list.name).join(', ') : <span className="pe-unavailable">None</span>;
-          case 'coverage': return row.sourceLabels.join(', ') || <span className="pe-unavailable">Not recorded</span>;
-          case 'added': return dayLabel(row.addedAt);
+          case 'company': return row.company
+            ? <><RecordChip kind="company" name={row.company.name} />{row.role && <span className="pe-cell-detail">{row.role}</span>}</>
+            : row.role ? <span className="pe-muted">{row.role}</span> : <EmptyCell />;
+          case 'people': return row.peopleCount ? String(row.peopleCount) : <EmptyCell label="None known" />;
+          case 'last_exchange': return row.lastExchangeAt ? <span className="pe-cell-date">{dayLabel(row.lastExchangeAt)}</span> : <EmptyCell label="None found" />;
+          case 'next_action': return row.nextAction
+            ? <span className="pe-clip">{row.nextAction.label}{row.nextAction.dueDate && <span className="pe-cell-due" data-overdue={isOverdue(row.nextAction.dueDate) || undefined}>{isOverdue(row.nextAction.dueDate) ? 'Overdue · ' : ''}{dateLabel(row.nextAction.dueDate)}</span>}</span>
+            : <EmptyCell label="No follow-up chosen" />;
+          case 'next_meeting': return row.nextMeeting ? <span className="pe-cell-date">{meetingLabel(row.nextMeeting.at)}</span> : <EmptyCell label="None scheduled" />;
+          case 'primary_email': return row.primaryEmail ?? <EmptyCell />;
+          case 'domain': return row.domain ? <span className="pe-muted">{row.domain}</span> : <EmptyCell />;
+          case 'lists': return row.lists.length ? <span className="pe-chips">{row.lists.map((list) => <span key={list.id} className="pe-pill">{list.name}</span>)}</span> : <EmptyCell label="None" />;
+          case 'coverage': return row.sourceLabels.length ? <span className="pe-muted">{row.sourceLabels.join(', ')}</span> : <EmptyCell />;
+          case 'added': return <span className="pe-cell-date">{dayLabel(row.addedAt)}</span>;
           default: return null;
         }
       },
@@ -103,12 +107,15 @@ export function Directory({ kind }: { kind: Kind }) {
   const list = (
     <div>
       <div className="pe-directory-toolbar" role="group" aria-label={`${kind === 'person' ? 'People' : 'Company'} directory controls`}>
-        <Select className="pe-view-select" label="View" value={viewKey} onChange={(value) => { ui.setQuery({ view: value === 'all' ? null : value, f: null, c: null }); setSelected([]); }} options={viewOptions} />
-        <SearchField label={kind === 'person' ? 'Search people' : 'Search companies'} hideLabel placeholder={kind === 'person' ? 'Search people, companies or notes' : 'Search companies'} value={text} onChange={setText} />
-        <Button onClick={() => setDialog('filters')}>Filter{Object.keys(filters).length ? ` (${Object.keys(filters).length})` : ''}</Button>
-        <Button onClick={() => setDialog('columns')}>Columns</Button>
-        {ui.data.canWrite && <Button onClick={() => setDialog('save')}>Save view</Button>}
-        {ui.data.canWrite && <Button variant="quiet" aria-pressed={selecting} onClick={() => { setSelecting((value) => !value); setSelected([]); }}>{selecting ? 'Done selecting' : 'Select'}</Button>}
+        <div className="pe-view-picker">
+          <Select hideLabel label="View" value={viewKey} onChange={(value) => { ui.setQuery({ view: value === 'all' ? null : value, f: null, c: null }); setSelected([]); }} options={viewOptions} />
+          {first.data && <span className="pe-view-count" aria-label={`${first.data.total} in this view`}>{first.data.total}</span>}
+        </div>
+        <SearchField label={kind === 'person' ? 'Search people' : 'Search companies'} hideLabel placeholder="Search" value={text} onChange={setText} />
+        <Button size="sm" variant="quiet" onClick={() => setDialog('filters')}>Filter{Object.keys(filters).length ? ` (${Object.keys(filters).length})` : ''}</Button>
+        <Button size="sm" variant="quiet" onClick={() => setDialog('columns')}>Columns</Button>
+        {ui.data.canWrite && (activeCount > 0 || !!q.c || !!q.sort) && <Button size="sm" variant="quiet" onClick={() => setDialog('save')}>Save view</Button>}
+        {ui.data.canWrite && <Button size="sm" variant="quiet" aria-pressed={selecting} onClick={() => { setSelecting((value) => !value); setSelected([]); }}>{selecting ? 'Done selecting' : 'Select'}</Button>}
       </div>
       {(activeCount > 0 || (first.data?.unavailableFilters.length ?? 0) > 0) && (
         <div className="pe-active-filters" role="status">
@@ -184,7 +191,7 @@ export function Directory({ kind }: { kind: Kind }) {
       backLabel={kind === 'person' ? 'Back to people' : 'Back to companies'}
       detailLabel={kind === 'person' ? 'Person' : 'Company'}
       minSplitWidth={kind === 'person' ? 1000 : 100000}
-      detail={open ? (kind === 'person' ? <div className="ri-inspector"><PersonWorkspace id={open} /></div> : <CompanyWorkspace id={open} />) : null}
+      detail={open ? (kind === 'person' ? <PersonWorkspace id={open} /> : <CompanyWorkspace id={open} />) : null}
     />
   );
 }

@@ -80,7 +80,7 @@ button.tr-card:hover { border-color: var(--ri-border-strong); }
 /* Review and forms */
 .tr-review-list { display: grid; gap: 1.25rem; max-width: 50rem; }
 .tr-review-list > .ri-stack { max-width: 50rem; }
-.tr-quotes { display: grid; gap: 0.375rem; margin: 0; padding: 0.625rem 0.875rem; border-left: 2px solid var(--ri-border-strong); background: var(--ri-soft); border-radius: 0 0.5rem 0.5rem 0; font-size: 0.8125rem; }
+.tr-quotes { display: grid; gap: 0.375rem; margin: 0; padding: 0.625rem 0.875rem; background: var(--ri-soft); border-radius: 0.5rem; font-size: 0.8125rem; }
 .tr-quotes q { quotes: none; }
 .tr-form { display: grid; gap: 1rem; min-width: 0; }
 .tr-form fieldset { display: grid; gap: 0.875rem; border: 1px solid var(--ri-border); border-radius: 0.625rem; padding: 0.875rem 1rem 1rem; margin: 0; min-width: 0; }
