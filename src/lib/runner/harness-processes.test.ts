@@ -6,7 +6,7 @@
  * sleepers, and a gone owner is one that has exited.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -72,7 +72,7 @@ async function self(): Promise<ProcessIdentity> {
   return (await processIdentity(process.pid))!;
 }
 
-function write(entries: Array<{ chatSessionId: string; owner: ProcessIdentity; process: ProcessIdentity }>): void {
+function write(entries: Array<{ chatSessionId: string; owner: ProcessIdentity; process: ProcessIdentity; descendants?: ProcessIdentity[] }>): void {
   fs.writeFileSync(file, JSON.stringify({ entries }));
 }
 
@@ -183,6 +183,32 @@ describe("before a chat's session starts", () => {
     expect(await stopStrayHarness('chat-1', file, 300)).toEqual([stubborn.pid]);
     await exitOf(stubborn);
     expect(stubborn.signalCode).toBe('SIGKILL');
+  });
+
+  it('lets a chat continue past a tool process the kernel holds after SIGKILL', async () => {
+    // Found live: an agent's lsof hung in the kernel (state U) with a zombie
+    // child it could never collect. The harness closed, those two stayed
+    // listed, and the chat refused every message until the Mac restarted.
+    // A zombie is the reproducible kind: listed, and never running again.
+    const parent = spawn('/bin/sh', ['-c', 'sleep 0.05 & exec sleep 30'], { stdio: 'ignore' });
+    children.push(parent);
+    let zombie: ProcessIdentity | undefined;
+    for (let attempt = 0; attempt < 100 && !zombie; attempt++) {
+      await new Promise((r) => setTimeout(r, 20));
+      const listed = execFileSync('ps', ['-ax', '-o', 'pid=,ppid='], { encoding: 'utf8' });
+      for (const pid of listed.split('\n').map((line) => line.trim().split(/\s+/).map(Number)).filter(([, ppid]) => ppid === parent.pid).map(([pid]) => pid)) {
+        const identity = await processIdentity(pid);
+        if (identity && identity.ppid === parent.pid && identity.command.includes('defunct')) zombie = identity;
+      }
+    }
+    expect(zombie).toBeDefined();
+    const harness = await goneOwner();
+    write([{ chatSessionId: 'chat-1', owner: await goneOwner(), process: harness, descendants: [zombie!] }]);
+
+    expect(await stopStrayHarness('chat-1', file, 100)).toEqual([harness.pid]);
+    expect(recorded()).toEqual([]);
+    // Its parent wasn't recorded, so it was never signalled.
+    expect(alive(parent.pid!)).toBe(true);
   });
 
   it('drops an entry whose process has exited, and stops nothing', async () => {

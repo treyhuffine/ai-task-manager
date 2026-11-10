@@ -103,6 +103,8 @@ export function setCloseUnconfirmed(chatSessionId: string, unconfirmed: boolean,
   else state.unconfirmedCloses.delete(chatSessionId);
   if (unconfirmed && problem) state.closeProblems.set(chatSessionId, problem);
   if (!unconfirmed) state.closeProblems.delete(chatSessionId);
+  // Once per change, not per retry: the idle sweep retries every minute.
+  if (changed && unconfirmed) console.warn(`[runner] ${chatSessionId}: its harness close is unconfirmed, so the chat waits${problem ? `. ${problem}` : ''}`);
   if (changed) report(chatSessionId, { type: 'running', running: isRunning(chatSessionId) });
 }
 

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { afterEach, expect, it } from 'vitest';
-import { processIdentity } from '@/lib/worker/leftovers';
+import { processIdentity, sameProcessLifetime } from '@/lib/worker/leftovers';
 import { stopWorkerDescendants, workerDescendants } from './worker-processes';
 const children: ChildProcess[] = [];
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -25,4 +25,23 @@ it('never signals a reused or otherwise changed process identity', async () => {
   expect(identity).not.toBeNull();
   expect(await stopWorkerDescendants([{ ...identity!, started: 'not this process' }], 0)).toEqual([]);
   expect(alive(unrelated.pid!)).toBe(true);
+});
+/** A process the kernel still lists after it exited: `sh` backgrounds a short
+ * sleep, then becomes a long one that never collects it. */
+async function zombie() {
+  const parent = spawn('/bin/sh', ['-c', 'sleep 0.05 & exec sleep 30'], { stdio: 'ignore' }); children.push(parent);
+  for (let attempt = 0; attempt < 100; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const [child] = await workerDescendants(parent.pid!);
+    if (child && child.command.includes('defunct')) return { parent, child };
+  }
+  throw new Error('The zombie fixture never appeared');
+}
+it('counts a process it SIGKILLed as stopped while the kernel still lists it', async () => {
+  // As a stuck lsof's zombie child was, and the lsof itself, blocked in the kernel.
+  const { parent, child } = await zombie();
+  expect(await stopWorkerDescendants([child], 100, sameProcessLifetime)).toEqual([]);
+  // Still listed, so this is the case that used to report it as running.
+  expect(sameProcessLifetime(await processIdentity(child.pid), child)).toBe(true);
+  expect(alive(parent.pid!)).toBe(true);
 });
