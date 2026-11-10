@@ -63,6 +63,8 @@ beforeAll(async () => {
             <div><ImagePreviewCard src={switched ? '/good.svg' : '/missing.png'} alt="Changing image" /></div>
             <button onClick={() => setSwitched(true)}>Change source</button>
             <OpenHtml />
+            {/* Last, so it pushes no lazy card above it out of view. */}
+            <div><ImagePreviewCard src="/photos/large.svg" name="Large photo.svg" alt="A large photo" /></div>
           </main>
           <section role="log" aria-label="Gallery chat" className="p-8">
             <p><ImagePreviewCard src="/gallery/one.svg" alt="First shot" /></p>
@@ -105,6 +107,10 @@ beforeAll(async () => {
     } else if (url.pathname.startsWith('/gallery/')) {
       res.setHeader('Content-Type', 'image/svg+xml');
       res.end('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="#0f766e"/></svg>');
+    } else if (url.pathname === '/photos/large.svg') {
+      // Larger than the dialog, so fit is under 100% and a click zooms to the image's own size.
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.end('<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1600"><rect width="2400" height="1600" fill="#0f172a"/><circle cx="1200" cy="800" r="300" fill="#f59e0b"/></svg>');
     } else if (url.pathname.endsWith('/good.svg')) {
       res.setHeader('Content-Type', 'image/svg+xml');
       res.end('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="#4f46e5"/></svg>');
@@ -278,6 +284,175 @@ it.skipIf(!enabled)('closes the image lightbox on the first Escape, with the poi
     await page.keyboard.press('Escape');
     await dialog.waitFor({ state: 'hidden' });
     expect(await card.evaluate(el => el === document.activeElement)).toBe(true);
+  } finally { await page.close(); }
+}, 30_000);
+
+async function openLargePhoto(page: Page) {
+  await page.getByRole('button', { name: 'Open image: Large photo.svg' }).click();
+  const dialog = page.getByRole('dialog');
+  const image = dialog.getByRole('img', { name: 'A large photo' });
+  await image.waitFor();
+  const zoom = dialog.getByRole('group', { name: 'Zoom' });
+  const level = zoom.getByRole('button', { name: /^Fit to window/ });
+  const percent = async () => Number((await level.textContent())?.replace('%', ''));
+  await expect.poll(percent).toBeGreaterThan(0);
+  // The dialog's opening animation, and each glide to a new zoom, settle first.
+  const settle = () => page.waitForTimeout(350);
+  await settle();
+  return { dialog, image, zoom, percent, settle, box: async () => (await image.boundingBox())! };
+}
+
+it.skipIf(!enabled)('zooms an image in at the pointer on a click, pans it by drag and wheel, and goes back to fit', async () => {
+  const page = await openPage();
+  try {
+    const { image, percent, settle, box } = await openLargePhoto(page);
+    const fitPercent = await percent();
+    expect(fitPercent).toBeLessThan(100);
+    const fit = await box();
+    // The whole image shows, centered in the space under the header, inside its margin.
+    const stage = await image.evaluate(element => { const rect = element.parentElement!.getBoundingClientRect(); return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }; });
+    expect(Math.abs(fit.x + fit.width / 2 - (stage.x + stage.width / 2))).toBeLessThan(1);
+    expect(Math.abs(fit.y + fit.height / 2 - (stage.y + stage.height / 2))).toBeLessThan(1);
+    expect(Math.min(stage.width - 24 - fit.width, stage.height - 24 - fit.height)).toBeCloseTo(0, 0);
+    expect(Math.abs(fit.width / 2400 * 100 - fitPercent)).toBeLessThanOrEqual(0.5);
+
+    const at = { x: fit.x + fit.width * 0.7, y: fit.y + fit.height * 0.6 };
+    await page.mouse.move(at.x, at.y);
+    if (process.env.RI_ARTIFACT_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.RI_ARTIFACT_SCREENSHOTS, 'image-fit-hover.png') });
+    await page.mouse.click(at.x, at.y);
+    await expect.poll(percent).toBe(100);
+    await settle();
+    if (process.env.RI_ARTIFACT_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.RI_ARTIFACT_SCREENSHOTS, 'image-zoomed.png') });
+    const zoomed = await box();
+    expect(zoomed.width).toBeCloseTo(2400, 0);
+    // The point clicked is still under the pointer.
+    expect(Math.abs(zoomed.x + zoomed.width * 0.7 - at.x)).toBeLessThan(2);
+    expect(Math.abs(zoomed.y + zoomed.height * 0.6 - at.y)).toBeLessThan(2);
+    expect(await image.evaluate(element => getComputedStyle(element.parentElement!).cursor)).toBe('grab');
+
+    // A drag moves it and is not a click.
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x - 150, at.y - 80, { steps: 6 });
+    await page.mouse.up();
+    const dragged = await box();
+    expect(dragged.x - zoomed.x).toBeCloseTo(-150, 0);
+    expect(dragged.y - zoomed.y).toBeCloseTo(-80, 0);
+    expect(await percent()).toBe(100);
+
+    // So does scrolling, two fingers on a trackpad or a mouse wheel.
+    await page.mouse.wheel(0, 100);
+    await expect.poll(async () => Math.round((await box()).y - dragged.y)).toBe(-100);
+
+    // Dragging far past the edge stops with the image still covering the view.
+    await page.mouse.down();
+    await page.mouse.move(at.x + 3000, at.y + 3000, { steps: 4 });
+    await page.mouse.up();
+    const edge = await box();
+    expect(Math.abs(edge.x - stage.x)).toBeLessThan(1);
+    expect(Math.abs(edge.y - stage.y)).toBeLessThan(1);
+
+    // Another click goes back to fit.
+    await page.mouse.click(at.x, at.y);
+    await expect.poll(percent).toBe(fitPercent);
+    await settle();
+    const back = await box();
+    expect(Math.abs(back.x - fit.x)).toBeLessThan(1);
+    expect(Math.abs(back.width - fit.width)).toBeLessThan(1);
+    expect(await image.evaluate(element => getComputedStyle(element.parentElement!).cursor)).toBe('zoom-in');
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('zooms with Ctrl and the wheel, the keys and the control, keeps Escape closing, and opens the next file fit', async () => {
+  const page = await openPage();
+  try {
+    const { dialog, zoom, percent, settle } = await openLargePhoto(page);
+    const fitPercent = await percent();
+    const zoomOut = zoom.getByRole('button', { name: 'Zoom out' });
+    const zoomIn = zoom.getByRole('button', { name: 'Zoom in' });
+    expect(await zoomOut.getAttribute('aria-disabled')).toBe('true');
+
+    // A trackpad pinch arrives as Ctrl and the wheel. The page itself doesn't zoom.
+    const image = dialog.getByRole('img', { name: 'A large photo' });
+    const center = (await image.boundingBox())!;
+    await page.mouse.move(center.x + center.width / 2, center.y + center.height / 2);
+    await page.keyboard.down('Control');
+    await page.mouse.wheel(0, -100);
+    await page.keyboard.up('Control');
+    await expect.poll(percent).toBeGreaterThan(fitPercent);
+    expect(Math.abs(await percent() - fitPercent * Math.exp(0.25))).toBeLessThanOrEqual(1);
+    expect(await page.evaluate(() => window.visualViewport?.scale ?? 1)).toBe(1);
+
+    // Keys work from wherever focus is in the dialog, its header's buttons included.
+    await dialog.getByRole('button', { name: 'Copy link' }).focus().catch(() => undefined);
+    await page.keyboard.press('0');
+    await expect.poll(percent).toBe(fitPercent);
+    await page.keyboard.press('+');
+    await expect.poll(percent).toBe(Math.round(fitPercent * 1.5));
+    await page.keyboard.press('=');
+    await expect.poll(async () => Math.abs(await percent() - fitPercent * 2.25)).toBeLessThanOrEqual(1);
+    await page.keyboard.press('-');
+    await expect.poll(async () => Math.abs(await percent() - fitPercent * 1.5)).toBeLessThanOrEqual(1);
+    expect(await zoomOut.getAttribute('aria-disabled')).toBeNull();
+
+    // The control: out to fit stops there with focus kept, in, and the percent back to fit.
+    await zoomOut.click();
+    await expect.poll(percent).toBe(fitPercent);
+    // Only looks unavailable, so it can still be pressed (Playwright won't, unforced).
+    await zoomOut.click({ force: true });
+    expect(await percent()).toBe(fitPercent);
+    expect(await zoomOut.evaluate(element => element === document.activeElement)).toBe(true);
+    await zoomIn.click();
+    await expect.poll(percent).toBe(Math.round(fitPercent * 1.5));
+    await zoom.getByRole('button', { name: /^Fit to window/ }).click();
+    await expect.poll(percent).toBe(fitPercent);
+
+    // The previous file and back: the image opens fit again.
+    await zoomIn.click();
+    await expect.poll(percent).toBeGreaterThan(fitPercent);
+    await page.keyboard.press('ArrowLeft');
+    await dialog.locator('[data-slot="dialog-title"]', { hasText: 'missing.png' }).waitFor();
+    await page.keyboard.press('ArrowRight');
+    await dialog.locator('[data-slot="dialog-title"]', { hasText: 'Large photo.svg' }).waitFor();
+    await expect.poll(percent).toBe(fitPercent);
+
+    // Zoomed in, the first Escape still closes the dialog.
+    await settle();
+    const fit = (await image.boundingBox())!;
+    await page.mouse.click(fit.x + fit.width / 2, fit.y + fit.height / 2);
+    await expect.poll(percent).toBe(100);
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    expect(await page.getByRole('button', { name: 'Open image: Large photo.svg' }).evaluate(element => element === document.activeElement)).toBe(true);
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('pinches with two fingers on a touch screen, and a tap zooms', async () => {
+  const page = await openPage();
+  try {
+    const { image, percent, settle } = await openLargePhoto(page);
+    const fitPercent = await percent();
+    const fit = (await image.boundingBox())!;
+    const cx = fit.x + fit.width / 2;
+    const cy = fit.y + fit.height / 2;
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 });
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[]) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map((point, id) => ({ ...point, id })) });
+    // Fingers 100 px apart spread to 300 px: three times as far, so three times the zoom.
+    await touch('touchStart', [{ x: cx - 50, y: cy }, { x: cx + 50, y: cy }]);
+    for (const spread of [80, 110, 150]) await touch('touchMove', [{ x: cx - spread, y: cy }, { x: cx + spread, y: cy }]);
+    await touch('touchEnd', []);
+    await expect.poll(async () => Math.abs(await percent() - fitPercent * 3)).toBeLessThanOrEqual(1);
+    // Lifting the fingers was not a tap.
+    await page.waitForTimeout(100);
+    expect(Math.abs(await percent() - fitPercent * 3)).toBeLessThanOrEqual(1);
+
+    // A tap zoomed in goes back to fit.
+    await touch('touchStart', [{ x: cx, y: cy }]);
+    await touch('touchEnd', []);
+    await expect.poll(percent).toBe(fitPercent);
+    await settle();
   } finally { await page.close(); }
 }, 30_000);
 

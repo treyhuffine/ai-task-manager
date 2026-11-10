@@ -8,6 +8,10 @@ export interface Hotkey {
   /** Literal Ctrl on every platform. Use instead of `meta`. */
   ctrl?: boolean;
   shift?: boolean;
+  /** Matches with or without Shift: a character some keyboards type with
+   *  it and others without (+ is Shift+= on a US keyboard, its own key on
+   *  a German one and on the number pad). */
+  anyShift?: boolean;
   /** Option (Mac) / Alt. Matched by the physical key, since Option turns
    *  `e.key` into another character on a Mac (⌥B types "∫"). */
   alt?: boolean;
@@ -66,6 +70,12 @@ export const HOTKEYS = {
   previewNext: { key: 'ArrowRight', label: '\u2192' },
   // Closes the file beside the chat while focus is in it.
   previewClose: { key: 'Escape', label: 'Esc' },
+  // An image in the same preview: zoom in, out and back to fit, while focus
+  // is in the preview. = zooms in too, as + without reaching for Shift.
+  previewZoomIn: { key: '+', anyShift: true, label: '+' },
+  previewZoomInEquals: { key: '=', anyShift: true, label: '+' },
+  previewZoomOut: { key: '-', label: '-' },
+  previewZoomFit: { key: '0', label: '0' },
   // Leaves the rail's select-to-archive while focus is in the rail's list.
   cancelSelection: { key: 'Escape', label: 'Esc' },
   // The `@` menu's kind chips (All, Tasks, Notes...), while nothing is
@@ -86,7 +96,7 @@ export function matchesHotkey(e: HotkeyEvent, hotkey: Hotkey): boolean {
   } else if ((e.metaKey || e.ctrlKey) !== !!hotkey.meta) {
     return false;
   }
-  if (e.shiftKey !== shiftRequired) return false;
+  if (!hotkey.anyShift && e.shiftKey !== shiftRequired) return false;
   if (e.altKey !== !!hotkey.alt) return false;
   if (hotkey.alt) return e.code === `Key${hotkey.key.toUpperCase()}`;
   return e.key.toLowerCase() === hotkey.key.toLowerCase();

@@ -37,7 +37,7 @@ export function PreviewBody({ preview }: { preview: ArtifactPreview }) {
   if (preview.kind === 'file') return <FilePreviewView key={JSON.stringify(preview.source)} source={preview.source} name={preview.name} />;
   if (preview.kind === 'text') return <TextFileView key={`${preview.sessionId}:${preview.path}`} sessionId={preview.sessionId} path={preview.path} />;
   if (preview.kind === 'html') return <HtmlView key={`${preview.sessionId}:${preview.path}`} source={sessionFolder(preview.sessionId)} path={preview.path} />;
-  if (preview.kind === 'image') return <PreviewImage key={preview.src} src={preview.src} alt={preview.alt || preview.name} className="h-full w-full object-contain p-3" />;
+  if (preview.kind === 'image') return <PreviewImage key={preview.src} src={preview.src} alt={preview.alt || preview.name} zoomable />;
   return <PdfView key={preview.src} src={preview.src} name={preview.name} />;
 }
 

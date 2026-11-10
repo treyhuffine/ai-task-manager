@@ -8,6 +8,7 @@ import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { cn } from '@/lib/utils';
 import { useArtifactPreviewStore, useBesidePreview } from './artifact-preview-provider';
 import { PlaceSwitch, PreviewBody, PreviewSource, PreviewDownload, PreviewIcon, PreviewSteps, previewName } from './artifact-preview-parts';
+import { PREVIEW_KEY_SCOPE } from './zoomable-image';
 
 /**
  * A file beside a chat (docs/chat-sessions.md, "Files beside the chat"). The
@@ -125,7 +126,7 @@ export function BesideFileView({ host }: { host: string }) {
   return (
     <section
       ref={viewRef}
-      {...{ [BESIDE_FILE]: '' }}
+      {...{ [BESIDE_FILE]: '', [PREVIEW_KEY_SCOPE]: '' }}
       aria-label={`${previewName(preview)}, beside the chat`}
       // Focusable, so a click on the image or the header lands here and the arrow keys reach it.
       tabIndex={-1}

@@ -425,6 +425,37 @@ it.skipIf(!enabled)('works the same way in the large view, and focus follows a f
   } finally { await page.context().close(); }
 }, 60_000);
 
+it.skipIf(!enabled)('zooms an image beside the chat, with keys only while focus is in the file, never while typing in the chat', async () => {
+  const page = await openPage();
+  try {
+    await card(page, 'Open image: shot.svg').click();
+    const beside = view(page, 'shot.svg');
+    const image = beside.getByRole('img', { name: 'A screenshot' });
+    await image.waitFor();
+    const level = beside.getByRole('group', { name: 'Zoom' }).getByRole('button', { name: /^Fit to window/ });
+    const percent = async () => Number((await level.textContent())?.replace('%', ''));
+    await expect.poll(percent).toBeGreaterThan(0);
+    const fitPercent = await percent();
+    const fit = (await image.boundingBox())!;
+    await page.mouse.click(fit.x + fit.width / 2, fit.y + fit.height / 2);
+    await expect.poll(percent).toBe(Math.round(fitPercent * 2));
+    expect(await focusIn(beside)).toBe(true);
+    await page.keyboard.press('0');
+    await expect.poll(percent).toBe(fitPercent);
+    await page.keyboard.press('+');
+    await expect.poll(percent).toBe(Math.round(fitPercent * 1.5));
+    // Past the glide, so the screenshot shows where it lands.
+    await page.waitForTimeout(400);
+    await shot(page, 'beside-zoomed.png');
+
+    // Typing in the chat types, and leaves the image where it is.
+    await composer(page).click();
+    await page.keyboard.type('0-+=');
+    expect(await composer(page).inputValue()).toContain('0-+=');
+    expect(await percent()).toBe(Math.round(fitPercent * 1.5));
+  } finally { await page.context().close(); }
+}, 60_000);
+
 it.skipIf(!enabled)('puts focus in the chat\'s composer, not the page, when the card a closing file came from is gone', async () => {
   const page = await openPage();
   try {

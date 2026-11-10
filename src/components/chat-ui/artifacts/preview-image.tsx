@@ -5,14 +5,17 @@ import { useQuery } from '@tanstack/react-query';
 import { ImageOff, Loader2 } from 'lucide-react';
 import { getAuthToken } from '@/lib/api/client';
 import { imageResponseError, protectedImageUrl } from '@/lib/sessions/artifact-image';
+import { ZoomableImage } from './zoomable-image';
 
-type PreviewImageProps = { src: string; alt: string; className?: string; onErrorChange?: (message: string | undefined) => void };
+/** `zoomable` draws the full-size image a preview opens to (`ZoomableImage`),
+ * which lays itself out, so `className` is for the plain image only. */
+type PreviewImageProps = { src: string; alt: string; className?: string; zoomable?: boolean; onErrorChange?: (message: string | undefined) => void };
 
 export function PreviewImage(props: PreviewImageProps) {
   return protectedImageUrl(props.src) ? <ProtectedImage {...props} /> : <NativeImage key={props.src} {...props} />;
 }
 
-function ProtectedImage({ src, alt, className, onErrorChange }: PreviewImageProps) {
+function ProtectedImage({ src, ...image }: PreviewImageProps) {
   // Duplicate references and lightboxes reuse bytes. This also works on a
   // paired browser whose session cookie has not finished syncing yet.
   const { data, error } = useQuery({
@@ -29,12 +32,13 @@ function ProtectedImage({ src, alt, className, onErrorChange }: PreviewImageProp
     gcTime: src.includes('thumbnail=1') ? 60_000 : 0,
     retry: false,
   });
+  const { onErrorChange } = image;
   useEffect(() => { onErrorChange?.(error?.message); }, [error, onErrorChange]);
   if (error) return <Unavailable reason={error.message} />;
-  return data ? <BlobImage key={src} blob={data} alt={alt} className={className} onErrorChange={onErrorChange} /> : <span className="flex h-full items-center justify-center"><Loader2 size={16} className="animate-spin text-muted-foreground" /></span>;
+  return data ? <BlobImage key={src} blob={data} {...image} /> : <span className="flex h-full items-center justify-center"><Loader2 size={16} className="animate-spin text-muted-foreground" /></span>;
 }
 
-function BlobImage({ blob, alt, className, onErrorChange }: Omit<PreviewImageProps, 'src'> & { blob: Blob }) {
+function BlobImage({ blob, ...image }: Omit<PreviewImageProps, 'src'> & { blob: Blob }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let disposed = false;
@@ -47,15 +51,18 @@ function BlobImage({ blob, alt, className, onErrorChange }: Omit<PreviewImagePro
     });
     return () => { disposed = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [blob]);
-  return url ? <NativeImage key={url} src={url} alt={alt} className={className} onErrorChange={onErrorChange} /> : null;
+  return url ? <NativeImage key={url} src={url} {...image} /> : null;
 }
 
-function NativeImage({ src, alt, className, onErrorChange }: PreviewImageProps) {
+function NativeImage({ src, alt, className, zoomable, onErrorChange }: PreviewImageProps) {
   const [failed, setFailed] = useState(false);
   const reason = 'The browser could not load or decode this image.';
   if (failed) return <Unavailable reason={reason} />;
+  const onLoad = () => onErrorChange?.(undefined);
+  const onError = () => { setFailed(true); onErrorChange?.(reason); };
+  if (zoomable) return <ZoomableImage src={src} alt={alt} onLoad={onLoad} onError={onError} />;
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt={alt} className={className} loading="lazy" decoding="async" onLoad={() => onErrorChange?.(undefined)} onError={() => { setFailed(true); onErrorChange?.(reason); }} />;
+  return <img src={src} alt={alt} className={className} loading="lazy" decoding="async" onLoad={onLoad} onError={onError} />;
 }
 
 function Unavailable({ reason }: { reason: string }) {

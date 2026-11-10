@@ -45,6 +45,22 @@ describe('matchesHotkey', () => {
     expect(matchesHotkey(key({ key: 'k', metaKey: true, shiftKey: true }), HOTKEYS.search)).toBe(false);
     expect(matchesHotkey(key({ key: 'k', ctrlKey: true, altKey: true }), HOTKEYS.search)).toBe(false);
   });
+
+  it('zooms a preview in with + whether the keyboard types it with Shift or not, and with =', () => {
+    const zoomIn = (event: KeyboardEvent) => matchesHotkey(event, HOTKEYS.previewZoomIn) || matchesHotkey(event, HOTKEYS.previewZoomInEquals);
+    // US Shift+=, a German keyboard's own + key, the number pad, and = alone.
+    expect(zoomIn(key({ key: '+', code: 'Equal', shiftKey: true }))).toBe(true);
+    expect(zoomIn(key({ key: '+', code: 'BracketRight' }))).toBe(true);
+    expect(zoomIn(key({ key: '+', code: 'NumpadAdd' }))).toBe(true);
+    expect(zoomIn(key({ key: '=', code: 'Equal' }))).toBe(true);
+    // ⌘+ and ⌘= stay the browser's page zoom.
+    expect(zoomIn(key({ key: '=', code: 'Equal', metaKey: true }))).toBe(false);
+    expect(zoomIn(key({ key: '+', code: 'Equal', ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(matchesHotkey(key({ key: '-', code: 'Minus' }), HOTKEYS.previewZoomOut)).toBe(true);
+    expect(matchesHotkey(key({ key: '-', code: 'Minus', metaKey: true }), HOTKEYS.previewZoomOut)).toBe(false);
+    expect(matchesHotkey(key({ key: '0', code: 'Digit0' }), HOTKEYS.previewZoomFit)).toBe(true);
+    expect(matchesHotkey(key({ key: '0', code: 'Digit0', metaKey: true }), HOTKEYS.previewZoomFit)).toBe(false);
+  });
 });
 
 describe('matchesSendKey', () => {

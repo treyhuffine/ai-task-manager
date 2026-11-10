@@ -8,6 +8,7 @@ import { readPreviewPlace, usePreviewPlace, writePreviewPlace } from '@/lib/clie
 import { type ArtifactPreview } from './artifact-previews';
 import { ArtifactPreviewStore, type BesideRegion, type CardMode, type OpenPreview } from './artifact-preview-store';
 import { PlaceSwitch, PreviewBody, PreviewSource, PreviewDownload, PreviewSteps, previewName } from './artifact-preview-parts';
+import { PREVIEW_KEY_SCOPE } from './zoomable-image';
 
 export type { ArtifactPreview } from './artifact-previews';
 export type { OpenPreview } from './artifact-preview-store';
@@ -56,6 +57,7 @@ export function ArtifactPreviewProvider({ children }: { children: ReactNode }) {
       {children}
       <Dialog open={isOpen} onOpenChange={value => { if (!value) store.closeDialog(); }}>
         <DialogContent
+          {...{ [PREVIEW_KEY_SCOPE]: '' }}
           className="flex h-[90dvh] w-[calc(100%-2rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0 sm:max-w-[min(90vw,1440px)]"
           onCloseAutoFocus={event => {
             event.preventDefault();
