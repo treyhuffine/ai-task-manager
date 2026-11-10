@@ -17,6 +17,7 @@ import { registerActionTool } from '@/lib/orchestrator/mcp-registration';
 import { isMcpTransport, mcpNotFound, riMcpHandler } from '@/lib/mcp/http-server';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { contentToolAnnotations, permitsHomeContentAction } from '@/lib/external-ai/policy';
+import { logOutsideAppRequest } from '@/lib/external-ai/request-log';
 import { HOME_VIEW_EXTENSIONS, registerHomeViews, VIEW_CALLED_META, VIEW_CALLED_TOOLS } from '@/lib/external-ai/views/tools';
 import { APP_NAME } from '@/constants/app';
 import { actions } from '@/lib/orchestrator/registry';
@@ -62,7 +63,9 @@ Today's date: ${new Date().toISOString().slice(0, 10)}.`;
 
 async function handle(request: Request) {
   if (!isMcpTransport(new URL(request.url).pathname.split('/').pop())) return mcpNotFound();
-  const contentOnly = getRequestKey(request.headers)?.scope === 'ai_client';
+  const key = getRequestKey(request.headers);
+  const contentOnly = key?.scope === 'ai_client';
+  if (contentOnly) await logOutsideAppRequest(request, key.apiKeyId);
   const staleCall = contentOnly ? null : await handleUndiscoveredResultCall(request);
   if (staleCall) return staleCall;
   const visibleResultNames = new Set<string>(discoverableResultActions().map((action) => action.name));

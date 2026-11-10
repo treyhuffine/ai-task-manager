@@ -12,7 +12,7 @@ import { prepareResource } from '@/lib/mcp-apps/resource';
 import { todayLocalDate } from '@/lib/deck/date';
 import { GENERATED_VIEW_FILE, renderGeneratedViews } from '../../../../scripts/build-mcp-views';
 import { HOME_CONTENT_ACTIONS, HOME_MCP_PATH, contentToolAnnotations } from '../policy';
-import { MCP_APP_MIME, TASKS_VIEW_URI } from './tools';
+import { LEGACY_VIEW_URI, MCP_APP_MIME, TASKS_VIEW_URI } from './tools';
 import { TASKS_VIEW_HTML } from './tasks-view.html';
 
 vi.mock('@/lib/embeddings/embed', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/embeddings/embed')>()), generateEmbedding: vi.fn(async () => { throw new Error('No model in this test'); }), upsertEmbedding: vi.fn(async () => {}), deleteEmbedding: vi.fn() }));
@@ -96,8 +96,12 @@ describe('over MCP', () => {
   }
 
   it('lists the view and its render tools with MCP Apps and Apps SDK metadata, and serves the page', async () => {
+    const logged = vi.spyOn(console, 'log').mockImplementation(() => {});
     const client = await assistant();
     const tools = (await client.listTools()).tools;
+    // Each outside-app request names itself in the service log: the app, its key, what it asked for.
+    expect(logged.mock.calls.map(call => String(call[0]))).toContainEqual(expect.stringMatching(/^\[mcp\] ChatGPT \([0-9a-f-]{8}\): tools\/list$/));
+    logged.mockRestore();
     const deck = tools.find(tool => tool.name === 'show_deck')!;
     expect(deck._meta).toMatchObject({ ui: { resourceUri: TASKS_VIEW_URI }, 'openai/outputTemplate': TASKS_VIEW_URI });
     expect(deck.annotations).toMatchObject({ readOnlyHint: true });
@@ -105,7 +109,11 @@ describe('over MCP', () => {
     expect(tools.find(tool => tool.name === 'create_task')!.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: false });
     expect(tools.find(tool => tool.name === 'complete_task')!._meta).toMatchObject({ 'openai/widgetAccessible': true });
     const listed = (await client.listResources()).resources;
-    expect(listed).toEqual([expect.objectContaining({ uri: TASKS_VIEW_URI, mimeType: MCP_APP_MIME })]);
+    expect(listed).toEqual([expect.objectContaining({ uri: TASKS_VIEW_URI, mimeType: MCP_APP_MIME }), expect.objectContaining({ uri: LEGACY_VIEW_URI, mimeType: MCP_APP_MIME })]);
+    // The address names the page, so a host that caches by address never draws an old copy.
+    expect(TASKS_VIEW_URI).toMatch(/^ui:\/\/ri\/view-[0-9a-f]{12}\.html$/);
+    // Cards drawn before that still find the view, and get the current page.
+    expect((await client.readResource({ uri: LEGACY_VIEW_URI })).contents[0]).toMatchObject({ uri: LEGACY_VIEW_URI, text: TASKS_VIEW_HTML });
     const read = await client.readResource({ uri: TASKS_VIEW_URI });
     expect(read.contents[0]).toMatchObject({ uri: TASKS_VIEW_URI, mimeType: MCP_APP_MIME, text: TASKS_VIEW_HTML, _meta: { ui: { csp: { connectDomains: [], resourceDomains: [] }, prefersBorder: true } } });
   });

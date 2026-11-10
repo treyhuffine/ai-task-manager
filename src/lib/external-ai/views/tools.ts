@@ -8,13 +8,23 @@
  * result. The app's other screens read through `load_view`, which only the
  * view calls.
  */
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { RiMcpServer } from '@/lib/mcp/http-server';
 import { TASKS_VIEW_HTML } from './tasks-view.html';
 import { deckView, mentionItems, noteMarkdown, TASK_VIEW_LIMIT, taskMarkdown, tasksView, viewSummary, type DeckView, type TasksView } from './data';
 import { saveScratchpadFromView, SCRATCHPAD_MAX, screenView, VIEW_SCREENS, type ScreenInput } from './screens';
 
-export const TASKS_VIEW_URI = 'ui://ri/tasks.html';
+/**
+ * The page's address names its contents. ChatGPT treats a view's URI as a
+ * cache key ("When you make a breaking change to the HTML, JavaScript, or
+ * CSS, publish a new URI", OpenAI's Apps SDK docs), so a page served under
+ * an old address can be drawn from an old copy. Each build of the page gets
+ * its own address, and tools point at the current one.
+ */
+export const TASKS_VIEW_URI = `ui://ri/view-${createHash('sha256').update(TASKS_VIEW_HTML).digest('hex').slice(0, 12)}.html`;
+/** The address cards drawn before addresses named their page still ask for. It serves the current page. */
+export const LEGACY_VIEW_URI = 'ui://ri/tasks.html';
 export const MENTION_SEARCH_TOOL = 'search_mentions';
 
 /** What an outside app's connection offers beyond tools: @ items in the person's message box. */
@@ -73,6 +83,12 @@ export function registerHomeViews(server: RiMcpServer): void {
     mimeType: MCP_APP_MIME,
     _meta: RESOURCE_META,
   }, () => ({ contents: [{ uri: TASKS_VIEW_URI, mimeType: MCP_APP_MIME, text: TASKS_VIEW_HTML, _meta: RESOURCE_META }] }));
+  server.registerResource('ri-tasks-view-legacy', LEGACY_VIEW_URI, {
+    title: 'Ri tasks (earlier cards)',
+    description: 'The same view, for cards drawn before the view’s address named its version.',
+    mimeType: MCP_APP_MIME,
+    _meta: RESOURCE_META,
+  }, () => ({ contents: [{ uri: LEGACY_VIEW_URI, mimeType: MCP_APP_MIME, text: TASKS_VIEW_HTML, _meta: RESOURCE_META }] }));
 
   server.registerTool('show_deck', {
     title: 'Show today’s deck',
