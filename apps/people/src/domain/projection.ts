@@ -25,6 +25,12 @@ export interface PersonCore {
   name_override: string | null;
   keep_in_touch_days: number | null;
   headline: string | null;
+  birthday_month: number | null;
+  birthday_day: number | null;
+  birthday_year: number | null;
+  location: string | null;
+  how_met: string | null;
+  my_read: string | null;
 }
 export interface OrganizationCore {
   id: string;

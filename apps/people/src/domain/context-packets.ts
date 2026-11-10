@@ -14,6 +14,8 @@ import { getPersonRow, listPeople, resolvePersonId } from './people.js';
 import { getOpportunityRow, stageHistory, summarizeOpportunity } from './pipelines.js';
 import { lastExchange, longDate, nextMeeting, organizationName, organizationVisible, personName, personVisible } from './projection.js';
 import { dataRevision, opportunityFilter } from './scope.js';
+import { birthdayLabel, personalDetails, relationsFor } from './personal.js';
+import { getProfile } from './profiles.js';
 import { getView } from './views.js';
 import { DEFAULT_SORT } from './views.js';
 import { organizationFiltersSchema, peopleFiltersSchema } from '../schemas.js';
@@ -24,7 +26,7 @@ const clip = (value: string | null | undefined, max: number) => (value ? boundTe
 export interface RelationshipContext {
   subject: { kind: 'person' | 'organization' | 'opportunity'; id: string; name: string };
   asOf: string;
-  items: { kind: 'affiliation' | 'commitment' | 'fact' | 'note' | 'opportunity' | 'stage'; text: string; date: string | null; state: string | null; evidenceId: string | null; excerpt: string | null }[];
+  items: { kind: 'affiliation' | 'commitment' | 'fact' | 'note' | 'opportunity' | 'stage' | 'personal' | 'profile'; text: string; date: string | null; state: string | null; evidenceId: string | null; excerpt: string | null }[];
   interactions: { id: string; kind: string; label: string; at: string; title: string; sourceLabel: string; participants: string[]; excerpt: string | null; evidenceId: string | null }[];
   coverage: { summary: string; accounts: { label: string; kind: string; from: string | null; to: string | null; partial: boolean }[]; partial: boolean };
   missingEvidence: string[];
@@ -53,6 +55,18 @@ export function relationshipContext(ctx: Ctx, scope: AccessScope, input: { subje
     for (const affiliation of visibleAffiliations(ctx, scope, 'person_id', id, labels, { limit: 6 }))
       items.push({ kind: 'affiliation', text: `${affiliation.role ? `${affiliation.role} at ` : ''}${affiliation.organizationName}. ${affiliation.description}.`, date: affiliation.observedAt, state: affiliation.status, evidenceId: affiliation.evidenceId, excerpt: null });
     if (!input.cursor) {
+      // What the owner wrote down about the person, shown only to readers of the person's collection.
+      const personal = personalDetails(scope, person);
+      const own = (text: string | null) => { if (text) items.push({ kind: 'personal', text, date: null, state: 'written by the user', evidenceId: null, excerpt: null }); };
+      own(personal.birthday ? `Birthday: ${birthdayLabel(personal.birthday)}.` : null);
+      own(personal.location ? `Lives in ${clip(personal.location, 120)}.` : null);
+      own(personal.howMet ? `How the user met them: ${clip(personal.howMet, 400)}` : null);
+      own(personal.myRead ? `The user's own read: ${clip(personal.myRead, 600)}` : null);
+      for (const relation of relationsFor(ctx, scope, id, 4)) own(`${relation.label} ${relation.name}${relation.note ? ` (${clip(relation.note, 120)})` : ''}.`);
+      // The living profile's summary and current state, each line with its first cited source.
+      const profile = getProfile(ctx, scope, id);
+      for (const section of profile.sections.filter((item) => item.key === 'summary' || item.key === 'now'))
+        for (const entry of section.items.slice(0, 2)) items.push({ kind: 'profile', text: entry.text, date: profile.generatedAt, state: profile.status, evidenceId: entry.evidenceIds[0] ?? null, excerpt: null });
       const meeting = nextMeeting(ctx, scope, id, asOf);
       if (meeting) items.push({ kind: 'fact', text: `Meeting scheduled ${day(meeting.at)}: ${meeting.title}. Attendance is not inferred from the calendar.`, date: meeting.at, state: 'scheduled', evidenceId: null, excerpt: null });
       const last = lastExchange(ctx, scope, person);

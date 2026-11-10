@@ -10,7 +10,7 @@ import { refreshOrganization } from './organizations.js';
 import { refreshPerson } from './people.js';
 import { MANUAL, isAccountSource, isCollectionSource, isImportSource, touch } from './scope.js';
 import { removeSearchForSource } from './search.js';
-import { CALENDAR_FUTURE_DAYS, DEFAULT_HISTORY_DAYS, ensureAccountSetup } from './sync.js';
+import { CALENDAR_FUTURE_DAYS, DEFAULT_HISTORY_DAYS, ensureAccountSetup, historyDefault } from './sync.js';
 import { cleanName } from './text.js';
 import type { SourceShare } from '../schemas.js';
 
@@ -74,7 +74,7 @@ export function listSources(ctx: Ctx, access: Access | null) {
   for (const grant of access?.accounts ?? []) {
     const kind = grant.binding === 'calendar' ? 'calendar' : grant.binding === 'mail' ? 'mail' : null;
     if (!kind || known.some((account) => account.account === grant.account && account.kind === kind)) continue;
-    all.push({ account: grant.account, kind, createdAt: '', updatedAt: '', label: null, historyDays: DEFAULT_HISTORY_DAYS, checkpoint: null, calendars: kind === 'calendar' ? ['primary'] : [], paused: false, status: 'not_started', lastError: null, lastSuccessAt: null });
+    all.push({ account: grant.account, kind, createdAt: '', updatedAt: '', label: null, historyDays: historyDefault(kind), checkpoint: null, calendars: kind === 'calendar' ? ['primary'] : [], paused: false, status: 'not_started', lastError: null, lastSuccessAt: null });
   }
   // Mail before calendar for each account, so one account's cards sit together.
   all.sort((a, b) => a.account.localeCompare(b.account) || (a.kind === 'mail' ? 0 : 1) - (b.kind === 'mail' ? 0 : 1));

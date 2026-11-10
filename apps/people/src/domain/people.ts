@@ -9,6 +9,7 @@ import {
 } from './projection.js';
 import { assertWritable, canSee, opportunityFilter, sourceFilter, touch, writableCollection } from './scope.js';
 import { OWNER_ONLY_SOURCE, ftsQuery, pruneSearchRows, removeSearchForRecord, setSearchRow } from './search.js';
+import { personalAssignments, type PersonalInput } from './personal.js';
 import { cleanName, sortKey } from './text.js';
 import type { PeopleFilters, PersonSummary, Sort } from '../schemas.js';
 
@@ -85,7 +86,9 @@ export function refreshPerson(ctx: Ctx, personId: string) {
     ["SELECT DISTINCT collection AS source FROM task_links WHERE subject_kind = 'person' AND subject_id = ?", personId],
   ];
   for (const [sql, param] of supports) for (const row of ctx.db.all<{ source: string }>(sql, param)) add(row.source, {});
-  if (person.origin === 'manual' || person.name_override || person.headline) add(person.collection, { name: person.name_override, rank: 0, nameAt: person.updated_at, text: [person.name_override, person.headline] });
+  // Owner-written details are searchable only under the person's own collection.
+  const personal = [person.headline, person.location, person.how_met, person.my_read];
+  if (person.origin === 'manual' || person.name_override || personal.some(Boolean)) add(person.collection, { name: person.name_override, rank: 0, nameAt: person.updated_at, text: [person.name_override, ...personal] });
 
   let best: { name: string; source: string; rank: number; at: string } | null = null;
   let exchange: string | null = null;
@@ -119,7 +122,7 @@ export function refreshPerson(ctx: Ctx, personId: string) {
 
 // ─── Creation and edits ──────────────────────────────────────────────────────
 
-export const identifierInput = z.object({ kind: z.enum(['email', 'phone', 'linkedin']), value: z.string().min(1).max(320) }).strict();
+export const identifierInput = z.object({ kind: z.enum(['email', 'phone', 'linkedin', 'website']), value: z.string().min(1).max(320) }).strict();
 
 /** A person created from an observed identifier (sync or import). Never merges by name. */
 export function createPersonForKey(ctx: Ctx, keyId: string, origin: string, collection = 'manual'): string {
@@ -142,11 +145,11 @@ export function createPersonRecord(ctx: Ctx, input: { origin: string; collection
   return id;
 }
 
-export interface CreatePersonInput {
+export interface CreatePersonInput extends PersonalInput {
   name: string;
   headline?: string | null;
   collection?: string;
-  identifiers?: { kind: 'email' | 'phone' | 'linkedin'; value: string }[];
+  identifiers?: { kind: 'email' | 'phone' | 'linkedin' | 'website'; value: string }[];
   pinned?: boolean;
   keepInTouchDays?: number | null;
 }
@@ -167,6 +170,8 @@ export function createManualPerson(ctx: Ctx, scope: AccessScope, input: CreatePe
   const id = createPersonRecord(ctx, { origin: 'manual', collection, nameOverride: name });
   const time = iso(ctx);
   if (input.pinned || input.keepInTouchDays || input.headline) ctx.db.run('UPDATE persons SET pinned = ?, keep_in_touch_days = ?, headline = ? WHERE id = ?', input.pinned ? 1 : 0, input.keepInTouchDays ?? null, cleanName(input.headline ?? null, 120), id);
+  const personal = personalAssignments(input);
+  if (personal.columns.length) ctx.db.run(`UPDATE persons SET ${personal.columns.join(', ')} WHERE id = ?`, ...personal.params, id);
   for (const { key, value } of keys) {
     observe(ctx, { keyId: key.id, sourceKey: collection, value, at: time, confirmation: 'confirmed' });
     attachKey(ctx, key.id, 'person', id, 'user');
@@ -176,7 +181,7 @@ export function createManualPerson(ctx: Ctx, scope: AccessScope, input: CreatePe
   return id;
 }
 
-export interface SavePersonInput {
+export interface SavePersonInput extends PersonalInput {
   id: string;
   expectedRevision: number;
   name?: string | null;
@@ -185,7 +190,7 @@ export interface SavePersonInput {
   archived?: boolean;
   keepInTouchDays?: number | null;
   collection?: string;
-  addIdentifiers?: { kind: 'email' | 'phone' | 'linkedin'; value: string }[];
+  addIdentifiers?: { kind: 'email' | 'phone' | 'linkedin' | 'website'; value: string }[];
   detachKeyIds?: string[];
   sharedKeyIds?: string[];
 }
@@ -220,6 +225,8 @@ export function savePerson(ctx: Ctx, scope: AccessScope, input: SavePersonInput)
   if (input.collection !== undefined && input.collection !== person.collection) {
     changes.push('collection = ?'); params.push(writableCollection(ctx, scope, input.collection));
   }
+  const personal = personalAssignments(input);
+  changes.push(...personal.columns); params.push(...personal.params);
   ctx.db.run(`UPDATE persons SET ${[...changes, 'revision = revision + 1', 'updated_at = ?'].join(', ')} WHERE id = ?`, ...params, time, id);
   const collection = getPersonRow(ctx, id)!.collection;
   for (const identifier of input.addIdentifiers ?? []) {

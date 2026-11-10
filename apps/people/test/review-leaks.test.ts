@@ -70,7 +70,8 @@ describe('background briefings stay inside the schedule\'s scope', () => {
     },
   });
   const drain = async (caller: Parameters<typeof call>[2]) => { for (let index = 0; index < 30; index++) if (!(await call('run_background_step', {}, caller)).ran) break; };
-  const briefingItems = () => ctx!.db.all<{ state: string; payload: string }>("SELECT state, payload FROM work_items WHERE kind = 'briefing'");
+  // Profiles share the briefing queue kind under a profile: key. These tests are about briefings.
+  const briefingItems = () => ctx!.db.all<{ state: string; payload: string }>("SELECT state, payload FROM work_items WHERE kind = 'briefing' AND dedupe_key NOT LIKE 'profile:%'");
 
   it('a schedule granted only one account never sends an owner-queued briefing, with its private note, to ai_text', async () => {
     const prompts: string[] = [];

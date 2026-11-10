@@ -3,6 +3,7 @@ import { Button, ButtonRow, EmptyState, SegmentedControl, SplitView, StatusLabel
 import type { Commitment, Coverage, Fact, TaskLink } from '../schemas.js';
 import { dateLabel, dayLabel, meetingLabel } from './format.js';
 import { CommitmentRow, FactRow, PersonWorkspace } from './person.js';
+import { birthdaySoon, birthdayText } from './personal.js';
 import { CoverageFooter, Failure, Loading, NameLink, TaskStatus, usePeople } from './shared.js';
 
 type FollowItem = { kind: 'commitment'; commitment: Commitment } | { kind: 'task'; task: TaskLink; subject: { kind: string; id: string; name: string } | null };
@@ -10,6 +11,7 @@ interface Today {
   meetings: { id: string; at: string; title: string; people: { id: string; name: string }[]; declined: boolean }[];
   iOwe: FollowItem[]; waitingOn: FollowItem[];
   keepInTouch: { id: string; name: string; lastExchangeAt: string | null; intervalDays: number }[];
+  birthdays: { id: string; name: string; month: number; day: number; inDays: number; turns: number | null }[];
   review: { suggestions: FollowItem[]; suggestionCount: number; facts: Fact[]; factCount: number; identities: { id: string; summary: string }[]; identityCount: number };
   focusPersonId: string | null; empty: boolean; coverage: Coverage; revision: string;
 }
@@ -51,6 +53,12 @@ export function TodayView() {
         {data.meetings.length ? <ul>{data.meetings.flatMap((meeting) => meeting.people.slice(0, 1).map((person) => item(meeting.id, person.id, meetingLabel(meeting.at), meeting.people.length > 1 ? `${person.name} and ${meeting.people.length - 1} more` : person.name, meeting.title, meeting.declined ? <span className="pe-small">You declined</span> : undefined)))}</ul>
           : <p className="pe-today-empty">No meetings in the next seven days.</p>}
       </section>
+      {data.birthdays.length > 0 && (
+        <section className="pe-today-group">
+          <h2>Birthdays<span>{data.birthdays.length}</span></h2>
+          <ul>{data.birthdays.map((entry) => item(`b-${entry.id}`, entry.id, birthdaySoon(entry.inDays), entry.name, `${birthdayText({ month: entry.month, day: entry.day, year: null })}${entry.turns ? ` · turns ${entry.turns}` : ''}`))}</ul>
+        </section>
+      )}
       <section className="pe-today-group">
         <h2>Next action{data.iOwe.length > 0 && <span>{data.iOwe.length}</span>}</h2>
         {data.iOwe.length ? <ul>{data.iOwe.map((entry) => {
@@ -115,7 +123,7 @@ function Welcome({ coverage }: { coverage: Coverage }) {
       <ul className="pe-welcome" aria-label="Ways to start">
         <li>
           <h2 className="ri-h3">Connect email and calendar</h2>
-          <p>Choose the exact accounts and calendars in Ri. People reads the last 90 days by default (30 or 365 if you prefer), keeps what it reads on this computer and never sends anything.</p>
+          <p>Choose the exact accounts and calendars in Ri. People reads the last 90 days of mail and a year of calendar by default (you can change either), keeps what it reads on this computer and never sends anything.</p>
           {reading
             ? <p className="pe-small pe-muted">{ui.data.setup.grantedAccounts === 1 ? 'One account is' : `${ui.data.setup.grantedAccounts} accounts are`} being read. People appear as each page arrives.</p>
             : <Button variant="primary" onClick={() => void app.openSources()}>Connect email and calendar</Button>}

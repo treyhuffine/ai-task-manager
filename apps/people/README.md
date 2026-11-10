@@ -8,7 +8,10 @@ People is a lightweight personal and professional relationship app for Ri. It wo
 
 - **Today** shows upcoming meetings, chosen follow-ups, what you are waiting on, chosen keep-in-touch reminders and a short sourced review queue. When nothing needs attention it says so.
 - **People** is a fast directory with saved views, structured filters, sortable columns, a views picker, lists and selection of up to 50 loaded records for pin, list and archive changes.
-- **A person** has a header with sourced role and company, last direct exchange and next meeting, a briefing ("Before you meet"), relationship context with evidence, a timeline of emails, meetings, notes and your changes, private notes, and details with corrections.
+- **A person** has a header with sourced role and company, a fields column (email, birthday, where they live, how you met, last exchange, next meeting, next action, keep in touch, lists, relationships and opportunities), and sections: Overview (My read, the living profile, the briefing and commitments), Timeline, Notes and Details with corrections.
+- **The personal side** is written by you: a birthday (year optional), where someone lives, how you met, and **My read**, your own take that AI never writes. **Relationships** link two people (partner, child, parent, sibling, family, friend, colleague, introduced by) or a person and a name that isn't a record, such as a child. Upcoming birthdays show on Today.
+- **The living profile** is a short cited summary (who they are to you, what they are doing now, how you know them, open threads) rewritten from the previous profile plus whatever arrived since, so what an old conversation said is kept after it falls out of a briefing. Every line cites a source or one of your notes. It needs Extract relationship context, never reads My read, and never guesses personality or private traits. The schedule refreshes key people (pinned, keep in touch, two-way mail in the last 90 days) from its own accounts at most once a day. Update on a person runs it from your own records now.
+- **Capture from chat** lets you tell Ri "met Sarah at dinner, she is raising a seed round". It lands on Sarah as a note in your words, marked as captured from chat, with any details you stated. A name that matches several people, or nobody, saves nothing and asks.
 - **Companies** (internally organizations, so nonprofits, communities, funds and schools fit) show current, former and date-uncertain people, explicitly linked activity (one row per thread), commitments from linked conversations, opportunities and notes.
 - **Follow-ups** separates I owe, Waiting on and Suggestions. Suggestions are labeled and never become commitments or tasks until you choose. Create follow-up makes exactly one Ri task, even on retry.
 - **Pipelines** are optional and hidden until you add them: named stages with stable IDs, opportunities linked to people or companies, append-only stage history, an optional value in integer minor units with an explicit currency, a board and list, and a Move to stage menu as the keyboard path.
@@ -22,13 +25,13 @@ Add view and Hide view only change navigation. They never delete records, change
 | --- | --- | --- |
 | Gmail (selected accounts) | People you correspond with, direct exchanges, evidence passages | Read only. Sent mail, confirmed direct replies and small meetings create people. Bulk, list and no-reply mail is left out by headers before anything else. Nothing is sent or changed. |
 | Google Calendar | Meetings with participants, organizer, recurrence, time zone and cancellations | Meetings with you plus at most eight other non-resource attendees create people. Larger events are counted and can be included. Events never imply attendance: they read "Meeting scheduled" or "Past calendar event" until you confirm. |
-| CSV | People, company, role, notes, lists, external IDs | Previewed before apply. Unmapped columns are kept. |
-| vCard 2.1 to 4.0 | People, company, role, notes, categories | Previewed before apply. |
+| CSV | People, company, role, notes, lists, external IDs, birthday, city | Previewed before apply. Unmapped columns are kept. A birthday is read only when the date can't be misread (03/04/1990 is left unmapped). |
+| vCard 2.1 to 4.0 | People, company, role, notes, categories, birthday (BDAY), city (ADR) | Previewed before apply. An imported birthday or city fills only an empty field and never one you wrote. |
 | LinkedIn connections export | Connections with available company, role and profile URL | A user-imported snapshot. Missing email is normal. Roles keep the export date. No live LinkedIn access. |
 | Ri tasks | Follow-ups | One task per follow-up with a durable operation ID. Ri owns task status. |
 | Ri bounded AI (`ai_text`) | Optional relationship extraction and generated briefings | Off until you enable it, separate from sync. With it off or unavailable, no AI call happens anywhere. |
 
-Accounts are read in bounded steps by Ri's single five-minute schedule: one provider page and at most ten new messages per step, current changes before history, and fair rotation between accounts. History is limited to 30, 90 or 365 days (90 by default).
+Accounts are read in bounded steps by Ri's single five-minute schedule: one provider page and at most ten new messages per step, current changes before history, and fair rotation between accounts. History is limited to 30, 90 or 365 days: 90 by default for mail and a year for calendar, since meetings are the strongest sign of a relationship and cheap to read.
 
 ## Identity rules
 
@@ -38,7 +41,7 @@ Accounts are read in bounded steps by Ri's single five-minute schedule: one prov
 - An address seen in a signature proposes an alias with evidence.
 - A personal mail provider's domain never implies a company. A calendar co-attendee never implies a relationship or employer.
 - Your corrections win and survive resync, re-extraction and backup restore.
-- Merges record every reference they move. Undo previews the restore, lists references added after the merge for you to place, and fails without changes if anything moved since the preview.
+- Merges record every reference they move. Undo previews the restore, lists references added after the merge for you to place, and fails without changes if anything moved since the preview. Relationships follow the merged person, and the survivor takes personal details it lacks from the merged person only when both live in the same collection. Undo clears those again.
 
 ## Privacy and access
 

@@ -8,7 +8,9 @@ import { prepareFollowUp } from '../domain/followups.js';
 import { saveList, updateListMembers } from '../domain/lists.js';
 import { saveNote } from '../domain/notes.js';
 import { createOrganization } from '../domain/organizations.js';
-import { refreshPerson, savePerson, createManualPerson, getPersonRow } from '../domain/people.js';
+import { refreshPerson, savePerson, createManualPerson, getPersonRow, type SavePersonInput } from '../domain/people.js';
+import { saveRelation } from '../domain/personal.js';
+import { capture } from '../domain/capture.js';
 import { personForEmail } from '../domain/identity.js';
 import { savePipeline, saveOpportunity, stagesOf } from '../domain/pipelines.js';
 import { noteAutoExclusion } from '../domain/exclusions.js';
@@ -45,7 +47,7 @@ export function seedFixtures(ctx: Ctx) {
       const checkpoint = newMailCheckpoint(90, now);
       ctx.accounts.commit(account, 'mail', { ...checkpoint, emailAddress: account === FIXTURE_ACCOUNTS.personal ? OWNER_PERSONAL : OWNER_WORK, backfill: { ...checkpoint.backfill, complete: true, completedAt: at(-1, 15, 12), pages: 4 }, history: { historyId: '900', pageToken: null, checkedAt: at(0, 15, 12) }, lane: 'history', lastSuccessAt: at(0, 15, 12) }, 'ready', label);
     }
-    ctx.accounts.setup({ account: FIXTURE_ACCOUNTS.personal, kind: 'calendar', historyDays: 90, calendars: ['primary'] });
+    ctx.accounts.setup({ account: FIXTURE_ACCOUNTS.personal, kind: 'calendar', historyDays: 365, calendars: ['primary'] });
     const calendarCheckpoint = newCalendarCheckpoint('primary', 90, 120, now);
     ctx.accounts.commit(FIXTURE_ACCOUNTS.personal, 'calendar', { primary: { ...calendarCheckpoint, phase: 'incremental', syncToken: 'fixture', completedAt: at(-1), lastSuccessAt: at(0, 15, 12) } }, 'ready');
     ctx.settings.set('extraction', { enabled: false, status: 'paused', reason: null, updatedAt: at(-2) });
@@ -104,13 +106,36 @@ export function seedFixtures(ctx: Ctx) {
     linkInteraction(ctx, owner, { interactionId: fieldworkSent, expectedRevision: 1, operation: 'link', target: { kind: 'organization', id: fieldwork } }, () => MANUAL);
 
     const note = (subjectKind: 'person' | 'organization', subjectId: string, body: string, title?: string) => saveNote(ctx, owner, { subjectKind, subjectId, body, title: title ?? null });
-    note('person', maya, 'Ask how the design and research teams work together.', 'Remember for next time');
+    const mayaNote = note('person', maya, 'Ask how the design and research teams work together.', 'Remember for next time');
     note('person', jordan, 'Keep the first phase focused on onboarding.');
     note('person', priya, 'Coordinates project access and the internal team.');
     note('person', alex, 'Talk through the research plan at the next catch-up.');
     note('person', sam, 'Interested in simplifying the product setup experience.');
     note('person', elena, 'Ask before making an introduction.');
     note('organization', fieldwork, 'First phase should deliver a useful onboarding flow. Keep research and delivery assumptions visible.');
+
+    // The personal side: details the owner wrote, relationships, a capture from chat and a living profile.
+    const soon = new Date(ctx.now().getTime() + 3 * 864e5);
+    const personal = (person: string, details: Omit<SavePersonInput, 'id' | 'expectedRevision'>) =>
+      savePerson(ctx, owner, { id: person, expectedRevision: getPersonRow(ctx, person)!.revision, ...details });
+    personal(jordan, { birthday: { month: soon.getUTCMonth() + 1, day: soon.getUTCDate(), year: null }, location: 'Austin', howMet: 'Met at a founders dinner in 2023', myRead: 'Decisive and generous with time. Prefers a short written plan before a call.', keepInTouchDays: 30 });
+    personal(maya, { birthday: { month: 3, day: 14, year: null }, location: 'Lisbon', howMet: 'Introduced by Jordan at the design meetup in September', myRead: 'Thoughtful and direct. Wants concrete examples, not theory.' });
+    personal(alex, { birthday: { month: 8, day: 2, year: 1988 }, location: 'Portland', howMet: 'Worked together at a research studio in 2019' });
+    personal(priya, { location: 'Austin' });
+    saveRelation(ctx, owner, { personId: maya, kind: 'introduced_by', relatedPersonId: jordan });
+    saveRelation(ctx, owner, { personId: priya, kind: 'colleague', relatedPersonId: jordan });
+    saveRelation(ctx, owner, { personId: alex, kind: 'partner', relatedName: 'Dana' });
+    saveRelation(ctx, owner, { personId: alex, kind: 'child', relatedName: 'Leo', note: 'Turns 7 in May' });
+    capture(ctx, owner, { personId: sam, text: 'Sam said the pilot could start in January if the setup review goes well.', sourceLabel: 'Chat: Weekly planning' });
+    const mayaFirst = ctx.db.get<{ evidence_id: string; occurred_at: string }>("SELECT evidence_id, occurred_at FROM interactions WHERE external_id = 'fx-maya-1'")!;
+    const mayaLatest = ctx.db.get<{ occurred_at: string }>("SELECT MAX(i.occurred_at) AS occurred_at FROM interaction_participants ip JOIN interactions i ON i.id = ip.interaction_id WHERE ip.person_id = ? AND i.kind = 'email'", maya)!;
+    ctx.db.run("INSERT INTO profiles (id, created_at, updated_at, subject_kind, subject_id, scope_sources, body, covered_through, evidence_count, extraction_version, origin, generated_at) VALUES (?, ?, ?, 'person', ?, NULL, ?, ?, ?, 'fixture', 'user', ?)",
+      newId(), iso(ctx), iso(ctx), maya, JSON.stringify({
+        summary: [{ text: 'Design lead at Northstar, introduced through Jordan. You are helping her find a research lead.', evidenceIds: [mayaEvidence, mayaFirst.evidence_id], noteIds: [] }],
+        now: [{ text: 'Shaping how Northstar\'s design and research teams work together, and preparing a portfolio discussion with you.', evidenceIds: [mayaEvidence], noteIds: [mayaNote.id] }],
+        relationship: [{ text: 'You started writing in November after the introduction and have a portfolio discussion scheduled.', evidenceIds: [mayaFirst.evidence_id], noteIds: [] }],
+        threads: [{ text: 'You offered to introduce her to the research lead you mentioned.', evidenceIds: [mayaFirst.evidence_id], noteIds: [] }],
+      }), mayaLatest.occurred_at, 4, iso(ctx));
 
     const list = (name: string, members: string[]) => {
       const created = saveList(ctx, owner, { name, recordKind: 'person' });

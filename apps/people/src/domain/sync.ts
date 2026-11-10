@@ -9,6 +9,7 @@ import { iso, type Ctx } from './context.js';
 import { extractionSetting } from './coverage.js';
 import { applyRulesToInteraction, linkRuleBatch } from './attribution.js';
 import { generateOneBriefing, hasRunnableBriefing, scheduleUpcomingBriefings } from './briefings.js';
+import { generateOneProfile, hasRunnableProfile, scheduleKeyProfiles } from './profiles.js';
 import { isBlocked, senderDecision } from './exclusions.js';
 import { enqueueExtraction, extractOne, ownerAddresses, rememberOwnerAddress } from './extraction.js';
 import { ingestEvent, ingestMail, markUnavailable } from './interactions.js';
@@ -18,6 +19,14 @@ import { touch } from './scope.js';
 
 /** Policy values for sources live here, not in SQL defaults. */
 export const DEFAULT_HISTORY_DAYS = 90;
+/**
+ * Calendar history reaches further back than mail by default: meetings are
+ * the strongest sign of a relationship and cheap to read (one page holds many
+ * events, no bodies). A year is the deepest choice the shared history picker
+ * offers.
+ */
+export const CALENDAR_HISTORY_DAYS = 365;
+export const historyDefault = (kind: 'mail' | 'calendar') => (kind === 'calendar' ? CALENDAR_HISTORY_DAYS : DEFAULT_HISTORY_DAYS);
 export const HISTORY_CHOICES = [30, 90, 365] as const;
 export const CALENDAR_FUTURE_DAYS = 120;
 export const STEP_BUDGET_MS = 20_000;
@@ -30,7 +39,7 @@ type Access = NonNullable<AppInvocation['access']>;
 
 /** Remember setup for a granted account the first time it is seen. Choices are the owner's. */
 export function ensureAccountSetup(ctx: Ctx, account: string, kind: 'mail' | 'calendar') {
-  return ctx.accounts.get(account, kind) ?? ctx.accounts.setup({ account, kind, historyDays: DEFAULT_HISTORY_DAYS, calendars: kind === 'calendar' ? ['primary'] : [] });
+  return ctx.accounts.get(account, kind) ?? ctx.accounts.setup({ account, kind, historyDays: historyDefault(kind), calendars: kind === 'calendar' ? ['primary'] : [] });
 }
 
 function kindFor(binding: string): 'mail' | 'calendar' | null {
@@ -48,6 +57,7 @@ export function ensureJobs(ctx: Ctx, accounts: Access['accounts'], options: { au
     if (setup.paused && job.state !== 'paused') ctx.jobs.pause(source);
   }
   for (const row of ctx.db.all<{ kind: string; source_key: string }>("SELECT DISTINCT kind, source_key FROM work_items WHERE state = 'pending' AND kind IN ('extract','attribute','briefing') LIMIT 100")) {
+    // Profiles share the briefing lane and its queue kind.
     const kind = row.kind === 'extract' ? 'enrich' : row.kind;
     if (kind !== 'attribute' && extractionSetting(ctx).status !== 'on') continue;
     const job = ctx.jobs.ensure(kind, row.source_key, { idempotent: true });
@@ -65,8 +75,8 @@ export interface StepSummary { ran: { kind: string; source: string } | null; mor
 export async function backgroundStep(ctx: Ctx, invocation: AppInvocation, options: { scope: AccessScope; sources: ReadonlySet<string>; accounts: Access['accounts']; automaticOnly: boolean; kinds?: JobKind[]; only?: string }): Promise<StepSummary> {
   ctx.jobs.recover();
   ensureJobs(ctx, options.accounts, { automaticOnly: options.automaticOnly });
-  // Briefings share one queue. A runner reaches it only when an item inside its own scope is waiting.
-  const allowed = new Set([...options.sources, ...(hasRunnableBriefing(ctx, options.scope) ? ['briefings'] : [])]);
+  // Briefings and profiles share one queue. A runner reaches it only when an item inside its own scope is waiting.
+  const allowed = new Set([...options.sources, ...(hasRunnableBriefing(ctx, options.scope) || hasRunnableProfile(ctx, options.scope) ? ['briefings'] : [])]);
   if (options.only) { const job = ctx.jobs.list().find((item) => item.sourceKey === options.only && item.state === 'pending'); if (job) ctx.jobs.wake(job.id); }
   const job = options.only
     ? ctx.jobs.list().filter((item) => item.sourceKey === options.only && item.state === 'pending' && (!options.kinds || options.kinds.includes(item.kind as JobKind))).sort((a, b) => (a.lastRunAt ?? '').localeCompare(b.lastRunAt ?? ''))[0] ?? null
@@ -97,7 +107,13 @@ async function runJob(ctx: Ctx, invocation: AppInvocation, job: JobRecord, accou
     case 'mail': return mailStep(ctx, invocation, job.sourceKey.slice(8), accounts, deadline, scope);
     case 'calendar': return calendarStep(ctx, invocation, job.sourceKey.slice(8), accounts, scope);
     case 'enrich': return extractOne(ctx, invocation, new Set([job.sourceKey]), scope);
-    case 'briefing': return generateOneBriefing(ctx, invocation, scope);
+    case 'briefing': {
+      // A meeting briefing is time-bound, so it goes first. A profile runs when no briefing is waiting.
+      const briefing = await generateOneBriefing(ctx, invocation, scope);
+      if (briefing.processed || briefing.summary !== 'No briefings waiting') return { more: briefing.more || hasRunnableProfile(ctx, scope), summary: briefing.summary };
+      const profile = await generateOneProfile(ctx, invocation, scope);
+      return { more: profile.more, summary: profile.summary };
+    }
     case 'attribute': {
       const item = ctx.db.get<{ id: string; payload: string }>("SELECT id, payload FROM work_items WHERE kind = 'attribute' AND state = 'pending' AND source_key = ? ORDER BY priority LIMIT 1", job.sourceKey);
       if (!item) return { more: false, summary: 'No company links waiting' };
@@ -170,6 +186,7 @@ async function mailStep(ctx: Ctx, invocation: AppInvocation, account: string, ac
     for (const person of persons) refreshPerson(ctx, person);
     for (const org of organizations) refreshOrganization(ctx, org);
     scheduleUpcomingBriefings(ctx, scope);
+    scheduleKeyProfiles(ctx, scope);
     touch(ctx, source);
     const parts = [result.lane === 'profile' ? 'Found the mailbox position' : `Read ${result.read} message${result.read === 1 ? '' : 's'}`, result.skipped ? `left out ${result.skipped}` : '', result.removed ? `${result.removed} no longer available` : '', extracted ? `${extracted} queued for extraction` : ''].filter(Boolean);
     return { more: result.more, summary: parts.join(', ') };
@@ -201,6 +218,7 @@ async function calendarStep(ctx: Ctx, invocation: AppInvocation, account: string
     ctx.accounts.commit(account, 'calendar', map, complete ? 'ready' : 'importing');
     for (const person of persons) refreshPerson(ctx, person);
     scheduleUpcomingBriefings(ctx, scope);
+    scheduleKeyProfiles(ctx, scope);
     touch(ctx, source);
     return { more: result.more || !complete, summary: `Checked ${result.events} calendar event${result.events === 1 ? '' : 's'}${result.cancelled ? `, ${result.cancelled} canceled` : ''}` };
   });

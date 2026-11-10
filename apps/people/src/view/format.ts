@@ -3,6 +3,8 @@ import type { Coverage, NextAction } from '../schemas.js';
 
 export const zone = systemZone();
 const today = () => todayIn(zone);
+/** Today's date on this computer, YYYY-MM-DD. */
+export const todayLocal = () => today();
 
 /** "Oct 12", or Today, Tomorrow, Yesterday. */
 export function dayLabel(instant: string | null | undefined): string {

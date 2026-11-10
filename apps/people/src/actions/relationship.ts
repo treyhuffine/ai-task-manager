@@ -19,7 +19,10 @@ import { resolvePersonId } from '../domain/people.js';
 import { organizationVisible } from '../domain/projection.js';
 import {
   briefingSchema, collectionKeySchema, commitmentSchema, coverageSchema, evidenceSchema, factSchema, idSchema, localDateSchema, noteSchema, taskLinkSchema, writeResult, refSchema,
+  birthdaySchema, personSummarySchema, relationKindSchema, profileSchema,
 } from '../schemas.js';
+import { getProfile, requestProfile } from '../domain/profiles.js';
+import { capture, CAPTURE_TEXT_MAX } from '../domain/capture.js';
 import { BRIEFING, COMMITMENT, COVERAGE, FACT, ID, NOTE, PERSON, T, TASK } from './examples.js';
 import { READ_ERRORS, WRITE_ERRORS, action, listInput, listOutput } from './shared.js';
 
@@ -34,23 +37,24 @@ const reviewItem = z.object({
   identifier: z.string().max(320).nullable(), createdAt: z.string(),
 }).strict();
 const subjectInput = { subjectKind: z.enum(['person', 'organization']), subjectId: idSchema, meetingId: idSchema.optional() };
-const contextItem = z.object({ kind: z.enum(['affiliation', 'commitment', 'fact', 'note', 'opportunity', 'stage']), text: z.string().max(1200), date: z.string().nullable(), state: z.string().max(40).nullable(), evidenceId: idSchema.nullable(), excerpt: z.string().max(400).nullable() }).strict();
+const contextItem = z.object({ kind: z.enum(['affiliation', 'commitment', 'fact', 'note', 'opportunity', 'stage', 'personal', 'profile']), text: z.string().max(1200), date: z.string().nullable(), state: z.string().max(40).nullable(), evidenceId: idSchema.nullable(), excerpt: z.string().max(400).nullable() }).strict();
 const contextInteraction = z.object({ id: idSchema, kind: z.string().max(20), label: z.string().max(120), at: z.string(), title: z.string().max(400), sourceLabel: z.string().max(300), participants: z.array(z.string().max(320)).max(6), excerpt: z.string().max(400).nullable(), evidenceId: idSchema.nullable() }).strict();
 
 export const relationshipActions = [
   action({
     name: 'get_today',
-    description: 'Today: upcoming meetings in the next seven days, chosen follow-ups, waiting-on items, chosen keep-in-touch reminders and a short sourced review queue. Nothing is invented to fill the page.',
+    description: 'Today: upcoming meetings in the next seven days, chosen follow-ups, waiting-on items, chosen keep-in-touch reminders, birthdays the user recorded in the next 14 days (inDays 0 is today, turns is the age when the year is known) and a short sourced review queue. Nothing is invented to fill the page.',
     input: z.object({}).strict(),
     output: z.object({
       meetings: z.array(z.object({ id: idSchema, at: z.string(), title: z.string().max(300), people: z.array(refSchema).max(8), declined: z.boolean() }).strict()).max(10),
       iOwe: z.array(followUpItem).max(10), waitingOn: z.array(followUpItem).max(10),
       keepInTouch: z.array(z.object({ id: idSchema, name: z.string().max(200), lastExchangeAt: z.string().nullable(), intervalDays: z.number().int() }).strict()).max(5),
+      birthdays: z.array(z.object({ id: idSchema, name: z.string().max(200), month: z.number().int().min(1).max(12), day: z.number().int().min(1).max(31), inDays: z.number().int().min(0).max(14), turns: z.number().int().nullable() }).strict()).max(5),
       review: z.object({ suggestions: z.array(followUpItem).max(3), suggestionCount: z.number().int(), facts: z.array(factSchema).max(3), factCount: z.number().int(), identities: z.array(reviewItem).max(3), identityCount: z.number().int() }).strict(),
       focusPersonId: idSchema.nullable(), empty: z.boolean(), coverage: coverageSchema, revision: z.string().max(80),
     }).strict(),
     audience: ['user', 'agent'], effect: 'read', retry: 'read_safe', errors: READ_ERRORS,
-    examples: [{ input: {}, output: { meetings: [{ id: ID.meeting, at: T.meeting, title: 'Portfolio discussion', people: [{ id: ID.maya, name: 'Maya Chen' }], declined: false }], iOwe: [{ kind: 'commitment', commitment: { ...COMMITMENT, state: 'accepted' } }], waitingOn: [], keepInTouch: [], review: { suggestions: [], suggestionCount: 0, facts: [], factCount: 0, identities: [], identityCount: 0 }, focusPersonId: ID.maya, empty: false, coverage: COVERAGE, revision: 'o12' } }],
+    examples: [{ input: {}, output: { meetings: [{ id: ID.meeting, at: T.meeting, title: 'Portfolio discussion', people: [{ id: ID.maya, name: 'Maya Chen' }], declined: false }], iOwe: [{ kind: 'commitment', commitment: { ...COMMITMENT, state: 'accepted' } }], waitingOn: [], keepInTouch: [], birthdays: [{ id: ID.jordan, name: 'Jordan Bell', month: 11, day: 14, inDays: 3, turns: null }], review: { suggestions: [], suggestionCount: 0, facts: [], factCount: 0, identities: [], identityCount: 0 }, focusPersonId: ID.maya, empty: false, coverage: COVERAGE, revision: 'o12' } }],
     handler(_input, invocation) {
       const c = ctx(), scope = readScope(invocation);
       return getToday(c, scope, granted(invocation));
@@ -75,6 +79,41 @@ export const relationshipActions = [
         const record = getNote(c, scope, result.id, new Labels(c));
         if (!record) throw new AppError('not_found', 'This note is no longer available');
         return result.status === 'conflict' ? { status: 'conflict' as const, current: record, message: result.message ?? 'Changed' } : { status: 'saved' as const, record };
+      });
+    },
+  }),
+  action({
+    name: 'capture_about_person',
+    description: 'Save what the user just told you about someone, such as "met Sarah at dinner, she is raising a seed round". Pass the user\'s words as `text`, unedited: it becomes a note on that person marked as captured from chat. Name the person (`name`) or pass `personId`. When the name matches several people the result is `ambiguous` with candidates: ask the user which one and capture again with `personId`. When nobody matches it is `not_found`: ask whether to add them, then retry with `createIfMissing`. Nothing is saved in either case. Put details the user stated outright in `details` (location, birthday, howMet, headline) and a stated relationship in `relation`. Never infer details or traits, and never capture without the user saying it.',
+    input: z.object({
+      personId: idSchema.optional(),
+      name: z.string().min(1).max(200).optional(),
+      text: z.string().min(1).max(CAPTURE_TEXT_MAX),
+      details: z.object({
+        location: z.string().max(120).nullable().optional(),
+        birthday: birthdaySchema.nullable().optional(),
+        howMet: z.string().max(500).nullable().optional(),
+        headline: z.string().max(120).nullable().optional(),
+      }).strict().optional(),
+      relation: z.object({ kind: relationKindSchema, relatedPersonId: idSchema.nullable().optional(), relatedName: z.string().max(200).nullable().optional(), note: z.string().max(300).nullable().optional() }).strict().optional(),
+      createIfMissing: z.boolean().optional(),
+      sourceLabel: z.string().max(200).optional(),
+    }).strict(),
+    output: z.discriminatedUnion('status', [
+      z.object({ status: z.literal('saved'), person: personSummarySchema, noteId: idSchema, created: z.boolean(), applied: z.array(z.string().max(40)).max(10), skipped: z.array(z.string().max(40)).max(10) }).strict(),
+      z.object({ status: z.literal('ambiguous'), candidates: z.array(personSummarySchema).max(5), message: z.string().max(300) }).strict(),
+      z.object({ status: z.literal('not_found'), message: z.string().max(300) }).strict(),
+    ]),
+    audience: ['user', 'agent'], effect: 'app_write', retry: 'idempotent', errors: WRITE_ERRORS,
+    examples: [
+      { input: { name: 'Maya Chen', text: 'Had coffee with Maya. She moved to Lisbon and is hiring a research lead.', details: { location: 'Lisbon' }, sourceLabel: 'Chat: Weekly catch-up' }, output: { status: 'saved', person: PERSON, noteId: ID.note, created: false, applied: ['note', 'location'], skipped: [] } },
+      { input: { name: 'Sam', text: 'Sam said the pilot starts in January.' }, output: { status: 'ambiguous', candidates: [PERSON], message: 'More than one person matches "Sam". Ask which one, then capture again with their ID. Nothing was saved' } },
+    ],
+    handler(input, invocation) {
+      const c = ctx(), scope = writeScope(invocation);
+      return c.mutate(invocation, 'capture_about_person', input, () => {
+        const relation = input.relation ? { ...input.relation, relatedPersonId: input.relation.relatedPersonId ? resolvePersonId(c, input.relation.relatedPersonId) : input.relation.relatedPersonId } : undefined;
+        return capture(c, scope, { ...input, relation });
       });
     },
   }),
@@ -204,6 +243,31 @@ export const relationshipActions = [
       const id = input.subjectKind === 'person' ? resolvePersonId(c, input.subjectId) : input.subjectId;
       const result = c.db.tx(() => requestBriefing(c, scope, { kind: input.subjectKind, id }, input.meetingId ?? null));
       return { ...result, coverage: coverageFor(c, scope, granted(invocation)) };
+    },
+  }),
+  action({
+    name: 'get_profile',
+    description: 'Read the living profile of a person: a short cited summary (who they are to the user, what they are doing now, how the user knows them, open threads) rewritten from the previous profile plus newer records. Each item cites evidence or one of the user\'s notes. Status says whether newer records arrived since. Reading never runs AI. A profile generated from a narrower set of sources says which.',
+    input: z.object({ personId: idSchema }).strict(),
+    output: profileSchema,
+    audience: ['user', 'agent'], effect: 'read', retry: 'read_safe', errors: READ_ERRORS,
+    examples: [{ input: { personId: ID.maya }, output: { subjectKind: 'person', subjectId: ID.maya, status: 'ready', statusLabel: 'Updated November 8, 2026 from 6 records', generatedAt: T.now, coveredThrough: T.mail, evidenceCount: 6, canUpdate: true,
+      sections: [{ key: 'summary', title: 'Summary', items: [{ text: 'Design lead at Northstar whom you are helping hire a research lead.', evidenceIds: [ID.evidence], noteIds: [] }] }] } }],
+    handler(input, invocation) {
+      const c = ctx(), scope = readScope(invocation);
+      return getProfile(c, scope, resolvePersonId(c, input.personId));
+    },
+  }),
+  action({
+    name: 'request_profile',
+    description: 'Queue an update of a person\'s living profile for this exact scope. The next step in the briefing lane rewrites it from the previous profile plus newer records. With extraction off it queues nothing and reports unavailable.',
+    input: z.object({ personId: idSchema }).strict(),
+    output: z.object({ jobId: idSchema.nullable(), availability: z.enum(['queued', 'unavailable']) }).strict(),
+    audience: ['user', 'agent'], effect: 'app_write', retry: 'idempotent', errors: WRITE_ERRORS,
+    examples: [{ input: { personId: ID.maya }, output: { jobId: null, availability: 'unavailable' } }],
+    handler(input, invocation) {
+      const c = ctx(), scope = readScope(invocation);
+      return c.db.tx(() => requestProfile(c, scope, resolvePersonId(c, input.personId)));
     },
   }),
   action({

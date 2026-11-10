@@ -4,13 +4,15 @@ import { z } from 'zod/v4';
 import type { Ctx, Param } from './context.js';
 import { Labels } from './coverage.js';
 import { peopleQuery } from './people.js';
+import { personVisible } from './projection.js';
 import { organizationQuery } from './organizations.js';
 import { canSee, opportunityFilter, sourceFilter } from './scope.js';
 import { DEFAULT_SORT, getView } from './views.js';
 import type { OrganizationFilters, PeopleFilters } from '../schemas.js';
 
-export const EXPORT_FORMAT_VERSION = 1 as const;
-export const EXPORT_TABLES = ['people', 'companies', 'affiliations', 'lists', 'opportunities', 'stages', 'stage_history', 'notes', 'evidence', 'decisions'] as const;
+/** 2: people gained websites, birthday, location, how_met and my_read, notes gained origin, and relations were added. */
+export const EXPORT_FORMAT_VERSION = 2 as const;
+export const EXPORT_TABLES = ['people', 'companies', 'affiliations', 'lists', 'opportunities', 'stages', 'stage_history', 'notes', 'relations', 'evidence', 'decisions'] as const;
 export type ExportTable = (typeof EXPORT_TABLES)[number];
 export const PART_BYTES = 400_000;
 const PAGE = 500;
@@ -62,15 +64,19 @@ export function exportPart(ctx: Ctx, scope: AccessScope, input: { table: ExportT
   const f = (column: string) => sourceFilter(scope, column);
   const specs: Record<ExportTable, TableSpec> = {
     people: {
-      columns: ['id', 'name', 'headline', 'pinned', 'archived', 'origin', 'collection', 'emails', 'phones', 'linkedin', 'sources', 'created_at', 'updated_at', 'revision'],
+      columns: ['id', 'name', 'headline', 'pinned', 'archived', 'origin', 'collection', 'emails', 'phones', 'linkedin', 'websites', 'birthday', 'location', 'how_met', 'my_read', 'sources', 'created_at', 'updated_at', 'revision'],
       fetch: (from) => { const v = visible('person_sources', 'person_id'); return ctx.db.all(`SELECT x.* FROM persons x WHERE x.merged_into IS NULL AND x.id > ? AND ${v.sql} ORDER BY x.id LIMIT ?`, from, ...v.params, PAGE); },
       row: (row) => {
         const id = String(row.id);
         if (filtered.people && !filtered.people.has(id)) return null;
         const s = f('source_key');
         const sources = ctx.db.all<{ source_key: string }>(`SELECT source_key FROM person_sources WHERE person_id = ? AND ${s.sql}`, id, ...s.params).map((item) => labels.of(item.source_key)).join('; ');
-        return [id, scope.kind === 'owner' || canSee(scope, row.name_source as string) ? row.display_name : '', canSee(scope, row.collection as string) ? row.headline : '', row.pinned, row.archived_at ? 1 : 0, row.origin, row.collection,
-          identifiers('person', id, 'email'), identifiers('person', id, 'phone'), identifiers('person', id, 'linkedin'), sources, row.created_at, row.updated_at, row.revision];
+        const own = canSee(scope, row.collection as string);
+        // A birthday without a year exports as --MM-DD (ISO 8601).
+        const birthday = own && row.birthday_month ? `${row.birthday_year ?? '-'}-${String(row.birthday_month).padStart(2, '0')}-${String(row.birthday_day).padStart(2, '0')}` : '';
+        return [id, scope.kind === 'owner' || canSee(scope, row.name_source as string) ? row.display_name : '', own ? row.headline : '', row.pinned, row.archived_at ? 1 : 0, row.origin, row.collection,
+          identifiers('person', id, 'email'), identifiers('person', id, 'phone'), identifiers('person', id, 'linkedin'), identifiers('person', id, 'website'),
+          birthday, own ? row.location : '', own ? row.how_met : '', own ? row.my_read : '', sources, row.created_at, row.updated_at, row.revision];
       },
     },
     companies: {
@@ -115,8 +121,18 @@ export function exportPart(ctx: Ctx, scope: AccessScope, input: { table: ExportT
     },
     notes: {
       json: true,
-      fetch: (from) => { const s = f('collection'); return ctx.db.all(`SELECT id, subject_kind, subject_id, title, body, collection, archived_at, created_at, updated_at, revision FROM notes WHERE id > ? AND ${s.sql} ORDER BY id LIMIT ?`, from, ...s.params, PAGE); },
+      fetch: (from) => { const s = f('collection'); return ctx.db.all(`SELECT id, subject_kind, subject_id, title, body, collection, origin, origin_label, archived_at, created_at, updated_at, revision FROM notes WHERE id > ? AND ${s.sql} ORDER BY id LIMIT ?`, from, ...s.params, PAGE); },
       row: (row) => (filtered.people && row.subject_kind === 'person' && !filtered.people.has(String(row.subject_id)) ? null : { ...row }),
+    },
+    relations: {
+      columns: ['id', 'person_id', 'kind', 'related_person_id', 'related_name', 'note', 'collection', 'archived', 'created_at', 'updated_at', 'revision'],
+      fetch: (from) => { const s = f('collection'); return ctx.db.all(`SELECT * FROM person_relations WHERE id > ? AND ${s.sql} ORDER BY id LIMIT ?`, from, ...s.params, PAGE); },
+      // A relationship is exported only when the reader may see every person it names.
+      row: (row) => {
+        const people = [String(row.person_id), ...(row.related_person_id ? [String(row.related_person_id)] : [])];
+        if (people.some((id) => !personVisible(ctx, scope, id)) || (filtered.people && !people.some((id) => filtered.people!.has(id)))) return null;
+        return [row.id, row.person_id, row.kind, row.related_person_id, row.related_name, row.note, row.collection, row.archived_at ? 1 : 0, row.created_at, row.updated_at, row.revision];
+      },
     },
     evidence: {
       json: true,

@@ -41,7 +41,7 @@ The same person can be a friend, a collaborator and a contact at a company. Use 
 
 ## Entry and setup
 
-The welcome screen says "Pick up where you left off" and offers Connect email and calendar, Import contacts and Add a person. Select exact accounts and calendars, explain what is retained locally, and show a 90-day history default with 30/90/365-day choices. Import is bounded and resumable. Show usable records immediately rather than waiting for all history or AI extraction.
+The welcome screen says "Pick up where you left off" and offers Connect email and calendar, Import contacts and Add a person. Select exact accounts and calendars, explain what is retained locally, and show history defaults of 90 days for mail and a year for calendar, with 30/90/365-day choices. Import is bounded and resumable. Show usable records immediately rather than waiting for all history or AI extraction.
 
 Begin with genuine outbound or two-way correspondence and small meetings involving the owner. Incoming-only contacts and imported rows can appear with an honest origin label. Bulk mail, no-reply senders, mailing lists and large-event co-attendees are excluded from automatic relationship summaries. The user can include a sender explicitly.
 
@@ -155,6 +155,21 @@ Keep the first version deliberately finite: create/edit/archive opportunities, n
 At desktop widths, directories and boards get most of the space. In a 360 px companion frame or on mobile, use one list or record with Back. In a narrow pipeline, show a stage picker and stacked cards. Chat uses Ri's existing pane or app/chat switch. Preserve unsaved input during background updates and navigation. Color is reserved for a real overdue date, error or completed state, always accompanied by text.
 
 At 10,000 people, 1,000 companies and 100,000 interactions, keep all lists and joins paginated and indexed. Initial list payload is at most 50 rows, a subsequent page at most 100. Never mount every row or hydrate full email bodies for a directory. Index/search work runs in the app process. Qualification measures repeated list/search/detail requests on that synthetic dataset on the documented dev machine, with p95 under 300 ms excluding process startup, provider calls and AI. Measure sync fairness and first-open time separately. These are release targets, not observed measurements.
+
+## The personal side and a living profile
+
+Added November 10, 2026, when People became the owner's personal and business CRM. The ideas come from gbrain's person pages (a summary rewritten over a growing timeline, the owner's own assessment kept apart, capture from conversation) and Kindred's deeper calendar reading. Neither project's code or runtime is used.
+
+- **Personal details** are owner-written fields on a person, under the person's collection: a birthday (month and day, year only when known), where they live, how they met, and **My read**, the owner's own take. Readers without the collection see none of them, in detail, search, export, Today and chat context alike. AI never writes them and My read is never sent to AI.
+- **Relationships** link two people (partner, child, parent, sibling, family, friend, colleague, introduced by) or a person and a name that isn't a record. Each lives in a collection and reads from both sides ("Introduced by Jordan" on Maya, "Introduced Maya" on Jordan). A relationship to someone the reader can't see never shows.
+- **Birthdays** in the next 14 days appear on Today, counted from the computer's local date. February 29 falls on March 1 in other years.
+- **Capture from chat** (`capture_about_person`) saves the user's exact words as a note on the named person, marked as captured from chat with a source label, plus details the user stated outright. A name that matches several people, or nobody, saves nothing: the agent asks, then retries with the chosen ID or `createIfMissing`. The `remember-about-someone` workflow tells agents when to use it.
+- **The living profile** is a cited summary in four parts (summary, what they are doing now, how you know them, open threads). Each update sends the previous profile and only the records that arrived since, so older context survives. Every item cites evidence or a note. Items citing nothing real are dropped, and a result with no valid item is not stored. It needs extraction on, runs in the briefing lane, and keeps the briefing scope rules: the owner's profile is read only by the owner, a schedule's is built from its own accounts without notes and read by anyone holding those accounts. The schedule refreshes key people (pinned, keep in touch, two-way mail in the last 90 days) at most once a day when something new arrived. Reading a profile never runs AI.
+- **Calendar history** defaults to a year (mail stays at 90 days). Meetings are the strongest relationship signal and cheap to read. Deeper choices wait for the shared app kit's history picker.
+- **Imports** read birthdays (vCard BDAY, CSV Birthday) and cities (vCard ADR locality, CSV City). An ambiguous numeric date is left unmapped. Imported values fill only empty fields in the import's own collection.
+- **Merges** move relationships with the merged person and fill the survivor's empty personal details from the merged person only within the same collection. Undo restores both.
+
+Still not built: Google Contacts and texting sources, meeting transcripts, web research for key people, and an AI review of incoming-only senders.
 
 ## Lightweight relationship context
 

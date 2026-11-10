@@ -12,6 +12,9 @@ export interface ParsedRow {
   company: string | null;
   role: string | null;
   website: string | null;
+  /** Read only from unambiguous dates. A year before 1900 (Apple's 1604 placeholder) means no year. */
+  birthday: { month: number; day: number; year: number | null } | null;
+  location: string | null;
   notes: string | null;
   lists: string[];
   externalId: string | null;
@@ -77,6 +80,8 @@ const FIELDS: Record<string, string[]> = {
   website: ['website', 'web site', 'company website', 'domain', 'company domain'],
   linkedin: ['linkedin', 'linkedin url', 'profile url', 'url', 'linkedin profile'],
   notes: ['notes', 'note', 'description', 'comments'],
+  birthday: ['birthday', 'birth date', 'birthdate', 'date of birth', 'dob', 'bday'],
+  location: ['location', 'city', 'home city', 'address 1 - city', 'home address city', 'based in', 'lives in'],
   lists: ['list', 'lists', 'tags', 'groups', 'labels', 'group membership', 'tag'],
   externalId: ['id', 'external id', 'record id', 'contact id', 'crm id', 'uid'],
   observedOn: ['connected on', 'created', 'created at', 'date added'],
@@ -95,6 +100,42 @@ export function mapHeaders(headers: string[]): Record<number, string> {
     }
   });
   return mapping;
+}
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+function birthdayParts(month: number, day: number, year: number | null) {
+  if (!(month >= 1 && month <= 12 && day >= 1 && day <= 31)) return null;
+  const known = year !== null && year >= 1900 && year <= 2100 ? year : null;
+  const max = [31, known !== null && !((known % 4 === 0 && known % 100 !== 0) || known % 400 === 0) ? 28 : 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]!;
+  return day <= max ? { month, day, year: known } : null;
+}
+/**
+ * A birthday from a contact file. Accepts ISO and vCard forms (1990-03-14,
+ * 19900314, --03-14, --0314), a month name (14 March 1990, Mar 14) and a
+ * numeric date only when it can't be misread (14/03/1990, 03/14/1990). An
+ * ambiguous date such as 03/04/1990 is left unmapped rather than guessed.
+ */
+export function parseBirthday(value: string | null | undefined): ParsedRow['birthday'] {
+  const text = (value ?? '').trim();
+  if (!text) return null;
+  let match = /^(\d{4})-?(\d{2})-?(\d{2})(?:[T\s].*)?$/.exec(text);
+  if (match) return birthdayParts(Number(match[2]), Number(match[3]), Number(match[1]));
+  match = /^--(\d{2})-?(\d{2})$/.exec(text);
+  if (match) return birthdayParts(Number(match[1]), Number(match[2]), null);
+  match = /^(\d{1,2})[/.](\d{1,2})(?:[/.](\d{4}))?$/.exec(text);
+  if (match) {
+    const a = Number(match[1]), b = Number(match[2]), year = match[3] ? Number(match[3]) : null;
+    if (a > 12 && b <= 12) return birthdayParts(b, a, year);
+    if (b > 12 && a <= 12) return birthdayParts(a, b, year);
+    return null;
+  }
+  const word = /([a-z]{3,})/i.exec(text)?.[1]?.toLowerCase().slice(0, 3);
+  const month = word ? MONTHS.indexOf(word) + 1 : 0;
+  const numbers = [...text.matchAll(/\d+/g)].map((item) => Number(item[0]));
+  if (!month || !numbers.length) return null;
+  const day = numbers.find((item) => item >= 1 && item <= 31) ?? 0;
+  const year = numbers.find((item) => item >= 1000) ?? null;
+  return birthdayParts(month, day, year);
 }
 
 function isoDate(value: string | null): string | null {
@@ -135,6 +176,8 @@ export function rowsFromTable(table: string[][], format: ImportFormat): { rows: 
       company: values.company?.[0] ?? null,
       role: values.role?.[0] ?? null,
       website: values.website?.[0] ?? null,
+      birthday: parseBirthday(values.birthday?.[0]),
+      location: values.location?.[0] ?? null,
       notes: values.notes?.join('\n') ?? null,
       lists: (values.lists ?? []).flatMap((value) => value.split(/[;|]|:::|,(?=\s*\S)/)).map((value) => value.replace(/^\*\s*/, '').trim()).filter((value) => value && !/^\* ?my contacts$/i.test(value)).slice(0, 10),
       externalId: values.externalId?.[0] ?? null,
@@ -183,7 +226,11 @@ export function parseVcards(text: string): { rows: ParsedRow[]; truncated: boole
     const name = one('FN') ?? ([n[1], n[0]].filter(Boolean).join(' ') || null);
     const raw: Record<string, string> = {};
     for (const prop of props) raw[prop.name] = raw[prop.name] ? `${raw[prop.name]}; ${unescapeValue(prop.value)}` : unescapeValue(prop.value);
-    const known = new Set(['FN', 'N', 'EMAIL', 'TEL', 'ORG', 'TITLE', 'NOTE', 'URL', 'CATEGORIES', 'UID', 'VERSION', 'PRODID', 'REV']);
+    const known = new Set(['FN', 'N', 'EMAIL', 'TEL', 'ORG', 'TITLE', 'NOTE', 'URL', 'CATEGORIES', 'UID', 'VERSION', 'PRODID', 'REV', 'BDAY']);
+    // ADR is ;;street;locality;region;postal code;country. The locality and region say where someone lives.
+    const address = props.find((prop) => prop.name === 'ADR');
+    const parts = address ? unescapeValue(address.value).split(';').map((part) => part.trim()) : [];
+    const location = [parts[3], parts[4]].filter(Boolean).join(', ') || parts[6] || null;
     const unmapped = Object.fromEntries(Object.entries(raw).filter(([key]) => !known.has(key)));
     const urls = all('URL');
     return {
@@ -195,6 +242,8 @@ export function parseVcards(text: string): { rows: ParsedRow[]; truncated: boole
       company: one('ORG')?.split(';')[0]?.trim() || null,
       role: one('TITLE'),
       website: urls.find((url) => !/linkedin\.com\//i.test(url)) ?? null,
+      birthday: parseBirthday(one('BDAY')),
+      location,
       notes: one('NOTE'),
       lists: (one('CATEGORIES') ?? '').split(',').map((value) => value.trim()).filter(Boolean).slice(0, 10),
       externalId: one('UID'),

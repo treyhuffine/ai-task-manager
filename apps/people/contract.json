@@ -3300,6 +3300,7 @@
               "stages",
               "stage_history",
               "notes",
+              "relations",
               "evidence",
               "decisions"
             ]
@@ -3353,7 +3354,7 @@
           },
           "formatVersion": {
             "type": "number",
-            "const": 1
+            "const": 2
           },
           "fetched": {
             "type": "integer",
@@ -3392,10 +3393,10 @@
           "output": {
             "fileName": "people-people.csv",
             "mimeType": "text/csv",
-            "content": "format_version,id,name\n1,0194d7a0-0000-7000-8000-00000000a001,Maya Chen\n",
+            "content": "format_version,id,name\n2,0194d7a0-0000-7000-8000-00000000a001,Maya Chen\n",
             "rows": 1,
             "nextCursor": null,
-            "formatVersion": 1,
+            "formatVersion": 2,
             "fetched": 1
           }
         }
@@ -5039,6 +5040,79 @@
                   }
                 ]
               },
+              "birthday": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "month": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 12
+                      },
+                      "day": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 31
+                      },
+                      "year": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 1900,
+                            "maximum": 2100
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "month",
+                      "day",
+                      "year"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "location": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "howMet": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "myRead": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "observedNames": {
                 "maxItems": 10,
                 "type": "array",
@@ -5109,6 +5183,10 @@
               "name",
               "nameOverride",
               "headline",
+              "birthday",
+              "location",
+              "howMet",
+              "myRead",
               "observedNames",
               "collection",
               "origin",
@@ -5532,6 +5610,30 @@
                   "type": "string",
                   "maxLength": 300
                 },
+                "origin": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "chat"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "originLabel": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "minLength": 10,
@@ -5552,6 +5654,8 @@
                 "body",
                 "collection",
                 "collectionLabel",
+                "origin",
+                "originLabel",
                 "createdAt",
                 "updatedAt"
               ],
@@ -6370,6 +6474,110 @@
               "additionalProperties": false
             }
           },
+          "relations": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "partner",
+                    "child",
+                    "parent",
+                    "sibling",
+                    "family",
+                    "friend",
+                    "colleague",
+                    "introduced_by",
+                    "other"
+                  ]
+                },
+                "label": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "person": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "note": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 300
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "outgoing",
+                    "incoming"
+                  ]
+                },
+                "collection": {
+                  "type": "string",
+                  "pattern": "^(manual|collection:[A-Za-z0-9-]{1,64})$"
+                }
+              },
+              "required": [
+                "id",
+                "revision",
+                "kind",
+                "label",
+                "person",
+                "name",
+                "note",
+                "direction",
+                "collection"
+              ],
+              "additionalProperties": false
+            }
+          },
           "reviews": {
             "maxItems": 10,
             "type": "array",
@@ -6681,6 +6889,7 @@
           "taskLinks",
           "opportunities",
           "lists",
+          "relations",
           "reviews",
           "attribution",
           "coverage",
@@ -6714,6 +6923,14 @@
               "name": "Maya Chen",
               "nameOverride": null,
               "headline": null,
+              "birthday": {
+                "month": 3,
+                "day": 14,
+                "year": null
+              },
+              "location": "Lisbon",
+              "howMet": "Introduced by Jordan at the design meetup",
+              "myRead": "Thoughtful and direct. Prefers a written agenda.",
               "observedNames": [
                 {
                   "name": "Maya Chen",
@@ -6774,6 +6991,22 @@
                 "name": "Collaborators"
               }
             ],
+            "relations": [
+              {
+                "id": "0194d7a0-0000-7000-8000-0000000ff101",
+                "revision": 1,
+                "kind": "introduced_by",
+                "label": "Introduced by",
+                "person": {
+                  "id": "0194d7a0-0000-7000-8000-00000000a002",
+                  "name": "Jordan Bell"
+                },
+                "name": "Jordan Bell",
+                "note": null,
+                "direction": "outgoing",
+                "collection": "manual"
+              }
+            ],
             "reviews": [],
             "attribution": [],
             "coverage": {
@@ -6805,7 +7038,7 @@
     },
     {
       "name": "save_person",
-      "description": "Create a person with only a name, or edit one: a name correction, a short headline, pin, archive, keep-in-touch interval, collection, or addresses. Corrections take precedence over observed values and survive resync. Updates need the expected revision and return a conflict with the current record when it changed.",
+      "description": "Create a person with only a name, or edit one: a name correction, a short headline, pin, archive, keep-in-touch interval, collection, addresses (email, phone, LinkedIn or website), and the personal details the user states: birthday (month and day, year only if known), where they live, how they met, and \"myRead\", the user's own read on the person. Set personal details only from what the user said, never from inference. Corrections take precedence over observed values and survive resync. Updates need the expected revision and return a conflict with the current record when it changed.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -6861,6 +7094,79 @@
               }
             ]
           },
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12
+                  },
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31
+                  },
+                  "year": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1900,
+                        "maximum": 2100
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "month",
+                  "day",
+                  "year"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "howMet": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "myRead": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "collection": {
             "type": "string",
             "pattern": "^(manual|collection:[A-Za-z0-9-]{1,64})$"
@@ -6876,7 +7182,8 @@
                   "enum": [
                     "email",
                     "phone",
-                    "linkedin"
+                    "linkedin",
+                    "website"
                   ]
                 },
                 "value": {
@@ -6903,7 +7210,8 @@
                   "enum": [
                     "email",
                     "phone",
-                    "linkedin"
+                    "linkedin",
+                    "website"
                   ]
                 },
                 "value": {
@@ -9440,6 +9748,30 @@
                   "type": "string",
                   "maxLength": 300
                 },
+                "origin": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "chat"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "originLabel": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "minLength": 10,
@@ -9460,6 +9792,8 @@
                 "body",
                 "collection",
                 "collectionLabel",
+                "origin",
+                "originLabel",
                 "createdAt",
                 "updatedAt"
               ],
@@ -10966,6 +11300,391 @@
               "sourceLabel": "Your records",
               "evidenceId": null,
               "description": "Current. Confirmed by you"
+            }
+          }
+        }
+      ],
+      "visibility": "both"
+    },
+    {
+      "name": "save_relation",
+      "description": "Record how two people are related, only as the user states it: partner, child, parent, sibling, family, friend, colleague, or introduced_by (personId was introduced by the other person). Link another person record with relatedPersonId, or name someone who is not a record (such as a child) with relatedName. Edit or remove (archived: true) one with its revision. Never infer a relationship.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9:_.@+-]+$"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9:_.@+-]+$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "partner",
+              "child",
+              "parent",
+              "sibling",
+              "family",
+              "friend",
+              "colleague",
+              "introduced_by",
+              "other"
+            ]
+          },
+          "relatedPersonId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9:_.@+-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relatedName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "collection": {
+            "type": "string",
+            "pattern": "^(manual|collection:[A-Za-z0-9-]{1,64})$"
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "saved"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "partner",
+                      "child",
+                      "parent",
+                      "sibling",
+                      "family",
+                      "friend",
+                      "colleague",
+                      "introduced_by",
+                      "other"
+                    ]
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "person": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "note": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 300
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "outgoing",
+                      "incoming"
+                    ]
+                  },
+                  "collection": {
+                    "type": "string",
+                    "pattern": "^(manual|collection:[A-Za-z0-9-]{1,64})$"
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision",
+                  "kind",
+                  "label",
+                  "person",
+                  "name",
+                  "note",
+                  "direction",
+                  "collection"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "status",
+              "record"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "conflict"
+              },
+              "current": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "partner",
+                      "child",
+                      "parent",
+                      "sibling",
+                      "family",
+                      "friend",
+                      "colleague",
+                      "introduced_by",
+                      "other"
+                    ]
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "person": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "note": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 300
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "outgoing",
+                      "incoming"
+                    ]
+                  },
+                  "collection": {
+                    "type": "string",
+                    "pattern": "^(manual|collection:[A-Za-z0-9-]{1,64})$"
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision",
+                  "kind",
+                  "label",
+                  "person",
+                  "name",
+                  "note",
+                  "direction",
+                  "collection"
+                ],
+                "additionalProperties": false
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": [
+              "status",
+              "current",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "audience": [
+        "user",
+        "agent"
+      ],
+      "effect": "app_write",
+      "timeoutMs": 30000,
+      "retry": "idempotent",
+      "errors": [
+        "invalid_input",
+        "not_found",
+        "forbidden",
+        "revoked",
+        "conflict"
+      ],
+      "examples": [
+        {
+          "input": {
+            "personId": "0194d7a0-0000-7000-8000-00000000a001",
+            "kind": "introduced_by",
+            "relatedPersonId": "0194d7a0-0000-7000-8000-00000000a002"
+          },
+          "output": {
+            "status": "saved",
+            "record": {
+              "id": "0194d7a0-0000-7000-8000-0000000ff101",
+              "revision": 1,
+              "kind": "introduced_by",
+              "label": "Introduced by",
+              "person": {
+                "id": "0194d7a0-0000-7000-8000-00000000a002",
+                "name": "Jordan Bell"
+              },
+              "name": "Jordan Bell",
+              "note": null,
+              "direction": "outgoing",
+              "collection": "manual"
+            }
+          }
+        },
+        {
+          "input": {
+            "personId": "0194d7a0-0000-7000-8000-00000000a001",
+            "kind": "child",
+            "relatedName": "Leo",
+            "note": "Turns 7 in May"
+          },
+          "output": {
+            "status": "saved",
+            "record": {
+              "id": "0194d7a0-0000-7000-8000-0000000ff102",
+              "revision": 1,
+              "kind": "child",
+              "label": "Child",
+              "person": null,
+              "name": "Leo",
+              "note": "Turns 7 in May",
+              "direction": "outgoing",
+              "collection": "manual"
             }
           }
         }
@@ -12816,7 +13535,7 @@
     },
     {
       "name": "get_today",
-      "description": "Today: upcoming meetings in the next seven days, chosen follow-ups, waiting-on items, chosen keep-in-touch reminders and a short sourced review queue. Nothing is invented to fill the page.",
+      "description": "Today: upcoming meetings in the next seven days, chosen follow-ups, waiting-on items, chosen keep-in-touch reminders, birthdays the user recorded in the next 14 days (inDays 0 is today, turns is the age when the year is known) and a short sourced review queue. Nothing is invented to fill the page.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -14196,6 +14915,61 @@
               "additionalProperties": false
             }
           },
+          "birthdays": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "month": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 12
+                },
+                "day": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 31
+                },
+                "inDays": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 14
+                },
+                "turns": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "month",
+                "day",
+                "inDays",
+                "turns"
+              ],
+              "additionalProperties": false
+            }
+          },
           "review": {
             "type": "object",
             "properties": {
@@ -15332,6 +16106,7 @@
           "iOwe",
           "waitingOn",
           "keepInTouch",
+          "birthdays",
           "review",
           "focusPersonId",
           "empty",
@@ -15415,6 +16190,16 @@
             ],
             "waitingOn": [],
             "keepInTouch": [],
+            "birthdays": [
+              {
+                "id": "0194d7a0-0000-7000-8000-00000000a002",
+                "name": "Jordan Bell",
+                "month": 11,
+                "day": 14,
+                "inDays": 3,
+                "turns": null
+              }
+            ],
             "review": {
               "suggestions": [],
               "suggestionCount": 0,
@@ -15569,6 +16354,30 @@
                     "type": "string",
                     "maxLength": 300
                   },
+                  "origin": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chat"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "originLabel": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "createdAt": {
                     "type": "string",
                     "minLength": 10,
@@ -15589,6 +16398,8 @@
                   "body",
                   "collection",
                   "collectionLabel",
+                  "origin",
+                  "originLabel",
                   "createdAt",
                   "updatedAt"
                 ],
@@ -15659,6 +16470,30 @@
                     "type": "string",
                     "maxLength": 300
                   },
+                  "origin": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chat"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "originLabel": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "createdAt": {
                     "type": "string",
                     "minLength": 10,
@@ -15679,6 +16514,8 @@
                   "body",
                   "collection",
                   "collectionLabel",
+                  "origin",
+                  "originLabel",
                   "createdAt",
                   "updatedAt"
                 ],
@@ -15731,9 +16568,879 @@
               "body": "Ask how the design and research teams work together.",
               "collection": "manual",
               "collectionLabel": "Your records",
+              "origin": null,
+              "originLabel": null,
               "createdAt": "2026-10-15T15:12:00.000Z",
               "updatedAt": "2026-10-15T15:12:00.000Z"
             }
+          }
+        }
+      ],
+      "visibility": "both"
+    },
+    {
+      "name": "capture_about_person",
+      "description": "Save what the user just told you about someone, such as \"met Sarah at dinner, she is raising a seed round\". Pass the user's words as `text`, unedited: it becomes a note on that person marked as captured from chat. Name the person (`name`) or pass `personId`. When the name matches several people the result is `ambiguous` with candidates: ask the user which one and capture again with `personId`. When nobody matches it is `not_found`: ask whether to add them, then retry with `createIfMissing`. Nothing is saved in either case. Put details the user stated outright in `details` (location, birthday, howMet, headline) and a stated relationship in `relation`. Never infer details or traits, and never capture without the user saying it.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9:_.@+-]+$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "details": {
+            "type": "object",
+            "properties": {
+              "location": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "birthday": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "month": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 12
+                      },
+                      "day": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 31
+                      },
+                      "year": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 1900,
+                            "maximum": 2100
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "month",
+                      "day",
+                      "year"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "howMet": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "headline": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "relation": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "partner",
+                  "child",
+                  "parent",
+                  "sibling",
+                  "family",
+                  "friend",
+                  "colleague",
+                  "introduced_by",
+                  "other"
+                ]
+              },
+              "relatedPersonId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "relatedName": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "note": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 300
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "createIfMissing": {
+            "type": "boolean"
+          },
+          "sourceLabel": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "saved"
+              },
+              "person": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "pinned": {
+                    "type": "boolean"
+                  },
+                  "archived": {
+                    "type": "boolean"
+                  },
+                  "company": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "role": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "affiliationStatus": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "current",
+                          "observed",
+                          "former",
+                          "uncertain"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "lastExchangeAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 10,
+                        "maxLength": 40
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "nextAction": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "maxLength": 300
+                          },
+                          "dueDate": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "task",
+                              "commitment",
+                              "opportunity",
+                              "waiting",
+                              "meeting"
+                            ]
+                          },
+                          "overdue": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "label",
+                          "dueDate",
+                          "kind",
+                          "overdue"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "nextMeeting": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                          },
+                          "at": {
+                            "type": "string",
+                            "minLength": 10,
+                            "maxLength": 40
+                          },
+                          "title": {
+                            "type": "string",
+                            "maxLength": 300
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "at",
+                          "title"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "primaryEmail": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 320
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "lists": {
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "sourceLabels": {
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 300
+                    }
+                  },
+                  "addedAt": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 40
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "revision",
+                  "pinned",
+                  "archived",
+                  "company",
+                  "role",
+                  "affiliationStatus",
+                  "lastExchangeAt",
+                  "nextAction",
+                  "nextMeeting",
+                  "primaryEmail",
+                  "lists",
+                  "sourceLabels",
+                  "addedAt"
+                ],
+                "additionalProperties": false
+              },
+              "noteId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9:_.@+-]+$"
+              },
+              "created": {
+                "type": "boolean"
+              },
+              "applied": {
+                "maxItems": 10,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              "skipped": {
+                "maxItems": 10,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              }
+            },
+            "required": [
+              "status",
+              "person",
+              "noteId",
+              "created",
+              "applied",
+              "skipped"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "ambiguous"
+              },
+              "candidates": {
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "pinned": {
+                      "type": "boolean"
+                    },
+                    "archived": {
+                      "type": "boolean"
+                    },
+                    "company": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "role": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "affiliationStatus": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "current",
+                            "observed",
+                            "former",
+                            "uncertain"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lastExchangeAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 10,
+                          "maxLength": 40
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "nextAction": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "maxLength": 300
+                            },
+                            "dueDate": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "task",
+                                "commitment",
+                                "opportunity",
+                                "waiting",
+                                "meeting"
+                              ]
+                            },
+                            "overdue": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "dueDate",
+                            "kind",
+                            "overdue"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "nextMeeting": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                            },
+                            "at": {
+                              "type": "string",
+                              "minLength": 10,
+                              "maxLength": 40
+                            },
+                            "title": {
+                              "type": "string",
+                              "maxLength": 300
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "at",
+                            "title"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "primaryEmail": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 320
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lists": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "sourceLabels": {
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 300
+                      }
+                    },
+                    "addedAt": {
+                      "type": "string",
+                      "minLength": 10,
+                      "maxLength": 40
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "revision",
+                    "pinned",
+                    "archived",
+                    "company",
+                    "role",
+                    "affiliationStatus",
+                    "lastExchangeAt",
+                    "nextAction",
+                    "nextMeeting",
+                    "primaryEmail",
+                    "lists",
+                    "sourceLabels",
+                    "addedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": [
+              "status",
+              "candidates",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "not_found"
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": [
+              "status",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "audience": [
+        "user",
+        "agent"
+      ],
+      "effect": "app_write",
+      "timeoutMs": 30000,
+      "retry": "idempotent",
+      "errors": [
+        "invalid_input",
+        "not_found",
+        "forbidden",
+        "revoked",
+        "conflict"
+      ],
+      "examples": [
+        {
+          "input": {
+            "name": "Maya Chen",
+            "text": "Had coffee with Maya. She moved to Lisbon and is hiring a research lead.",
+            "details": {
+              "location": "Lisbon"
+            },
+            "sourceLabel": "Chat: Weekly catch-up"
+          },
+          "output": {
+            "status": "saved",
+            "person": {
+              "id": "0194d7a0-0000-7000-8000-00000000a001",
+              "name": "Maya Chen",
+              "revision": 3,
+              "pinned": true,
+              "archived": false,
+              "company": {
+                "id": "0194d7a0-0000-7000-8000-00000000b002",
+                "name": "Northstar"
+              },
+              "role": "Design lead",
+              "affiliationStatus": "observed",
+              "lastExchangeAt": "2026-10-12T17:00:00.000Z",
+              "nextAction": {
+                "label": "Introduce Maya to a research lead",
+                "dueDate": null,
+                "kind": "commitment",
+                "overdue": false
+              },
+              "nextMeeting": {
+                "id": "0194d7a0-0000-7000-8000-00000000f003",
+                "at": "2026-10-16T16:00:00.000Z",
+                "title": "Portfolio discussion"
+              },
+              "primaryEmail": "maya@northstar.example",
+              "lists": [
+                {
+                  "id": "0194d7a0-0000-7000-8000-000000001001",
+                  "name": "Collaborators"
+                }
+              ],
+              "sourceLabels": [
+                "Personal Gmail",
+                "Your records"
+              ],
+              "addedAt": "2026-09-02T10:00:00.000Z"
+            },
+            "noteId": "0194d7a0-0000-7000-8000-00000000c001",
+            "created": false,
+            "applied": [
+              "note",
+              "location"
+            ],
+            "skipped": []
+          }
+        },
+        {
+          "input": {
+            "name": "Sam",
+            "text": "Sam said the pilot starts in January."
+          },
+          "output": {
+            "status": "ambiguous",
+            "candidates": [
+              {
+                "id": "0194d7a0-0000-7000-8000-00000000a001",
+                "name": "Maya Chen",
+                "revision": 3,
+                "pinned": true,
+                "archived": false,
+                "company": {
+                  "id": "0194d7a0-0000-7000-8000-00000000b002",
+                  "name": "Northstar"
+                },
+                "role": "Design lead",
+                "affiliationStatus": "observed",
+                "lastExchangeAt": "2026-10-12T17:00:00.000Z",
+                "nextAction": {
+                  "label": "Introduce Maya to a research lead",
+                  "dueDate": null,
+                  "kind": "commitment",
+                  "overdue": false
+                },
+                "nextMeeting": {
+                  "id": "0194d7a0-0000-7000-8000-00000000f003",
+                  "at": "2026-10-16T16:00:00.000Z",
+                  "title": "Portfolio discussion"
+                },
+                "primaryEmail": "maya@northstar.example",
+                "lists": [
+                  {
+                    "id": "0194d7a0-0000-7000-8000-000000001001",
+                    "name": "Collaborators"
+                  }
+                ],
+                "sourceLabels": [
+                  "Personal Gmail",
+                  "Your records"
+                ],
+                "addedAt": "2026-09-02T10:00:00.000Z"
+              }
+            ],
+            "message": "More than one person matches \"Sam\". Ask which one, then capture again with their ID. Nothing was saved"
           }
         }
       ],
@@ -19882,6 +21589,292 @@
       "visibility": "both"
     },
     {
+      "name": "get_profile",
+      "description": "Read the living profile of a person: a short cited summary (who they are to the user, what they are doing now, how the user knows them, open threads) rewritten from the previous profile plus newer records. Each item cites evidence or one of the user's notes. Status says whether newer records arrived since. Reading never runs AI. A profile generated from a narrower set of sources says which.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9:_.@+-]+$"
+          }
+        },
+        "required": [
+          "personId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "subjectKind": {
+            "type": "string",
+            "enum": [
+              "person"
+            ]
+          },
+          "subjectId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9:_.@+-]+$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "stale",
+              "none",
+              "off",
+              "unavailable"
+            ]
+          },
+          "statusLabel": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "generatedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coveredThrough": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 10,
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidenceCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sections": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "summary",
+                    "now",
+                    "relationship",
+                    "threads"
+                  ]
+                },
+                "title": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "items": {
+                  "maxItems": 6,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "maxLength": 400
+                      },
+                      "evidenceIds": {
+                        "maxItems": 5,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                        }
+                      },
+                      "noteIds": {
+                        "maxItems": 3,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[A-Za-z0-9:_.@+-]+$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "text",
+                      "evidenceIds",
+                      "noteIds"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "key",
+                "title",
+                "items"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "canUpdate": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "subjectKind",
+          "subjectId",
+          "status",
+          "statusLabel",
+          "generatedAt",
+          "coveredThrough",
+          "evidenceCount",
+          "sections",
+          "canUpdate"
+        ],
+        "additionalProperties": false
+      },
+      "audience": [
+        "user",
+        "agent"
+      ],
+      "effect": "read",
+      "timeoutMs": 30000,
+      "retry": "read_safe",
+      "errors": [
+        "invalid_input",
+        "not_found",
+        "forbidden",
+        "revoked"
+      ],
+      "examples": [
+        {
+          "input": {
+            "personId": "0194d7a0-0000-7000-8000-00000000a001"
+          },
+          "output": {
+            "subjectKind": "person",
+            "subjectId": "0194d7a0-0000-7000-8000-00000000a001",
+            "status": "ready",
+            "statusLabel": "Updated November 8, 2026 from 6 records",
+            "generatedAt": "2026-10-15T15:12:00.000Z",
+            "coveredThrough": "2026-10-12T17:00:00.000Z",
+            "evidenceCount": 6,
+            "canUpdate": true,
+            "sections": [
+              {
+                "key": "summary",
+                "title": "Summary",
+                "items": [
+                  {
+                    "text": "Design lead at Northstar whom you are helping hire a research lead.",
+                    "evidenceIds": [
+                      "0194d7a0-0000-7000-8000-00000000f001"
+                    ],
+                    "noteIds": []
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "visibility": "both"
+    },
+    {
+      "name": "request_profile",
+      "description": "Queue an update of a person's living profile for this exact scope. The next step in the briefing lane rewrites it from the previous profile plus newer records. With extraction off it queues nothing and reports unavailable.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9:_.@+-]+$"
+          }
+        },
+        "required": [
+          "personId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9:_.@+-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "availability": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "unavailable"
+            ]
+          }
+        },
+        "required": [
+          "jobId",
+          "availability"
+        ],
+        "additionalProperties": false
+      },
+      "audience": [
+        "user",
+        "agent"
+      ],
+      "effect": "app_write",
+      "timeoutMs": 30000,
+      "retry": "idempotent",
+      "errors": [
+        "invalid_input",
+        "not_found",
+        "forbidden",
+        "revoked",
+        "conflict"
+      ],
+      "examples": [
+        {
+          "input": {
+            "personId": "0194d7a0-0000-7000-8000-00000000a001"
+          },
+          "output": {
+            "jobId": null,
+            "availability": "unavailable"
+          }
+        }
+      ],
+      "visibility": "both"
+    },
+    {
       "name": "get_relationship_context",
       "description": "A small cited context packet for chat about a person, company or opportunity: at most 20 facts or commitments and 20 interaction references with short excerpts, the as-of time, checked accounts and ranges, missing evidence and pending extraction. Larger histories return a next cursor.",
       "inputSchema": {
@@ -19977,7 +21970,9 @@
                     "fact",
                     "note",
                     "opportunity",
-                    "stage"
+                    "stage",
+                    "personal",
+                    "profile"
                   ]
                 },
                 "text": {
@@ -26123,6 +28118,30 @@
                   "type": "string",
                   "maxLength": 300
                 },
+                "origin": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "chat"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "originLabel": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "createdAt": {
                   "type": "string",
                   "minLength": 10,
@@ -26143,6 +28162,8 @@
                 "body",
                 "collection",
                 "collectionLabel",
+                "origin",
+                "originLabel",
                 "createdAt",
                 "updatedAt"
               ],
@@ -30067,6 +32088,11 @@
       "name": "prepare-for-a-meeting",
       "description": "Prepare the user for a meeting or conversation with someone they know, using this app's permitted records with citations. Use when they ask to get ready for, or catch up before, talking to a person or company.",
       "file": "skills/prepare-for-a-meeting/SKILL.md"
+    },
+    {
+      "name": "remember-about-someone",
+      "description": "Save what the user tells you about a person into People, in their own words, such as who they met, where someone moved, a birthday, how they know someone or what a person is working on. Use when the user mentions news or details about someone they know, or says \"remember\", \"note that\" or \"add to People\".",
+      "file": "skills/remember-about-someone/SKILL.md"
     },
     {
       "name": "review-follow-ups",

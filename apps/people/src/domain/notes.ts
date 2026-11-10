@@ -10,12 +10,12 @@ import { removeSearchRow, setSearchRow } from './search.js';
 import { cleanName, cleanText } from './text.js';
 import type { Note } from '../schemas.js';
 
-type NoteRow = { id: string; created_at: string; updated_at: string; revision: number; subject_kind: Note['subjectKind']; subject_id: string; title: string | null; body: string; collection: string; archived_at: string | null };
+type NoteRow = { id: string; created_at: string; updated_at: string; revision: number; subject_kind: Note['subjectKind']; subject_id: string; title: string | null; body: string; collection: string; archived_at: string | null; origin: string | null; origin_label: string | null };
 
 export function projectNote(row: NoteRow, labels: Labels): Note {
   return {
     id: row.id, revision: row.revision, subjectKind: row.subject_kind, subjectId: row.subject_id, title: row.title, body: row.body,
-    collection: row.collection, collectionLabel: labels.of(row.collection), createdAt: row.created_at, updatedAt: row.updated_at,
+    collection: row.collection, collectionLabel: labels.of(row.collection), origin: row.origin === 'chat' ? 'chat' : null, originLabel: row.origin_label, createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
 
@@ -34,7 +34,7 @@ function assertSubject(ctx: Ctx, scope: AccessScope, kind: Note['subjectKind'], 
  * Notes are user-authored and keep their own collection. Linking a note to a
  * company never shares the note with anyone who can see the company.
  */
-export function saveNote(ctx: Ctx, scope: AccessScope, input: { id?: string; expectedRevision?: number; subjectKind?: Note['subjectKind']; subjectId?: string; title?: string | null; body?: string; collection?: string; archived?: boolean }): { status: 'saved' | 'conflict'; id: string; message?: string } {
+export function saveNote(ctx: Ctx, scope: AccessScope, input: { id?: string; expectedRevision?: number; subjectKind?: Note['subjectKind']; subjectId?: string; title?: string | null; body?: string; collection?: string; archived?: boolean; origin?: { kind: 'chat'; label: string | null } }): { status: 'saved' | 'conflict'; id: string; message?: string } {
   const time = iso(ctx);
   if (!input.id) {
     if (!input.subjectKind || !input.subjectId) throw new AppError('invalid_input', 'Choose what this note is about');
@@ -43,8 +43,8 @@ export function saveNote(ctx: Ctx, scope: AccessScope, input: { id?: string; exp
     assertSubject(ctx, scope, input.subjectKind, input.subjectId);
     const collection = writableCollection(ctx, scope, input.collection);
     const id = newId();
-    ctx.db.run('INSERT INTO notes (id, created_at, updated_at, revision, subject_kind, subject_id, title, body, collection, archived_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, NULL)',
-      id, time, time, input.subjectKind, input.subjectId, cleanName(input.title ?? null), body, collection);
+    ctx.db.run('INSERT INTO notes (id, created_at, updated_at, revision, subject_kind, subject_id, title, body, collection, archived_at, origin, origin_label) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, NULL, ?, ?)',
+      id, time, time, input.subjectKind, input.subjectId, cleanName(input.title ?? null), body, collection, input.origin?.kind ?? null, cleanName(input.origin?.label ?? null));
     setSearchRow(ctx, `note:${id}`, input.subjectKind, input.subjectId, collection, `${input.title ?? ''} ${body}`);
     refreshSubject(ctx, input.subjectKind, input.subjectId);
     touch(ctx, collection);

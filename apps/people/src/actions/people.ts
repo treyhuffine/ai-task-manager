@@ -17,11 +17,13 @@ import { mergesFor } from '../domain/merge.js';
 import {
   affiliationSchema, collectionKeySchema, idSchema, localDateSchema, organizationDetailSchema, organizationFiltersSchema, organizationKindSchema, organizationSummarySchema,
   coverageSchema, peopleFiltersSchema, personDetailSchema, personSummarySchema, sortSchema, columnSchema, timelineItemSchema, writeResult, refSchema,
+  birthdaySchema, relationKindSchema, relationSchema,
 } from '../schemas.js';
+import { getRelation, saveRelation } from '../domain/personal.js';
 import { AFFILIATION, COVERAGE, ID, ORGANIZATION, PERSON, TIMELINE, T, DIGEST } from './examples.js';
 import { READ_ERRORS, WRITE_ERRORS, action, listInput, listOutput } from './shared.js';
 
-const identifier = z.object({ kind: z.enum(['email', 'phone', 'linkedin']), value: z.string().min(1).max(320) }).strict();
+const identifier = z.object({ kind: z.enum(['email', 'phone', 'linkedin', 'website']), value: z.string().min(1).max(320) }).strict();
 const mergeRef = z.object({ id: idSchema, revision: z.number().int(), survivorId: idSchema, mergedId: idSchema, createdAt: z.string() }).strict();
 const personDetailOutput = personDetailSchema.extend({ merges: z.array(mergeRef).max(10) }).strict();
 const organizationDetailOutput = organizationDetailSchema.extend({ merges: z.array(mergeRef).max(10) }).strict();
@@ -81,10 +83,10 @@ export const peopleActions = [
     output: personDetailOutput,
     audience: ['user', 'agent'], effect: 'read', retry: 'read_safe', errors: READ_ERRORS,
     examples: [{ input: { id: ID.maya }, output: {
-      person: { id: ID.maya, revision: 3, name: 'Maya Chen', nameOverride: null, headline: null, observedNames: [{ name: 'Maya Chen', sourceLabel: 'Personal Gmail' }], collection: 'manual', origin: 'sent_mail', originLabel: 'From mail you sent', pinned: true, archived: false, keepInTouchDays: null, createdAt: '2026-09-02T10:00:00.000Z', updatedAt: T.now },
+      person: { id: ID.maya, revision: 3, name: 'Maya Chen', nameOverride: null, headline: null, birthday: { month: 3, day: 14, year: null }, location: 'Lisbon', howMet: 'Introduced by Jordan at the design meetup', myRead: 'Thoughtful and direct. Prefers a written agenda.', observedNames: [{ name: 'Maya Chen', sourceLabel: 'Personal Gmail' }], collection: 'manual', origin: 'sent_mail', originLabel: 'From mail you sent', pinned: true, archived: false, keepInTouchDays: null, createdAt: '2026-09-02T10:00:00.000Z', updatedAt: T.now },
       header: { role: 'Design lead', company: { id: ID.northstar, name: 'Northstar' }, affiliationNote: 'Affiliation observed in October 2026 correspondence', lastExchangeAt: T.mail, nextMeeting: { id: ID.meeting, at: T.meeting, title: 'Portfolio discussion' }, nextAction: PERSON.nextAction },
       identities: [{ keyId: '0194d7a0-0000-7000-8000-0000000ff001', kind: 'email', value: 'maya@northstar.example', shared: false, confirmation: 'observed', sources: ['Personal Gmail'], observedAt: T.mail }],
-      affiliations: [], notes: [], commitments: [], facts: [], taskLinks: [], opportunities: [], lists: [{ id: ID.list, name: 'Collaborators' }], reviews: [], attribution: [], coverage: COVERAGE, revision: 'o12', merges: [],
+      affiliations: [], notes: [], commitments: [], facts: [], taskLinks: [], opportunities: [], lists: [{ id: ID.list, name: 'Collaborators' }], relations: [{ id: '0194d7a0-0000-7000-8000-0000000ff101', revision: 1, kind: 'introduced_by', label: 'Introduced by', person: { id: ID.jordan, name: 'Jordan Bell' }, name: 'Jordan Bell', note: null, direction: 'outgoing', collection: 'manual' }], reviews: [], attribution: [], coverage: COVERAGE, revision: 'o12', merges: [],
     } }],
     handler(input, invocation) {
       const c = ctx(), scope = readScope(invocation);
@@ -94,7 +96,7 @@ export const peopleActions = [
   }),
   action({
     name: 'save_person',
-    description: 'Create a person with only a name, or edit one: a name correction, a short headline, pin, archive, keep-in-touch interval, collection, or addresses. Corrections take precedence over observed values and survive resync. Updates need the expected revision and return a conflict with the current record when it changed.',
+    description: 'Create a person with only a name, or edit one: a name correction, a short headline, pin, archive, keep-in-touch interval, collection, addresses (email, phone, LinkedIn or website), and the personal details the user states: birthday (month and day, year only if known), where they live, how they met, and "myRead", the user\'s own read on the person. Set personal details only from what the user said, never from inference. Corrections take precedence over observed values and survive resync. Updates need the expected revision and return a conflict with the current record when it changed.',
     input: z.object({
       id: idSchema.optional(),
       expectedRevision: z.number().int().min(0).optional(),
@@ -103,6 +105,10 @@ export const peopleActions = [
       pinned: z.boolean().optional(),
       archived: z.boolean().optional(),
       keepInTouchDays: z.number().int().min(7).max(730).nullable().optional(),
+      birthday: birthdaySchema.nullable().optional(),
+      location: z.string().max(120).nullable().optional(),
+      howMet: z.string().max(500).nullable().optional(),
+      myRead: z.string().max(4000).nullable().optional(),
       collection: collectionKeySchema.optional(),
       identifiers: z.array(identifier).max(10).optional(),
       addIdentifiers: z.array(identifier).max(10).optional(),
@@ -120,7 +126,7 @@ export const peopleActions = [
       return c.mutate(invocation, 'save_person', input, () => {
         if (!input.id) {
           if (!input.name) throw new AppError('invalid_input', 'Enter a name');
-          const id = createManualPerson(c, scope, { name: input.name, headline: input.headline, collection: input.collection, identifiers: input.identifiers, pinned: input.pinned, keepInTouchDays: input.keepInTouchDays });
+          const id = createManualPerson(c, scope, { name: input.name, headline: input.headline, collection: input.collection, identifiers: input.identifiers, pinned: input.pinned, keepInTouchDays: input.keepInTouchDays, birthday: input.birthday, location: input.location, howMet: input.howMet, myRead: input.myRead });
           return { status: 'saved' as const, record: summarizePeople(c, scope, [id])[0] };
         }
         if (input.expectedRevision === undefined) throw new AppError('invalid_input', 'Include the revision you edited');
@@ -215,6 +221,33 @@ export const peopleActions = [
         const record = projectAffiliation(c, scope, row, new Labels(c), c.now().toISOString().slice(0, 10));
         if (!record) throw new AppError('not_found', 'This affiliation is no longer available');
         return result.status === 'conflict' ? { status: 'conflict' as const, current: record, message: result.message } : { status: 'saved' as const, record };
+      });
+    },
+  }),
+  action({
+    name: 'save_relation',
+    description: 'Record how two people are related, only as the user states it: partner, child, parent, sibling, family, friend, colleague, or introduced_by (personId was introduced by the other person). Link another person record with relatedPersonId, or name someone who is not a record (such as a child) with relatedName. Edit or remove (archived: true) one with its revision. Never infer a relationship.',
+    input: z.object({
+      id: idSchema.optional(), expectedRevision: z.number().int().min(0).optional(),
+      personId: idSchema.optional(), kind: relationKindSchema.optional(),
+      relatedPersonId: idSchema.nullable().optional(), relatedName: z.string().max(200).nullable().optional(),
+      note: z.string().max(300).nullable().optional(), collection: collectionKeySchema.optional(), archived: z.boolean().optional(),
+    }).strict(),
+    output: writeResult(relationSchema),
+    audience: ['user', 'agent'], effect: 'app_write', retry: 'idempotent', errors: WRITE_ERRORS,
+    examples: [
+      { input: { personId: ID.maya, kind: 'introduced_by', relatedPersonId: ID.jordan }, output: { status: 'saved', record: { id: '0194d7a0-0000-7000-8000-0000000ff101', revision: 1, kind: 'introduced_by', label: 'Introduced by', person: { id: ID.jordan, name: 'Jordan Bell' }, name: 'Jordan Bell', note: null, direction: 'outgoing', collection: 'manual' } } },
+      { input: { personId: ID.maya, kind: 'child', relatedName: 'Leo', note: 'Turns 7 in May' }, output: { status: 'saved', record: { id: '0194d7a0-0000-7000-8000-0000000ff102', revision: 1, kind: 'child', label: 'Child', person: null, name: 'Leo', note: 'Turns 7 in May', direction: 'outgoing', collection: 'manual' } } },
+    ],
+    handler(input, invocation) {
+      const c = ctx(), scope = writeScope(invocation);
+      return c.mutate(invocation, 'save_relation', input, () => {
+        const personId = input.personId ? resolvePersonId(c, input.personId) : undefined;
+        const relatedPersonId = input.relatedPersonId ? resolvePersonId(c, input.relatedPersonId) : input.relatedPersonId;
+        const result = saveRelation(c, scope, { ...input, personId, relatedPersonId });
+        const record = getRelation(c, scope, result.id);
+        if (!record) throw new AppError('not_found', 'This relationship is no longer available');
+        return result.status === 'conflict' ? { status: 'conflict' as const, current: record, message: result.message! } : { status: 'saved' as const, record };
       });
     },
   }),

@@ -8,7 +8,7 @@ description: Prepare the user for a meeting or conversation with someone they kn
 1. Find the person or company with `search_people` (include organizations when a company is named). If several match, ask which one.
 2. Read `get_relationship_context` for that record. It returns at most 20 facts or commitments and 20 interaction references, each with its source, plus what was checked and what is missing.
 3. If the user wants a written briefing, read `get_briefing`. It returns a saved generated briefing only when it matches the current records, otherwise a summary of saved records.
-4. Answer briefly: recent discussion, the user's notes, what each side offered to do, the next meeting, and what is unknown. Cite source dates and accounts.
+4. Answer briefly: recent discussion, the user's notes, what each side offered to do, the next meeting, and what is unknown. Cite source dates and accounts. Context items of kind `personal` are what the user wrote (birthday, where they live, how they met, their own read, relationships) and `profile` items come from the living profile (`get_profile` has all of it). Mention a birthday only when it is soon.
 
 Rules:
 - A calendar event shows a meeting was scheduled. Never say the user attended unless they confirmed it.

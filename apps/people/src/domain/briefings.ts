@@ -235,8 +235,8 @@ function narrowerBriefing(ctx: Ctx, reader: AccessScope, subject: Subject, meeti
   return null;
 }
 
-type PayloadScope = { kind: 'owner' } | { kind: 'sources'; sources: string[]; scopeRef: string | null; actorId: string };
-function payloadScope(scope: AccessScope): PayloadScope {
+export type PayloadScope = { kind: 'owner' } | { kind: 'sources'; sources: string[]; scopeRef: string | null; actorId: string };
+export function payloadScope(scope: AccessScope): PayloadScope {
   return scope.kind === 'owner' ? { kind: 'owner' } : { kind: 'sources', sources: [...scope.sources].sort(), scopeRef: scope.scopeRef, actorId: scope.actorId };
 }
 /**
@@ -245,13 +245,13 @@ function payloadScope(scope: AccessScope): PayloadScope {
  * sources that all lie inside its own, so it never reads a private
  * collection's notes or an owner-scope request.
  */
-function runnable(item: PayloadScope, runner: AccessScope) {
+export function runnable(item: PayloadScope, runner: AccessScope) {
   if (runner.kind === 'owner') return true;
   return item.kind === 'sources' && item.sources.length > 0 && item.sources.every((source) => runner.sources.has(source));
 }
 function runnableBriefings(ctx: Ctx, runner: AccessScope, limit: number) {
   const out: { id: string; attempts: number; payload: z.infer<typeof payloadSchema> }[] = [];
-  for (const row of ctx.db.all<{ id: string; payload: string; attempts: number }>("SELECT id, payload, attempts FROM work_items WHERE kind = 'briefing' AND state = 'pending' ORDER BY priority ASC, id LIMIT 200")) {
+  for (const row of ctx.db.all<{ id: string; payload: string; attempts: number }>("SELECT id, payload, attempts FROM work_items WHERE kind = 'briefing' AND dedupe_key NOT LIKE 'profile:%' AND state = 'pending' ORDER BY priority ASC, id LIMIT 200")) {
     const parsed = payloadSchema.safeParse(JSON.parse(row.payload));
     if (!parsed.success || !runnable(parsed.data.scope, runner)) continue;
     out.push({ id: row.id, attempts: row.attempts, payload: parsed.data });

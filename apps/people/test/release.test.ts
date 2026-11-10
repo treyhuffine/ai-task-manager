@@ -373,7 +373,7 @@ describe('People release requirements', () => {
     expect(files.lists).toContain(`${list.id},Collaborators,person,manual,${person.id}`);
     expect(files.stage_history.split('\n').length).toBeGreaterThanOrEqual(3);
     expect(JSON.parse(files.notes).records[0].body).toBe('Ask before introductions.');
-    expect(JSON.parse(files.decisions).formatVersion).toBe(1);
+    expect(JSON.parse(files.decisions).formatVersion).toBe(2);
     // Full restore through the snapshot boundary keeps the same IDs.
     const backup = tempDir('ri-people-restore-');
     ctx!.db.exec(`VACUUM INTO '${path.join(backup, 'records.db')}'`);

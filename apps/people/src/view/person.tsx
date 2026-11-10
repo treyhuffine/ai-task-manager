@@ -6,6 +6,7 @@ import {
 import type { Affiliation, Briefing, Commitment, Fact, Identity, Note, PersonDetail, TimelineItem } from '../schemas.js';
 import { dateLabel, dayLabel, meetingLabel, updatedLabel } from './format.js';
 import { Cite, CoverageFooter, DueLabel, Failure, Field, Loading, NameLink, RecordTabs, TaskStatus, useSave, usePeople } from './shared.js';
+import { BirthdayInput, MyRead, ProfileSection, Relations, birthdaySoon, birthdayText, daysToBirthday } from './personal.js';
 
 type Saved<T> = { status: 'saved'; record: T } | { status: 'conflict'; current: T; message: string };
 
@@ -76,12 +77,18 @@ export function PersonWorkspace({ id, headingLevel = 2 }: { id: string; headingL
         </Notice>
       )}
       <div className="pe-record-body">
-        <PersonFields detail={detail.data} onEdit={canWrite ? () => setEditing(true) : undefined} />
+        <PersonFields detail={detail.data} onEdit={canWrite ? () => setEditing(true) : undefined} reload={detail.reload} />
         <div className="pe-record-main">
           <RecordTabs label={`${person.name} sections`} panelId={`pe-person-${id}`} value={tab} onChange={selectTab}
             items={[{ id: 'overview', label: 'Overview' }, { id: 'timeline', label: 'Timeline' }, { id: 'notes', label: 'Notes', badge: detail.data.notes.length || undefined }, { id: 'details', label: 'Details' }]} />
           <SectionPanel panelId={`pe-person-${id}`} value={tab}>
-            {tab === 'overview' && <BriefingCard briefing={briefing.data} error={briefing.error} detail={detail.data} reload={() => { void briefing.reload(); void detail.reload(); }} />}
+            {tab === 'overview' && (
+              <div className="pe-stack pe-stack--loose">
+                <MyRead detail={detail.data} reload={detail.reload} />
+                <ProfileSection personId={id} />
+                <BriefingCard briefing={briefing.data} error={briefing.error} detail={detail.data} reload={() => { void briefing.reload(); void detail.reload(); }} />
+              </div>
+            )}
             {tab === 'timeline' && <PersonTimeline id={id} />}
             {tab === 'notes' && <NotesPanel subjectKind="person" subjectId={id} notes={detail.data.notes} reload={detail.reload} focusNew={noteFocus} />}
             {tab === 'details' && <PersonDetails detail={detail.data} reload={detail.reload} />}
@@ -96,7 +103,7 @@ export function PersonWorkspace({ id, headingLevel = 2 }: { id: string; headingL
 }
 
 /** The record's fields column: how to reach them, where things stand, and what links to them. */
-function PersonFields({ detail, onEdit }: { detail: PersonDetail; onEdit?: () => void }) {
+function PersonFields({ detail, onEdit, reload }: { detail: PersonDetail; onEdit?: () => void; reload(): void }) {
   const ui = usePeople();
   const { person, header, identities } = detail;
   const of = (kind: Identity['kind']) => identities.filter((identity) => identity.kind === kind);
@@ -110,6 +117,9 @@ function PersonFields({ detail, onEdit }: { detail: PersonDetail; onEdit?: () =>
         <div className="pe-fields__head"><span>Fields</span>{onEdit && <Button size="sm" variant="quiet" onClick={onEdit}>Edit</Button>}</div>
         <dl>
           <Field label="Email">{emails.length ? emails.map((identity) => <div key={identity.keyId} className="pe-field__line">{identity.value}</div>) : null}</Field>
+          <Field label="Birthday">{person.birthday ? <>{birthdayText(person.birthday)}{daysToBirthday(person.birthday) <= 14 && <div className="pe-small pe-muted">{birthdaySoon(daysToBirthday(person.birthday))}</div>}</> : null}</Field>
+          <Field label="Location">{person.location}</Field>
+          <Field label="How we met">{person.howMet}</Field>
           {phones.length > 0 && <Field label="Phone">{phones.map((identity) => <div key={identity.keyId} className="pe-field__line">{identity.value}</div>)}</Field>}
           {profiles.length > 0 && <Field label="Profiles">{profiles.map((identity) => <div key={identity.keyId} className="pe-field__line">{identity.value}</div>)}</Field>}
           <Field label="Last exchange">{header.lastExchangeAt ? dayLabel(header.lastExchangeAt) : null}</Field>
@@ -122,6 +132,7 @@ function PersonFields({ detail, onEdit }: { detail: PersonDetail; onEdit?: () =>
         </dl>
         {header.company && <p className="pe-small pe-muted">{header.affiliationNote}</p>}
       </section>
+      <Relations detail={detail} reload={reload} />
       {detail.opportunities.length > 0 && (
         <section className="pe-fields__group" aria-label="Opportunities">
           <div className="pe-fields__head"><span>Opportunities</span><span>{detail.opportunities.length}</span></div>
@@ -378,7 +389,7 @@ function NoteEditor({ note, subjectKind, subjectId, onSaved, focus = 0 }: { note
   if (note && !editing) return (
     <div className="pe-note">
       <div className="pe-row pe-between">
-        <p className="pe-small pe-muted">{note.title ? `${note.title} · ` : ''}{note.collectionLabel} · {dayLabel(note.updatedAt)}</p>
+        <p className="pe-small pe-muted">{note.origin === 'chat' && <span className="pe-pill">Captured from {note.originLabel ?? 'chat'}</span>} {note.title ? `${note.title} · ` : ''}{note.collectionLabel} · {dayLabel(note.updatedAt)}</p>
         {ui.data.canWrite && <Button size="sm" variant="quiet" onClick={() => setEditing(true)}>Edit</Button>}
       </div>
       <p className="pe-note__body">{note.body}</p>
@@ -527,28 +538,48 @@ function EditPersonDialog({ detail, onClose }: { detail: PersonDetail; onClose()
   const [name, setName] = useState(person.nameOverride ?? person.name);
   const [headline, setHeadline] = useState(person.headline ?? '');
   const [keep, setKeep] = useState(person.keepInTouchDays ? String(person.keepInTouchDays) : '');
+  const [birthday, setBirthday] = useState(person.birthday);
+  const [location, setLocation] = useState(person.location ?? '');
+  const [howMet, setHowMet] = useState(person.howMet ?? '');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [profile, setProfile] = useState('');
   const save = useSave<Saved<unknown>>('save_person');
   const [conflict, setConflict] = useState<number | null>(null);
   const submit = async (revision: number) => {
+    const add = [
+      ...(email.trim() ? [{ kind: 'email', value: email.trim() }] : []),
+      ...(phone.trim() ? [{ kind: 'phone', value: phone.trim() }] : []),
+      ...(profile.trim() ? [{ kind: /linkedin\.com\//i.test(profile) ? 'linkedin' : 'website', value: profile.trim() }] : []),
+    ];
     const result = await save.run({
       id: person.id, expectedRevision: revision,
       name: name.trim() && name.trim() !== person.name ? name.trim() : person.nameOverride && !name.trim() ? null : undefined,
       headline: headline.trim() || null, keepInTouchDays: keep ? Number(keep) : null,
-      ...(email.trim() ? { addIdentifiers: [{ kind: 'email', value: email.trim() }] } : {}),
+      birthday, location: location.trim() || null, howMet: howMet.trim() || null,
+      ...(add.length ? { addIdentifiers: add } : {}),
     }, 'Saved');
     if (result.status === 'conflict') { setConflict((result.current as { revision: number }).revision); save.reset(); return; }
     onClose();
   };
   return (
-    <Dialog open title={`Edit ${person.name}`} description="Your corrections take precedence over what sources say and survive resync." onClose={onClose}
+    <Dialog open wide title={`Edit ${person.name}`} description="Your corrections take precedence over what sources say and survive resync. Personal details stay in your records." onClose={onClose}
       footer={<ButtonRow align="end"><Button onClick={onClose}>Cancel</Button><Button variant="primary" busy={save.pending} onClick={() => void submit(conflict ?? person.revision)}>Save</Button></ButtonRow>}>
       <div className="pe-stack">
         {conflict !== null && <Notice tone="warning" title="This person changed since you opened it">Your edits are kept here. Save again to apply them to the latest version.</Notice>}
-        <TextInput label="Name" hint={person.observedNames.length ? `Sources say ${person.observedNames.map((item) => item.name).join(', ')}` : undefined} value={name} onChange={setName} />
-        <TextInput label="Short description" hint="Such as Independent consultant. Optional" value={headline} onChange={setHeadline} />
-        <TextInput label="Add an email address" type="email" value={email} onChange={setEmail} />
-        <Select label="Keep in touch" hint="Optional. A reminder appears on Today when it has been longer than this" value={keep} onChange={setKeep} options={[{ value: '', label: 'No reminder' }, { value: '14', label: 'Every 2 weeks' }, { value: '30', label: 'Every month' }, { value: '90', label: 'Every 3 months' }, { value: '180', label: 'Every 6 months' }]} />
+        <div className="pe-form-grid">
+          <TextInput label="Name" hint={person.observedNames.length ? `Sources say ${person.observedNames.map((item) => item.name).join(', ')}` : undefined} value={name} onChange={setName} />
+          <TextInput label="Short description" hint="Such as Independent consultant" value={headline} onChange={setHeadline} />
+          <TextInput label="Location" hint="Where they live, such as Lisbon" value={location} onChange={setLocation} />
+          <Select label="Keep in touch" hint="A reminder appears on Today when it has been longer" value={keep} onChange={setKeep} options={[{ value: '', label: 'No reminder' }, { value: '14', label: 'Every 2 weeks' }, { value: '30', label: 'Every month' }, { value: '90', label: 'Every 3 months' }, { value: '180', label: 'Every 6 months' }]} />
+        </div>
+        <BirthdayInput value={birthday} onChange={setBirthday} />
+        <TextArea label="How we met" hint="Optional, such as Introduced by Jordan at the design meetup" value={howMet} onChange={setHowMet} />
+        <div className="pe-form-grid">
+          <TextInput label="Add an email address" type="email" value={email} onChange={setEmail} />
+          <TextInput label="Add a phone number" type="tel" value={phone} onChange={setPhone} />
+          <TextInput label="Add LinkedIn or a website" type="url" hint="A linkedin.com/in/ link, or any page" value={profile} onChange={setProfile} />
+        </div>
         {save.error && <InlineError>{save.error}</InlineError>}
       </div>
     </Dialog>

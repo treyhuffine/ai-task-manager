@@ -378,7 +378,52 @@ CREATE VIRTUAL TABLE search_fts USING fts5(text, tokenize='unicode61 remove_diac
  */
 const V2 = `ALTER TABLE briefings ADD COLUMN scope_sources TEXT;`;
 
+/**
+ * V3: the personal side of a relationship and a profile that builds up over time.
+ *
+ * - A person carries owner-written details under its own collection: a birthday
+ *   (month and day, year optional), where they live, how you met and "My read",
+ *   your own assessment that AI never writes.
+ * - Relationships link two people (partner, family, friend, colleague, who
+ *   introduced whom), or a person and a name that isn't a record (a child).
+ *   Kinds are validated in the query layer so a new kind needs no rebuild.
+ * - A note remembers where it came from, such as a capture from chat.
+ * - A profile is a cited summary rewritten from the previous profile plus new
+ *   evidence. Like a briefing it records the sources it was generated from
+ *   (NULL for the owner), so a narrower reader never sees a broader profile.
+ */
+const V3 = `
+ALTER TABLE persons ADD COLUMN birthday_month INTEGER;
+ALTER TABLE persons ADD COLUMN birthday_day INTEGER;
+ALTER TABLE persons ADD COLUMN birthday_year INTEGER;
+ALTER TABLE persons ADD COLUMN location TEXT;
+ALTER TABLE persons ADD COLUMN how_met TEXT;
+ALTER TABLE persons ADD COLUMN my_read TEXT;
+CREATE INDEX persons_birthday ON persons (birthday_month, birthday_day) WHERE birthday_month IS NOT NULL;
+
+ALTER TABLE notes ADD COLUMN origin TEXT;
+ALTER TABLE notes ADD COLUMN origin_label TEXT;
+
+CREATE TABLE person_relations (
+  id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, revision INTEGER NOT NULL,
+  person_id TEXT NOT NULL, kind TEXT NOT NULL, related_person_id TEXT, related_name TEXT, note TEXT,
+  collection TEXT NOT NULL, archived_at TEXT,
+  CHECK ((related_person_id IS NULL) != (related_name IS NULL))
+);
+CREATE INDEX person_relations_person ON person_relations (person_id, archived_at);
+CREATE INDEX person_relations_related ON person_relations (related_person_id, archived_at);
+
+CREATE TABLE profiles (
+  id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  subject_kind TEXT NOT NULL, subject_id TEXT NOT NULL, scope_sources TEXT,
+  body TEXT NOT NULL, covered_through TEXT, evidence_count INTEGER NOT NULL,
+  extraction_version TEXT NOT NULL, origin TEXT NOT NULL, generated_at TEXT NOT NULL
+);
+CREATE INDEX profiles_subject ON profiles (subject_kind, subject_id, generated_at);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'people_records', sql: V1 },
   { version: 2, name: 'briefing_scope_sources', sql: V2 },
+  { version: 3, name: 'personal_details_relations_profiles', sql: V3 },
 ];

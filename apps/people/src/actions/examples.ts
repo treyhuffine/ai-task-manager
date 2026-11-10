@@ -52,7 +52,7 @@ export const AFFILIATION: Affiliation = {
   id: ID.affiliation, revision: 1, personId: ID.jordan, personName: 'Jordan Bell', organizationId: ID.fieldwork, organizationName: 'Fieldwork', role: 'Founder', validFrom: null, validTo: null,
   observedAt: '2026-10-11T17:00:00.000Z', status: 'current', confidence: 'confirmed', origin: 'manual', sourceLabel: 'Your records', evidenceId: null, description: 'Current. Confirmed by you',
 };
-export const NOTE: Note = { id: ID.note, revision: 1, subjectKind: 'person', subjectId: ID.maya, title: 'Remember for next time', body: 'Ask how the design and research teams work together.', collection: 'manual', collectionLabel: 'Your records', createdAt: T.now, updatedAt: T.now };
+export const NOTE: Note = { id: ID.note, revision: 1, subjectKind: 'person', subjectId: ID.maya, title: 'Remember for next time', body: 'Ask how the design and research teams work together.', collection: 'manual', collectionLabel: 'Your records', origin: null, originLabel: null, createdAt: T.now, updatedAt: T.now };
 export const COMMITMENT: Commitment = {
   id: ID.commitment, revision: 2, direction: 'i_owe', person: { id: ID.maya, name: 'Maya Chen' }, organization: null, opportunity: null, actorLabel: 'You', recipientLabel: 'Maya Chen',
   action: 'Introduce Maya to a research lead', dueDate: null, state: 'suggested', origin: 'extracted', snoozedUntil: null, evidenceId: ID.evidence,

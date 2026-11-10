@@ -344,9 +344,9 @@ export const commonActions = [
     name: 'export_records',
     description: 'One part of a scoped owner export: CSV tables for people, companies, affiliations, lists, opportunities, stages and stage history, and JSON for notes, evidence references and decisions. Each part has stable IDs and a format version and ends at a record boundary. A filtered view exports only what it shows. Message bodies are never exported. This is not a full backup.',
     input: z.object({ table: z.enum(EXPORT_TABLES), cursor: z.string().max(2048).optional(), viewId: z.string().max(128).optional() }).strict(),
-    output: z.object({ fileName: z.string().max(200), mimeType: z.enum(['text/csv', 'application/json']), content: z.string(), rows: z.number().int(), nextCursor: z.string().nullable(), formatVersion: z.literal(1), fetched: z.number().int() }).strict(),
+    output: z.object({ fileName: z.string().max(200), mimeType: z.enum(['text/csv', 'application/json']), content: z.string(), rows: z.number().int(), nextCursor: z.string().nullable(), formatVersion: z.literal(2), fetched: z.number().int() }).strict(),
     audience: ['user'], effect: 'read', retry: 'read_safe', errors: READ_ERRORS, visibility: 'app',
-    examples: [{ input: { table: 'people' }, output: { fileName: 'people-people.csv', mimeType: 'text/csv', content: 'format_version,id,name\n1,0194d7a0-0000-7000-8000-00000000a001,Maya Chen\n', rows: 1, nextCursor: null, formatVersion: 1, fetched: 1 } }],
+    examples: [{ input: { table: 'people' }, output: { fileName: 'people-people.csv', mimeType: 'text/csv', content: 'format_version,id,name\n2,0194d7a0-0000-7000-8000-00000000a001,Maya Chen\n', rows: 1, nextCursor: null, formatVersion: 2, fetched: 1 } }],
     handler(input, invocation) {
       const c = ctx(), scope = readScope(invocation);
       requireOwner(scope);

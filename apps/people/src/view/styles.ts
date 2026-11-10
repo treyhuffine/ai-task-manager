@@ -181,6 +181,22 @@ export const peopleCss = `
 .pe-note__body { white-space: pre-wrap; line-height: 1.6; }
 .pe-identity { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.625rem; }
 
+/* My read, the living profile and relationships. */
+.pe-my-read { white-space: pre-wrap; line-height: 1.6; }
+.pe-profile { display: grid; gap: 0.875rem; min-width: 0; }
+.pe-profile__section { display: grid; gap: 0.25rem; min-width: 0; }
+.pe-profile__title { font-size: 0.75rem; font-weight: 550; color: var(--ri-muted); }
+.pe-profile__items { display: grid; gap: 0.375rem; line-height: 1.6; }
+.pe-profile__note { margin-left: 0.25rem; vertical-align: 0.0625rem; }
+.pe-relations { display: grid; gap: 0.125rem; min-width: 0; }
+.pe-relation { display: grid; grid-template-columns: 6rem minmax(0, 1fr) auto; gap: 0.5rem; align-items: baseline; padding: 0.1875rem 0; min-width: 0; }
+.pe-relation__label { font-size: 0.75rem; color: var(--ri-muted); }
+.pe-relation__who { min-width: 0; overflow-wrap: anywhere; }
+.pe-relation__remove { padding: 0; border: 0; background: none; color: var(--ri-muted); font: inherit; font-size: 0.6875rem; cursor: pointer; }
+.pe-relation__remove:hover { color: var(--ri-text); text-decoration: underline; }
+.pe-birthday__row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 1fr); gap: 0.5rem; align-items: start; }
+.pe-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.75rem 1rem; align-items: start; }
+
 /* Record sections in the kit's timeline: compact, quiet source links. */
 .pe-shell .ri-timeline__item { padding-bottom: 1rem; }
 .pe-shell .ri-timeline__date { font-size: 0.75rem; color: var(--ri-muted); }

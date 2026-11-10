@@ -42,7 +42,7 @@ function rowKey(format: ImportFormat, row: ParsedRow): string {
   return `name:${sortKey(row.name ?? '')}:${sortKey(row.company ?? '')}`;
 }
 function rowDigest(row: ParsedRow) {
-  return sha256(JSON.stringify([row.name, row.emails, row.phones, row.linkedin, row.company, row.role, row.website, row.notes, row.lists, row.externalId, row.unmapped]));
+  return sha256(JSON.stringify([row.name, row.emails, row.phones, row.linkedin, row.company, row.role, row.website, row.notes, row.lists, row.externalId, row.unmapped, ...(row.birthday || row.location ? [row.birthday, row.location] : [])]));
 }
 
 /**
@@ -99,7 +99,7 @@ export function previewImport(ctx: Ctx, scope: AccessScope, input: { fileName: s
     }
     return planned;
   });
-  if (parsed.truncated) rows.push({ row: { index: MAX_ROWS + 1, name: null, emails: [], phones: [], linkedin: null, company: null, role: null, website: null, notes: null, lists: [], externalId: null, observedOn: null, raw: {}, unmapped: {} }, action: 'unsupported', reason: `Only the first ${MAX_ROWS} rows can be imported at once`, personId: null, candidates: [], key: 'over-limit', digest: 'over-limit', companyKey: null, invalid: [] });
+  if (parsed.truncated) rows.push({ row: { index: MAX_ROWS + 1, name: null, emails: [], phones: [], linkedin: null, company: null, role: null, website: null, birthday: null, location: null, notes: null, lists: [], externalId: null, observedOn: null, raw: {}, unmapped: {} }, action: 'unsupported', reason: `Only the first ${MAX_ROWS} rows can be imported at once`, personId: null, candidates: [], key: 'over-limit', digest: 'over-limit', companyKey: null, invalid: [] });
   const payload: PreviewPayload = { format, fileName: input.fileName.slice(0, 200), fileDigest, collection, listName: cleanName(input.listName ?? null, 120), rows, companies: [...companies.values()], mapping: parsed.mapping, truncated: parsed.truncated };
   const time = iso(ctx), id = newId();
   const serialized = JSON.stringify(payload);
@@ -230,6 +230,13 @@ export function applyImport(ctx: Ctx, scope: AccessScope, input: { previewId: st
       const website = domainOf(row.website);
       if (website) { try { addDomain(ctx, organizationId, website, source, 'observed'); } catch { /* a shared mail provider is never a company domain */ } }
       touchedOrgs.add(organizationId);
+    }
+    // A birthday or location fills only an empty field on a person in the import's own collection, never one the owner wrote or another collection holds.
+    const person = ctx.db.get<{ collection: string; birthday_month: number | null; location: string | null }>('SELECT collection, birthday_month, location FROM persons WHERE id = ?', personId)!;
+    if (person.collection === collection) {
+      if (row.birthday && !person.birthday_month) ctx.db.run('UPDATE persons SET birthday_month = ?, birthday_day = ?, birthday_year = ? WHERE id = ?', row.birthday.month, row.birthday.day, row.birthday.year, personId);
+      const location = cleanName(row.location, 120);
+      if (location && !person.location) ctx.db.run('UPDATE persons SET location = ? WHERE id = ?', location, personId);
     }
     const notes = cleanText(row.notes, 20000);
     if (notes) {

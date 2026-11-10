@@ -1,17 +1,20 @@
 import type { AccessScope } from '@ri/app-kit/data';
+import { systemZone, todayIn } from '@ri/app-kit/time';
 import type { Ctx } from './context.js';
 import { Labels, coverageFor } from './coverage.js';
 import { listFollowUps } from './commitments.js';
 import { factsFor } from './facts.js';
 import { lastExchange, personName, personRef, personVisible } from './projection.js';
+import { upcomingBirthdays } from './personal.js';
 import { listReviews } from './reviews.js';
 import { dataRevision, sourceFilter } from './scope.js';
 import type { PersonRow } from './people.js';
 
 /**
  * Today: upcoming meetings, chosen follow-ups, waiting-on items, keep-in-touch
- * reminders the owner chose, and a short sourced review queue. Nothing is
- * manufactured to fill the page.
+ * reminders the owner chose, birthdays the owner recorded for the next two
+ * weeks, and a short sourced review queue. Nothing is manufactured to fill the
+ * page. Birthdays count from the local date on this computer.
  */
 export function getToday(ctx: Ctx, scope: AccessScope, granted?: ReadonlySet<string> | null) {
   const labels = new Labels(ctx);
@@ -41,6 +44,7 @@ export function getToday(ctx: Ctx, scope: AccessScope, granted?: ReadonlySet<str
     .filter(({ person, last }) => !last || Date.parse(last) < now.getTime() - (person.keep_in_touch_days ?? 0) * 864e5)
     .slice(0, 5)
     .map(({ person, last }) => ({ id: person.id, name: personName(ctx, scope, person), lastExchangeAt: last, intervalDays: person.keep_in_touch_days! }));
+  const birthdays = upcomingBirthdays(ctx, scope, todayIn(systemZone(), now), 14, 5);
   const focus = meetings[0]?.people[0]?.id
     ?? iOwe.map((item) => item.kind === 'commitment' ? item.commitment.person?.id : item.subject?.kind === 'person' ? item.subject.id : null).find(Boolean)
     ?? waiting.map((item) => item.kind === 'commitment' ? item.commitment.person?.id : null).find(Boolean)
@@ -48,10 +52,10 @@ export function getToday(ctx: Ctx, scope: AccessScope, granted?: ReadonlySet<str
     ?? (() => { const pinned = ctx.db.all<PersonRow>('SELECT * FROM persons WHERE pinned = 1 AND merged_into IS NULL AND archived_at IS NULL ORDER BY sort_name LIMIT 20').find((person) => personVisible(ctx, scope, person.id)); return pinned?.id; })()
     ?? null;
   return {
-    meetings, iOwe, waitingOn: waiting, keepInTouch,
+    meetings, iOwe, waitingOn: waiting, keepInTouch, birthdays,
     review: { suggestions, suggestionCount, facts, factCount, identities: reviews.items, identityCount: scope.kind === 'owner' ? Number(ctx.db.get<{ count: number }>("SELECT COUNT(*) AS count FROM identity_reviews WHERE state = 'open'")?.count ?? 0) : listReviews(ctx, scope, { limit: 100 }).items.length },
     focusPersonId: focus ?? null,
-    empty: !meetings.length && !iOwe.length && !waiting.length && !keepInTouch.length,
+    empty: !meetings.length && !iOwe.length && !waiting.length && !keepInTouch.length && !birthdays.length,
     coverage: coverageFor(ctx, scope, granted),
     revision: dataRevision(ctx, scope),
   };

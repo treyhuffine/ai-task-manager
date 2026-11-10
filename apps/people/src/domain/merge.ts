@@ -12,7 +12,7 @@ import { json } from './text.js';
  * created after the merge are listed for an explicit choice during undo,
  * never guessed. Revisions are checked first, so a stale merge changes nothing.
  */
-type Move = { t: string; id: string; c: string; f: string; to: string } | { t: string; del: Row } | { t: string; keep: string };
+type Move = { t: string; id: string; c: string; f: string | number | null; to: string | number | null } | { t: string; del: Row } | { t: string; keep: string };
 type Kind = 'person' | 'organization';
 interface RefSpec { table: string; column: string; where?: string; dedupe?: { unique: string[] } }
 
@@ -27,7 +27,16 @@ const PERSON_REFS: RefSpec[] = [
   { table: 'facts', column: 'subject_id', where: "subject_kind = 'person'" },
   { table: 'import_rows', column: 'person_id' },
   { table: 'attribution_rules', column: 'person_id' },
+  { table: 'person_relations', column: 'person_id' },
+  { table: 'person_relations', column: 'related_person_id' },
 ];
+/**
+ * Owner-written details the survivor lacks are filled from the merged person,
+ * but only when both live in the same collection: copying across collections
+ * would show a private value to readers of the other one. Each fill is a
+ * recorded move, so undo clears it again.
+ */
+const PERSONAL_FIELDS: string[][] = [['birthday_month', 'birthday_day', 'birthday_year'], ['location'], ['how_met'], ['my_read'], ['headline']];
 const ORGANIZATION_REFS: RefSpec[] = [
   { table: 'identity_keys', column: 'owner_id', where: "owner_kind = 'organization'" },
   { table: 'organization_domains', column: 'organization_id', dedupe: { unique: ['domain', 'source_key'] } },
@@ -63,7 +72,25 @@ function moveReferences(ctx: Ctx, kind: Kind, from: string, to: string): Move[] 
       moves.push({ t: spec.table, id: String(row.id), c: spec.column, f: from, to });
     }
   }
-  if (kind === 'person') ctx.db.run('UPDATE interaction_participants SET person_id = ?, updated_at = ? WHERE person_id = ?', to, time, from);
+  if (kind === 'person') {
+    ctx.db.run('UPDATE interaction_participants SET person_id = ?, updated_at = ? WHERE person_id = ?', to, time, from);
+    // A relationship between the two merged people would now point at itself.
+    for (const row of ctx.db.all<Row>('SELECT * FROM person_relations WHERE person_id = ? AND related_person_id = ?', to, to)) {
+      ctx.db.run('DELETE FROM person_relations WHERE id = ?', String(row.id));
+      moves.push({ t: 'person_relations', del: row });
+    }
+    const survivor = ctx.db.get<Row>('SELECT * FROM persons WHERE id = ?', to)!, merged = ctx.db.get<Row>('SELECT * FROM persons WHERE id = ?', from)!;
+    if (survivor.collection === merged.collection) {
+      for (const group of PERSONAL_FIELDS) {
+        if (group.some((column) => survivor[column] !== null) || group.every((column) => merged[column] === null)) continue;
+        for (const column of group) {
+          if (merged[column] === null) continue;
+          ctx.db.run(`UPDATE persons SET ${column} = ? WHERE id = ?`, merged[column] as string | number, to);
+          moves.push({ t: 'persons', id: to, c: column, f: null, to: merged[column] as string | number });
+        }
+      }
+    }
+  }
   return moves;
 }
 
@@ -91,6 +118,7 @@ export function merge(ctx: Ctx, kind: Kind, actor: string, input: { survivorId: 
     mergeId, time, time, kind, survivor.id, merged.id, JSON.stringify(moves), actor);
   ctx.db.run('INSERT INTO id_mappings (id, created_at, updated_at, from_id, to_id, kind, merge_id, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)', newId(), time, time, merged.id, survivor.id, kind, mergeId);
   ctx.db.run('DELETE FROM briefings WHERE subject_kind = ? AND subject_id IN (?, ?)', kind, survivor.id, merged.id);
+  ctx.db.run('DELETE FROM profiles WHERE subject_kind = ? AND subject_id IN (?, ?)', kind, survivor.id, merged.id);
   closePairReviews(ctx, kind, survivor.id, merged.id, mergeId, actor);
   refreshAfter(ctx, kind, moves, [survivor.id, merged.id]);
   touch(ctx, survivor.collection, merged.collection);
@@ -112,7 +140,7 @@ function refreshAfter(ctx: Ctx, kind: Kind, moves: Move[], ids: string[]) {
 }
 
 type MergeRow = { id: string; created_at: string; revision: number; kind: Kind; survivor_id: string; merged_id: string; moves: string; state: string };
-interface LaterRef { ref: string; table: string; id: string; label: string; createdAt: string }
+interface LaterRef { ref: string; table: string; column: string; id: string; label: string; createdAt: string }
 
 /** References to the survivor created after the merge. Undo asks where each belongs. */
 function laterReferences(ctx: Ctx, merge: MergeRow): LaterRef[] {
@@ -123,7 +151,7 @@ function laterReferences(ctx: Ctx, merge: MergeRow): LaterRef[] {
     for (const row of ctx.db.all<Row>(`SELECT * FROM ${spec.table} WHERE ${spec.column} = ? ${spec.where ? `AND ${spec.where}` : ''} LIMIT 400`, merge.survivor_id)) {
       const key = `${spec.table}:${String(row.id)}`;
       if (moved.has(key)) continue;
-      refs.push({ ref: key, table: spec.table, id: String(row.id), label: describeRef(spec.table, row), createdAt: String(row.created_at) });
+      refs.push({ ref: key, table: spec.table, column: spec.column, id: String(row.id), label: describeRef(spec.table, row), createdAt: String(row.created_at) });
     }
   }
   return refs;
@@ -140,6 +168,7 @@ function describeRef(table: string, row: Row): string {
     case 'opportunities': return `Opportunity: ${String(row.title).slice(0, 80)}`;
     case 'interaction_links': return 'Linked conversation';
     case 'organization_domains': return `Domain ${String(row.domain)}`;
+    case 'person_relations': return `Relationship${row.related_name ? ` with ${String(row.related_name).slice(0, 60)}` : ''}`;
     default: return 'Linked record';
   }
 }
@@ -187,8 +216,7 @@ export function undoMerge(ctx: Ctx, actor: string, input: { mergeId: string; exp
   const later = laterReferences(ctx, merge);
   for (const ref of later) {
     if (choices.get(ref.ref) !== 'restored') continue;
-    const spec = refsOf(merge.kind).find((item) => item.table === ref.table)!;
-    ctx.db.run(`UPDATE ${ref.table} SET ${spec.column} = ?, updated_at = ? WHERE id = ?`, merge.merged_id, time, ref.id);
+    ctx.db.run(`UPDATE ${ref.table} SET ${ref.column} = ?, updated_at = ? WHERE id = ?`, merge.merged_id, time, ref.id);
   }
   if (merge.kind === 'person') {
     // Participants follow their identity keys again.
@@ -202,6 +230,7 @@ export function undoMerge(ctx: Ctx, actor: string, input: { mergeId: string; exp
   ctx.db.run('UPDATE id_mappings SET active = 0, updated_at = ? WHERE merge_id = ?', time, merge.id);
   ctx.db.run("UPDATE identity_reviews SET state = 'kept_separate', updated_at = ? WHERE merge_id = ?", time, merge.id);
   ctx.db.run('DELETE FROM briefings WHERE subject_kind = ? AND subject_id IN (?, ?)', merge.kind, merge.survivor_id, merge.merged_id);
+  ctx.db.run('DELETE FROM profiles WHERE subject_kind = ? AND subject_id IN (?, ?)', merge.kind, merge.survivor_id, merge.merged_id);
   refreshAfter(ctx, merge.kind, moves, [merge.survivor_id, merge.merged_id]);
   const survivor = ctx.db.get<{ collection: string }>(`SELECT collection FROM ${table} WHERE id = ?`, merge.survivor_id);
   touch(ctx, survivor?.collection);

@@ -2,6 +2,7 @@ import { AppError } from '@ri/app-kit/contract';
 import type { AccessScope } from '@ri/app-kit/data';
 import type { Ctx } from './context.js';
 import { Labels, coverageFor } from './coverage.js';
+import { personalDetails, relationsFor } from './personal.js';
 import { visibleAffiliations } from './affiliations.js';
 import { rulesFor } from './attribution.js';
 import { commitmentsFor, projectCommitment, type CommitmentRow } from './commitments.js';
@@ -68,6 +69,7 @@ export function getPersonDetail(ctx: Ctx, scope: AccessScope, requestedId: strin
     person: {
       id, revision: person.revision, name: personName(ctx, scope, person), nameOverride: canSee(scope, person.collection) ? person.name_override : null,
       headline: canSee(scope, person.collection) ? person.headline : null,
+      ...personalDetails(scope, person),
       observedNames: observedNames.map((row) => ({ name: row.name, sourceLabel: labels.of(row.source_key) })),
       collection: person.collection as PersonDetail['person']['collection'], origin: person.origin, originLabel: ORIGIN_LABELS[person.origin] ?? 'Saved record',
       pinned: person.pinned === 1, archived: !!person.archived_at, keepInTouchDays: person.keep_in_touch_days, createdAt: person.created_at, updatedAt: person.updated_at,
@@ -81,6 +83,7 @@ export function getPersonDetail(ctx: Ctx, scope: AccessScope, requestedId: strin
     taskLinks: taskLinksFor(ctx, scope, 'person', id),
     opportunities,
     lists: memberLists(ctx, scope, id),
+    relations: relationsFor(ctx, scope, id),
     reviews,
     attribution: rulesFor(ctx, scope, 'person_id', id, labels).flatMap((rule) => rule.organization ? [{ id: rule.id, revision: rule.revision, organization: rule.organization, identity: rule.identity, account: rule.account, from: rule.from, to: rule.to, state: rule.state }] : []),
     coverage: coverageFor(ctx, scope, granted),

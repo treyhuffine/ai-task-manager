@@ -164,6 +164,9 @@ export const noteSchema = z.object({
   body: z.string().max(20000),
   collection: collectionKeySchema,
   collectionLabel: label,
+  /** Where the note came from when not typed in the app, such as `chat` for a capture from a Ri chat. */
+  origin: z.enum(['chat']).nullable(),
+  originLabel: z.string().max(200).nullable(),
   createdAt: instantSchema,
   updatedAt: instantSchema,
 }).strict();
@@ -265,12 +268,45 @@ export const timelineItemSchema = z.object({
 }).strict();
 export type TimelineItem = z.infer<typeof timelineItemSchema>;
 
+/** A birthday: month and day, with the year only when known. */
+export const birthdaySchema = z.object({
+  month: z.number().int().min(1).max(12),
+  day: z.number().int().min(1).max(31),
+  year: z.number().int().min(1900).max(2100).nullable(),
+}).strict();
+export type Birthday = z.infer<typeof birthdaySchema>;
+
+/** How two people are related. `introduced_by` reads as "Introduced by" on one side and "Introduced" on the other. */
+export const relationKindSchema = z.enum(['partner', 'child', 'parent', 'sibling', 'family', 'friend', 'colleague', 'introduced_by', 'other']);
+export type RelationKind = z.infer<typeof relationKindSchema>;
+export const relationSchema = z.object({
+  id: idSchema,
+  revision: revisionSchema,
+  kind: relationKindSchema,
+  /** The relationship as read from this person's side, such as "Introduced by", "Introduced", "Partner" or "Child". */
+  label: z.string().max(40),
+  /** The other person when they are a record this reader may see, else null with `name` set. */
+  person: refSchema.nullable(),
+  name: z.string().max(200),
+  note: z.string().max(300).nullable(),
+  /** `outgoing` was written on this person, `incoming` on the other one. */
+  direction: z.enum(['outgoing', 'incoming']),
+  collection: collectionKeySchema,
+}).strict();
+export type Relation = z.infer<typeof relationSchema>;
+
 export const personSchema = z.object({
   id: idSchema,
   revision: revisionSchema,
   name: name,
   nameOverride: z.string().max(200).nullable(),
   headline: z.string().max(120).nullable(),
+  /** Owner-written details, shown only to readers of the person's collection. */
+  birthday: birthdaySchema.nullable(),
+  location: z.string().max(120).nullable(),
+  howMet: z.string().max(500).nullable(),
+  /** The owner's own read on this person. AI never writes it. */
+  myRead: z.string().max(4000).nullable(),
   observedNames: z.array(z.object({ name: name, sourceLabel: label }).strict()).max(10),
   collection: collectionKeySchema,
   origin: z.string().max(40),
@@ -281,6 +317,33 @@ export const personSchema = z.object({
   createdAt: instantSchema,
   updatedAt: instantSchema,
 }).strict();
+/**
+ * A living profile: a short cited summary that is rewritten from the previous
+ * profile plus what arrived since, so it keeps what older records said after
+ * they fall out of a briefing. Every item cites evidence or one of the
+ * owner's notes. It holds what records state, never guessed traits.
+ */
+export const profileItemSchema = z.object({
+  text: z.string().max(400),
+  evidenceIds: z.array(idSchema).max(5),
+  noteIds: z.array(idSchema).max(3),
+}).strict();
+export const profileSectionKeySchema = z.enum(['summary', 'now', 'relationship', 'threads']);
+export const profileSchema = z.object({
+  subjectKind: z.enum(['person']),
+  subjectId: idSchema,
+  /** `ready` is current, `stale` has newer records, `none` was never generated, `off` waits for extraction, `unavailable` lacks Ri's AI. */
+  status: z.enum(['ready', 'stale', 'none', 'off', 'unavailable']),
+  statusLabel: z.string().max(300),
+  generatedAt: instantSchema.nullable(),
+  coveredThrough: instantSchema.nullable(),
+  evidenceCount: z.number().int().min(0),
+  sections: z.array(z.object({ key: profileSectionKeySchema, title: z.string().max(60), items: z.array(profileItemSchema).max(6) }).strict()).max(4),
+  /** Whether this reader may ask for an update now. */
+  canUpdate: z.boolean(),
+}).strict();
+export type Profile = z.infer<typeof profileSchema>;
+
 export const personDetailSchema = z.object({
   person: personSchema,
   header: z.object({
@@ -299,6 +362,7 @@ export const personDetailSchema = z.object({
   taskLinks: z.array(taskLinkSchema).max(30),
   opportunities: z.array(opportunityRefSchema).max(30),
   lists: z.array(refSchema).max(30),
+  relations: z.array(relationSchema).max(50),
   reviews: z.array(z.object({ id: idSchema, kind: z.string().max(20), summary: z.string().max(300) }).strict()).max(10),
   attribution: z.array(z.object({ id: idSchema, revision: revisionSchema, organization: refSchema, identity: z.string().max(320), account: label, from: localDateSchema.nullable(), to: localDateSchema.nullable(), state: z.enum(['active', 'disabled']) }).strict()).max(20),
   coverage: coverageSchema,
