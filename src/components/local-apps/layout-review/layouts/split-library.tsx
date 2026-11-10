@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, LayoutGrid, MoreHorizontal, Plug, Plus, Upload } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Hammer, LayoutGrid, MoreHorizontal, Plug, Plus, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tip } from '@/components/ui/tip';
@@ -77,7 +77,8 @@ function LibraryHeader() {
   return <header className={s.libraryHeader}>
     <div className={s.libraryHeading}><span className={s.mark}><LayoutGrid size={18} /></span><div><h1>Apps</h1><p>Apps, {INTEGRATION_LABELS.plural.toLowerCase()}, and skills for your work.</p></div></div>
     <div className={s.creationActions} aria-label="Create and connect">
-      <Button size="sm" variant="outline" disabled={!review.localEnabled || review.busy} onClick={review.buildApp}><Plus size={13} />New app</Button>
+      {/* "New app" read as adding one, beside connectors and catalog apps. This makes one from a description. */}
+      <Tip label="Describe it in a chat and an agent builds it, with a live preview"><Button size="sm" variant="outline" disabled={!review.localEnabled || review.busy} onClick={review.buildApp}><Hammer size={13} />Build an app</Button></Tip>
       <Button size="sm" variant="outline" disabled={review.busy} onClick={review.buildSkill}><Plus size={13} />New skill</Button>
       <Button size="sm" variant="outline" onClick={newServer}><Plus size={13} />Add MCP server</Button>
       <DropdownMenu><DropdownMenuTrigger asChild><Tip label="Import an app package or skill"><Button className={s.importButton} size="icon-sm" variant="ghost" aria-label="Import options"><MoreHorizontal size={16} /></Button></Tip></DropdownMenuTrigger>

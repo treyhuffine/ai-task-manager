@@ -16,7 +16,7 @@ import { useAppAction } from './use-app-action';
 
 /**
  * The Apps flyout, the shape of the Agents flyout: a header row with the
- * name and the one action (New app, as the Agents header has New agent),
+ * name and the one action (Build an app, as the Agents header has New agent),
  * then Open your library and every app you can open by name: installed
  * ones and connections whose MCP server declares a standalone screen, with an
  * amber dot when an action waits on you. Services whose interface only comes

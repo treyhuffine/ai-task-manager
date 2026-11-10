@@ -150,7 +150,7 @@ it('shows one grouped library, visible creation buttons and discovery at desktop
     await library.getByRole('region', { name: 'Your skills', exact: true }).getByRole('button', { name: 'Edit skill Private workflow', exact: true }).waitFor();
     for (const width of [1440, 900, 390, 320]) {
       await page.setViewportSize({ width, height: 1000 });
-      for (const label of ['New app', 'New skill', 'Add MCP server']) expect(await page.getByRole('button', { name: label, exact: true }).isVisible()).toBe(true);
+      for (const label of ['Build an app', 'New skill', 'Add MCP server']) expect(await page.getByRole('button', { name: label, exact: true }).isVisible()).toBe(true);
       const tabs = library.getByRole('tablist', { name: 'Filter your library' });
       for (const label of ['All', 'Apps', 'Connectors', 'Skills']) {
         const tab = tabs.getByRole('tab', { name: label, exact: true });
@@ -229,7 +229,7 @@ it('keeps browsing context through connector setup and opens apps and skills in 
 it('routes each visible creation button to its real workflow', async () => {
   const page = await open();
   try {
-    await page.getByRole('button', { name: 'New app', exact: true }).click();
+    await page.getByRole('button', { name: 'Build an app', exact: true }).click();
     await page.locator('[data-destination]').waitFor();
     expect(writes.find(write => write.procedure === 'localApps.createDraft')!.input).toEqual({ profile: 'react' });
     expect(await page.locator('[data-destination]').textContent()).toBe('drafts/new-app');
