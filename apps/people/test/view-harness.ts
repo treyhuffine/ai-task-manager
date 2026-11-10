@@ -40,7 +40,7 @@ export async function openHarness(options: { html: string; invoke: Invoke; width
   const server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end(`<html><head><style>html,body{margin:0;height:100%}#mount{height:100vh}</style></head><body><div id="mount"></div><script>${hostScript}</script></body></html>`); });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = (server.address() as { port: number }).port;
-  // Playwright's own Chromium runs as its headless shell. Launching the full Chrome for Testing binary headless hangs in browser.close() on macOS 26, so its path is only for an installed Chrome or Brave.
+  // Playwright's own Chromium runs as its headless shell, the lighter build made for tests. It also exits cleanly where full Chrome can hang in browser.close() (seen 2026-11-10 with launchd stuck). The explicit path is only for an installed Chrome or Brave.
   const browser = await chromium.launch({ ...(CHROME === chromium.executablePath() ? {} : { executablePath: CHROME }), headless: true, chromiumSandbox: true, args: ['--disable-features=IsolateSandboxedIframes'], env: { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR } });
   const page = await browser.newPage({ viewport: { width: options.width, height: options.height ?? 900 } });
   const state = { prompts: [] as string[], contexts: [] as unknown[], downloads: [] as unknown[], calls: [] as { action: string; input: unknown }[], locations: [] as string[], hostLinks: [] as string[] };
