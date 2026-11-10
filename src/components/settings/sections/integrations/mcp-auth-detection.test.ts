@@ -19,8 +19,16 @@ function render(form: Partial<McpForm>, detection: McpAuthDetectionState) {
     form: { ...EMPTY_MCP_FORM, name: 'Fixture', url, ...form }, detection, busy: false, onChange: vi.fn(), onSubmit: vi.fn(), onBack: vi.fn(),
   }));
 }
-const hasSelect = (html: string) => html.includes('id="mcp-auth"');
+const hasChoice = (html: string) => html.includes('name="mcp-auth"');
 const hasSecret = (html: string) => html.includes('id="mcp-secret"');
+/** The method whose radio is checked, or null when none is. */
+const checked = (html: string) => (html.match(/<input type="radio"[^>]*>/g) ?? [])
+  .find((input) => input.includes('name="mcp-auth"') && input.includes('checked=""'))?.match(/value="(\w+)"/)?.[1] ?? null;
+/** One method's row, from its radio to the end of its label. */
+const option = (html: string, kind: string) => html.slice(html.indexOf(`value="${kind}"`), html.indexOf('</label>', html.indexOf(`value="${kind}"`)));
+const submitDisabled = (html: string) => /<button[^>]*type="submit"[^>]*>/.exec(html)?.[0].includes('disabled=""') ?? false;
+/** The methods marked Detected. */
+const detectedLabels = (html: string) => [...html.matchAll(/value="(\w+)"(?:(?!value=").)*?>Detected</g)].map((m) => m[1]);
 
 describe('what a verdict preselects', () => {
   it('maps each method to the form, and leaves an unknown verdict to the person', () => {
@@ -95,65 +103,93 @@ describe('the add form', () => {
   it('asks for the URL first and shows no auth choice before it', () => {
     const html = render({ url: '' }, { status: 'idle' });
     expect(html).toContain('Enter the server URL and Ri works out how it authenticates.');
-    expect(hasSelect(html)).toBe(false);
+    expect(hasChoice(html)).toBe(false);
     expect(hasSecret(html)).toBe(false);
   });
 
-  it('says it is checking, with a way to choose instead', () => {
+  it('lists every method while checking, with none chosen and the add held until the probe answers', () => {
     const html = render({}, { status: 'checking', url });
     expect(html).toContain('Checking how this server authenticates');
-    expect(html).toContain('Choose instead');
-    expect(hasSelect(html)).toBe(false);
+    for (const title of ['Sign in with your browser', 'API key or token', 'API key in a custom header', 'No sign-in']) expect(html).toContain(title);
+    expect(checked(html)).toBeNull();
+    expect(detectedLabels(html)).toEqual([]);
+    expect(submitDisabled(html)).toBe(true);
   });
 
-  it('shows only the detected method with a quiet Change, and the matching fields', () => {
+  it('lets the person choose before the probe answers', () => {
+    const html = render({ authKind: 'bearer', authChosen: true, secret: 'key' }, { status: 'checking', url });
+    expect(checked(html)).toBe('bearer');
+    expect(hasSecret(html)).toBe(true);
+    expect(submitDisabled(html)).toBe(false);
+  });
+
+  it('checks the detected method and marks it Detected with what the probe found', () => {
     const noneHtml = render({}, done(none));
-    expect(noneHtml).toContain('No sign-in needed');
-    expect(noneHtml).toContain('>Change<');
-    expect(hasSelect(noneHtml)).toBe(false);
+    expect(checked(noneHtml)).toBe('none');
+    expect(detectedLabels(noneHtml)).toEqual(['none']);
+    expect(noneHtml).toContain('Excalidraw answered without asking for credentials.');
+    expect(noneHtml).not.toContain('Checking how this server authenticates');
     expect(hasSecret(noneHtml)).toBe(false);
     expect(noneHtml).toContain('Add and connect');
 
     const oauthHtml = render({}, done(oauth));
-    expect(oauthHtml).toContain('Sign in with your browser');
-    expect(oauthHtml).toContain('Use an API key instead');
+    expect(checked(oauthHtml)).toBe('oauth');
+    expect(detectedLabels(oauthHtml)).toEqual(['oauth']);
+    expect(oauthHtml).toContain('Ri registers itself with api.magicpath.ai and opens the sign-in page.');
+    // The finding replaces the generic description, which is for a method chosen by hand.
+    expect(oauthHtml).not.toContain('Ri registers itself with the server (OAuth)');
     expect(oauthHtml).toContain('Add and sign in');
     expect(hasSecret(oauthHtml)).toBe(false);
-    // The verdict already explains sign-in. The generic OAuth note is for a choice made by hand.
-    expect(oauthHtml).not.toContain('We register a client automatically');
+    // An API key is one click away for a server that also takes one (DataForSEO).
+    expect(oauthHtml).toContain('API key or token');
 
     const keyHtml = render({}, done(key));
-    expect(keyHtml).toContain('Needs an API key or token');
+    expect(checked(keyHtml)).toBe('bearer');
+    expect(detectedLabels(keyHtml)).toEqual(['bearer']);
     expect(hasSecret(keyHtml)).toBe(true);
     expect(keyHtml).not.toContain('id="mcp-header"');
-    expect(hasSelect(keyHtml)).toBe(false);
 
     const headerHtml = render({}, done(headerKey));
+    expect(checked(headerHtml)).toBe('header');
+    expect(detectedLabels(headerHtml)).toEqual(['header']);
     expect(headerHtml).toContain('id="mcp-header"');
     expect(headerHtml).toContain('placeholder="X-API-Key"');
     expect(hasSecret(headerHtml)).toBe(true);
   });
 
-  it('keeps the full choice when the probe has nothing to go on', () => {
+  it('shows a finding that may not work in amber, still on the detected method', () => {
+    const html = render({}, done({ ...oauth, registration: 'registered', authorizationServer: 'https://github.com/login/oauth' }));
+    expect(detectedLabels(html)).toEqual(['oauth']);
+    expect(option(html, 'oauth')).toContain('text-amber-700');
+    expect(option(html, 'oauth')).toContain('github.com needs a client registered with the provider');
+    expect(option(html, 'bearer')).not.toContain('text-amber-700');
+  });
+
+  it('says why when the probe has nothing to go on, and marks nothing Detected', () => {
     const html = render({}, done(unreachable));
     expect(html).toContain('Couldn&#x27;t reach this address');
     expect(html).toContain('Choose how it authenticates below.');
-    expect(hasSelect(html)).toBe(true);
-    expect(html).toMatch(/<option value="none"[^>]*selected/);
+    expect(detectedLabels(html)).toEqual([]);
+    expect(checked(html)).toBe('none');
   });
 
-  it("respects the person's own choice over the verdict", () => {
+  it("respects the person's own choice over the verdict, which stays marked", () => {
     const html = render({ authKind: 'bearer', authChosen: true }, done(oauth));
-    expect(hasSelect(html)).toBe(true);
-    expect(html).toMatch(/<option value="bearer"[^>]*selected/);
+    expect(checked(html)).toBe('bearer');
+    expect(detectedLabels(html)).toEqual(['oauth']);
     expect(hasSecret(html)).toBe(true);
     expect(html).toContain('Add and connect');
-    expect(html).not.toContain('>Change<');
   });
 
-  it('explains OAuth chosen by hand, since no verdict does', () => {
+  it('explains OAuth chosen by hand, since no finding does', () => {
     const html = render({ authKind: 'oauth', authChosen: true }, done(unreachable));
-    expect(html).toContain('We register a client automatically');
+    expect(html).toContain('Ri registers itself with the server (OAuth)');
     expect(html).toContain('Add and sign in');
+  });
+
+  it('writes no em dashes or semicolons in the method copy', () => {
+    const html = render({}, { status: 'checking', url });
+    const text = html.replace(/<[^>]+>/g, ' ');
+    expect(text).not.toMatch(/[\u2014;]/);
   });
 });

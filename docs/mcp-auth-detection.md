@@ -2,37 +2,50 @@
 
 When someone adds a custom MCP server (Settings, Plugins, MCP servers, Add MCP
 server, or Add custom MCP in Apps), Ri works out how the server authenticates
-from its URL, so the person doesn't have to choose. A quiet control covers the
-exceptions. Official catalog services (`packages/integrations/src/providers/hosted-mcp.ts`)
+from its URL, so the person doesn't have to choose, and changing its answer is
+one click. Official catalog services (`packages/integrations/src/providers/hosted-mcp.ts`)
 keep their configured auth and never come through this path.
 
 ## What the person sees
 
 The form asks for a name and a URL. Nothing about auth shows until a URL is
-typed. A moment after typing stops, the form says it is checking, then shows
-one verdict in place of the auth picker:
+typed. Then an Authentication list shows every method, in a fixed order so it
+never moves when the probe answers:
 
-| The server | Verdict | Preselected |
+| Method | Stored as | Fields it adds |
 | --- | --- | --- |
-| Answers `initialize` normally | No sign-in needed | None |
-| 401 or 403 with OAuth metadata | Sign in with your browser, with a note on registration | OAuth |
-| 401 or 403 with no OAuth metadata | Needs an API key or token | Bearer token, or a custom header the refusal named |
-| Unreachable, redirects elsewhere, not MCP, or erroring | Says so plainly | The full picker stays open |
+| Sign in with your browser | OAuth | None |
+| API key or token | Bearer token | Secret |
+| API key in a custom header | Custom header | Header name and secret |
+| No sign-in | None | None |
+
+While the probe runs (a moment after typing stops), the heading says it is
+checking, no method is chosen, and the add waits, unless the person picks one
+first. When it answers, it checks the method it found and marks it
+**Detected**, with what it saw in place of that method's generic description:
+
+| The server | Detected |
+| --- | --- |
+| Answers `initialize` normally | No sign-in, naming the server |
+| 401 or 403 with OAuth metadata | Sign in with your browser, with a note on registration |
+| 401 or 403 with no OAuth metadata | API key or token, or the custom header the refusal named |
+| Unreachable, redirects elsewhere, not MCP, or erroring | Nothing. A note above the list says why, and No sign-in stays checked |
 
 The OAuth note says whether the authorization server registers clients
 dynamically (RFC 7591, what Ri does during sign-in), accepts client ID metadata
 documents (which Ri doesn't offer for custom servers yet), or needs a client
 registered by hand (which a custom server can't supply, so the note points at
 an API key if the server also takes one). It also says when the server doesn't
-offer PKCE S256, which Ri requires.
+offer PKCE S256, which Ri requires. A note that means sign-in may not work is
+amber, on the detected method.
 
-Two quiet controls: **Change** opens the ordinary picker with every method, and
-on an OAuth verdict **Use an API key instead** switches to a bearer token in one
-click. DataForSEO is the known case: it offers OAuth and also takes an API key.
+Changing the method is a click on another one, and the Detected mark stays
+where the probe put it, so what was found and what was chosen both stay in
+view. DataForSEO is the known case: it offers OAuth and also takes an API key.
 A choice made by hand belongs to that address. Editing the URL starts over with
-a fresh verdict and the method back at None until it arrives, while the name,
-header and secret stay as typed. The form submits the detected method unless the person chose,
-and the add itself still validates by connecting, as before.
+a fresh verdict and nothing chosen until it arrives, while the name, header and
+secret stay as typed. The form submits the detected method unless the person
+chose, and the add itself still validates by connecting, as before.
 
 ## How the probe works
 
@@ -70,8 +83,8 @@ never calls a tool, and never saves anything.
 ## What the probe can't tell
 
 - **A server that takes both OAuth and a key** reports OAuth, since that is
-  what it advertises. That's what the one-click override is for.
-- **Which key** a bare 401 wants. The verdict preselects a bearer token, and
+  what it advertises. That's why every other method stays one click away.
+- **Which key** a bare 401 wants. The probe detects a bearer token, and
   names a custom header only when the refusal mentions a hyphenated one such
   as `X-API-Key` without also mentioning Bearer. HTTP Basic credentials are not
   detected.

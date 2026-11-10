@@ -33,11 +33,11 @@ async function main() {
     openSettings('plugins');
     function Fixture() {
       const dashboard = useDashboard(); const settings = useSettingsStore();
-      const [form, setForm] = useState({name:'Private service', url:'https://url-user:url-password@seo.example/mcp?key=query-secret#fragment-secret', authKind:'bearer', header:'', secret:'fixture-private-key'});
+      const [form, setForm] = useState({name:'Private service', url:'https://url-user:url-password@seo.example/mcp?key=query-secret#fragment-secret', authKind:'bearer', authChosen:true, header:'', secret:'fixture-private-key'});
       const kind = new URLSearchParams(window.location.search).get('fixture');
       const skill = {ref:'draft:review', name:'review', description:null, location:{kind:'draft'}, editable:true, hasErrors:true, uncommitted:false, linkedFrom:null, updatedAt:'now', git:null};
       return <><output data-navigation>{JSON.stringify({view:dashboard.activeView.kind, mobile:dashboard.mobileTab, open:settings.open})}</output>
-        {kind === 'mcp' ? <McpServerForm form={form} onChange={patch=>setForm(value=>({...value,...patch}))} busy={false} onSubmit={noop} onBack={noop}/>
+        {kind === 'mcp' ? <McpServerForm form={form} detection={{status:'idle'}} onChange={patch=>setForm(value=>({...value,...patch}))} busy={false} onSubmit={noop} onBack={noop}/>
           : kind === 'saved' ? <McpServerDetail server={{id:'custom-server',slug:'private',displayName:'Private service',url:'https://seo.example/mcp',enabled:false,auth:{kind:'oauth'},lastStatus:'error'}} busy={false} onBack={noop} onAuthorize={noop} onRetest={noop} onToggleEnabled={noop} onRemove={noop} onToolOverride={noop}/>
           : kind === 'skill' ? <SkillHeader skill={skill}/>
           : <HostedProviderDetail provider={provider} connections={[]} toolkits={[]} writePolicy={{}} busy={false} testing={null} testResults={{}} creds={{}} selectedServices={[]} advancedOpen={false} redirectUri="" copied={false} byoConfigs={[]} byoForm={{label:'',clientId:'',clientSecret:''}}

@@ -7,21 +7,22 @@
  * with server-wide permissions and individual On and Ask first switches.
  */
 import dynamic from 'next/dynamic';
-import { useState, type FormEvent, type ReactNode } from 'react';
-import { AlertCircle, KeyRound, Loader2, LogIn, Plus, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from 'lucide-react';
+import type { FormEvent, ReactNode } from 'react';
+import { AlertCircle, Loader2, LogIn, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { BackLink, Chip, DetailHeader, GroupHeading, McpLogo, type Tone } from './parts';
 import type { McpForm, McpServerEntry } from './types';
-import { describeMcpAuthDetection, detectedAuthKind, detectionFor, resolveMcpFormAuth, type McpAuthDetectionState, type McpAuthSummary } from './mcp-auth-detection';
+import { describeMcpAuthDetection, detectedAuthKind, detectionFor, resolveMcpFormAuth, type McpAuthDetectionState } from './mcp-auth-detection';
 import { DEFAULT_MCP_APPROVAL_POLICY, mcpToolApprovalOverride, resolveMcpToolApproval, type McpApprovalPolicy, type McpToolApprovalPatch } from '@/lib/integrations/mcp-approval-policy';
 import { McpPermissionControls, McpPermissionSelect, MCP_POLICY_LABELS } from './mcp-permissions';
 import { CapabilityReview } from './capability-review';
 import { McpServerSettings } from './mcp-settings';
 import { settingsCapability } from '@/lib/mcp-apps/metadata';
 import { Tip } from '@/components/ui/tip';
+import { cn } from '@/lib/utils';
 
 // What the server's screens may reach on the network, which the page asks the Home once it shows in the browser.
 const McpAppNetwork = dynamic(() => import('./mcp-app-network').then(module => module.McpAppNetwork), { ssr: false });
@@ -234,10 +235,10 @@ export function McpServerDetail({
 }
 
 /**
- * Add a remote MCP server: name, URL, and how it authenticates. The method is
- * worked out from the URL (`useMcpAuthDetection`) and shown as a verdict with
- * a quiet way to change it. The full choice appears only when the probe has
- * nothing to go on or the person asks for it.
+ * Add a remote MCP server: name, URL, and how it authenticates. Once a URL is
+ * typed, every method is one choice in a list. The probe (`useMcpAuthDetection`)
+ * preselects the method it found and marks it Detected with what it saw, so
+ * the finding reads first and changing it is one click on another method.
  */
 export function McpServerForm({
   form,
@@ -257,18 +258,18 @@ export function McpServerForm({
 }) {
   const url = form.url.trim();
   const detected = detectionFor(detection, url);
-  const detectedKind = detected ? detectedAuthKind(detected) : null;
   const { authKind, header } = resolveMcpFormAuth(form, detected);
-  // Change opens the full choice for this address only. A new address closes it again.
-  const [changingFor, setChangingFor] = useState<string | null>(null);
-  const choosing = !!url && ((detected !== null && detectedKind === null) || form.authChosen || changingFor === url);
+  // Nothing is chosen while the probe is still out, unless the person chose.
+  const pending = !!url && !detected && !form.authChosen;
+  const selected = pending ? null : authKind;
   const headerHint = detected?.method === 'key' ? detected.header : undefined;
-  const usesSecret = authKind === 'bearer' || authKind === 'header';
+  const usesSecret = selected === 'bearer' || selected === 'header';
   const ready =
     !!form.name.trim() &&
     !!url &&
+    !!selected &&
     (!usesSecret || !!form.secret) &&
-    (authKind !== 'header' || !!header);
+    (selected !== 'header' || !!header);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (ready && !busy) onSubmit();
@@ -309,27 +310,10 @@ export function McpServerForm({
               className="h-8 rounded-lg font-mono text-xs"
             />
           </Field>
-          <div className="@lg:col-span-2">
-            <McpAuthVerdict detection={detection} url={url} busy={busy} choosing={choosing}
-              onChange={() => setChangingFor(url)} onUseKey={() => choose('bearer')} />
+          <div className="pt-1 @lg:col-span-2">
+            <McpAuthChoice detection={detection} url={url} selected={selected} busy={busy} onChoose={choose} />
           </div>
-          {choosing && (
-            <Field label="Auth" htmlFor="mcp-auth">
-              <select
-                id="mcp-auth"
-                value={authKind}
-                disabled={busy}
-                onChange={(e) => choose(e.target.value as McpForm['authKind'])}
-                className="h-8 w-full rounded-lg border border-border bg-input/30 px-2 text-xs text-foreground"
-              >
-                <option value="none">None</option>
-                <option value="bearer">Bearer token</option>
-                <option value="header">Custom header</option>
-                <option value="oauth">OAuth (sign in)</option>
-              </select>
-            </Field>
-          )}
-          {authKind === 'header' && (
+          {selected === 'header' && (
             <Field label="Header name" htmlFor="mcp-header">
               <Input
                 id="mcp-header"
@@ -341,7 +325,7 @@ export function McpServerForm({
             </Field>
           )}
           {usesSecret && (
-            <Field label="Secret" htmlFor="mcp-secret" wide>
+            <Field label="Secret" htmlFor="mcp-secret" wide={selected !== 'header'}>
               <Input
                 id="mcp-secret"
                 type="password"
@@ -354,66 +338,91 @@ export function McpServerForm({
             </Field>
           )}
         </div>
-        {authKind === 'oauth' && detected?.method !== 'oauth' && (
-          <p className="rounded-lg border border-border/50 bg-muted/30 p-2.5 text-[11px] leading-normal text-muted-foreground">
-            You&apos;ll be redirected to sign in. We register a client automatically (no secret to paste) and store the
-            tokens sealed in your Ri, refreshed for you.
-          </p>
-        )}
         <p className="text-[11px] leading-normal text-muted-foreground">
           {usesSecret && 'The secret is sealed in your Ri and never shown to the model. '}
           If an agent session is already running, restart it to use newly added tools.
         </p>
         <Button type="submit" size="sm" disabled={busy || !ready} className="text-xs font-semibold">
-          <Plus size={14} /> {authKind === 'oauth' ? 'Add and sign in' : 'Add and connect'}
+          <Plus size={14} /> {selected === 'oauth' ? 'Add and sign in' : 'Add and connect'}
         </Button>
       </form>
     </div>
   );
 }
 
-const VERDICT_ICON: Record<McpAuthSummary['tone'], typeof ShieldCheck> = { ok: ShieldCheck, warn: AlertCircle };
-const METHOD_ICON = { none: ShieldCheck, oauth: LogIn, key: KeyRound } as const;
+/** Every method in a fixed order, so the list never moves when the probe answers. */
+const MCP_AUTH_OPTIONS: readonly { kind: McpForm['authKind']; title: string; description: string }[] = [
+  { kind: 'oauth', title: 'Sign in with your browser', description: 'Ri registers itself with the server (OAuth) and opens its sign-in page. There is no secret to paste, and Ri keeps the tokens sealed and refreshed.' },
+  { kind: 'bearer', title: 'API key or token', description: 'Paste the key the server gave you. Ri sends it as a bearer token.' },
+  { kind: 'header', title: 'API key in a custom header', description: 'For a server that reads its key from a header of its own, such as X-API-Key.' },
+  { kind: 'none', title: 'No sign-in', description: 'For a server with open access.' },
+];
 
 /**
- * What the probe found for the typed address, with the one quiet control that
- * covers the exceptions: a server that also takes a key (DataForSEO does) or a
- * verdict the person knows better than.
+ * How the server authenticates, as one list of methods. The detected one
+ * carries a Detected badge and the probe's own finding in place of the
+ * generic description, in amber when sign-in may not work. A probe with
+ * nothing to go on says why above the list and marks nothing.
  */
-function McpAuthVerdict({ detection, url, busy, choosing, onChange, onUseKey }: {
+function McpAuthChoice({ detection, url, selected, busy, onChoose }: {
   detection: McpAuthDetectionState;
   url: string;
+  selected: McpForm['authKind'] | null;
   busy: boolean;
-  choosing: boolean;
-  onChange: () => void;
-  onUseKey: () => void;
+  onChoose: (kind: McpForm['authKind']) => void;
 }) {
   if (!url) return <p className="text-[11px] leading-normal text-muted-foreground">Enter the server URL and Ri works out how it authenticates.</p>;
   const detected = detectionFor(detection, url);
-  const quiet = 'h-auto px-1.5 py-0.5 text-[11px] font-medium';
-  if (!detected) {
-    return (
-      <div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-normal text-muted-foreground">
-        <Loader2 size={13} className="shrink-0 animate-spin" aria-hidden />
-        <span>Checking how this server authenticates…</span>
-        {!choosing && <Button type="button" variant="ghost" size="xs" className={quiet} disabled={busy} onClick={onChange}>Choose instead</Button>}
-      </div>
-    );
-  }
-  const summary = describeMcpAuthDetection(detected);
-  const Icon = detected.method === 'unknown' ? VERDICT_ICON[summary.tone] : METHOD_ICON[detected.method];
-  const tone = summary.tone === 'ok' ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400';
+  const detectedKind = detected ? detectedAuthKind(detected) : null;
+  const summary = detected ? describeMcpAuthDetection(detected) : null;
   return (
-    <div role="status" className={`flex items-start gap-2 rounded-lg border p-2.5 text-[11px] leading-normal ${tone}`}>
-      <Icon size={14} className="mt-px shrink-0" aria-hidden />
-      <div className="min-w-0 flex-1 space-y-1">
-        <p><span className="font-semibold">{summary.title}.</span> {summary.detail}</p>
-        {(detected.method === 'oauth' || (detected.method !== 'unknown' && !choosing)) && (
-          <div className="flex flex-wrap gap-1">
-            {detected.method === 'oauth' && <Button type="button" variant="outline" size="xs" className={`${quiet} bg-background/60`} disabled={busy} onClick={onUseKey}>Use an API key instead</Button>}
-            {!choosing && <Button type="button" variant="ghost" size="xs" className={quiet} disabled={busy} onClick={onChange}>Change</Button>}
-          </div>
+    <div className="space-y-1.5">
+      <div className="flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1">
+        <span id="mcp-auth-label" className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Authentication</span>
+        {!detected && (
+          <span role="status" className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden />
+            Checking how this server authenticates…
+          </span>
         )}
+      </div>
+      {detected?.method === 'unknown' && summary && (
+        <p role="status" className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-2.5 text-[11px] leading-normal text-amber-700 dark:text-amber-400">
+          <AlertCircle size={14} className="mt-px shrink-0" aria-hidden />
+          <span><span className="font-semibold">{summary.title}.</span> {summary.detail}</span>
+        </p>
+      )}
+      <div role="radiogroup" aria-labelledby="mcp-auth-label" className="-mx-2 space-y-0.5">
+        {MCP_AUTH_OPTIONS.map((option) => {
+          const isDetected = option.kind === detectedKind;
+          const warn = isDetected && summary?.tone === 'warn';
+          return (
+            <label
+              key={option.kind}
+              className={cn('flex items-start gap-2.5 rounded-lg px-2 py-1.5 transition-colors', busy ? 'opacity-60' : 'cursor-pointer hover:bg-muted/40')}
+            >
+              <input
+                type="radio"
+                name="mcp-auth"
+                value={option.kind}
+                checked={selected === option.kind}
+                disabled={busy}
+                onChange={() => onChoose(option.kind)}
+                className="mt-px size-3.5 shrink-0 appearance-none rounded-full border border-muted-foreground/50 transition-[border-color,border-width] checked:border-4 checked:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring enabled:cursor-pointer"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center gap-1.5 text-xs font-medium leading-4 text-foreground">
+                  {option.title}
+                  {isDetected && <span className="rounded-full border border-border px-1.5 text-[10px] font-medium leading-4 text-muted-foreground">Detected</span>}
+                </span>
+                <span className={cn('mt-0.5 flex items-start gap-1 text-[11px] leading-normal', warn ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>
+                  {warn && <AlertCircle size={12} className="mt-0.5 shrink-0" aria-hidden />}
+                  <span>{isDetected && summary ? summary.detail : option.description}</span>
+                </span>
+              </span>
+            </label>
+          );
+        })}
       </div>
     </div>
   );
