@@ -5,12 +5,13 @@ import { Switch } from '@/components/ui/switch';
 import { apiErrorText } from '@/lib/api/client';
 import { trpcClient } from '@/lib/trpc/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { serviceStatusQuery } from '@/hooks/use-service-status';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 export function HostAvailability() {
   const client = useQueryClient(); const [busy, setBusy] = useState(false);
-  const service = useQuery({ queryKey: ['local-service'], queryFn: () => trpcClient.service.list.query({}), refetchInterval: 10_000, retry: false });
+  const service = useQuery(serviceStatusQuery(10_000));
   const managed = !!service.data && !['unmanaged', 'stopping'].includes(service.data.phase);
   const owner = !!service.data?.canManage;
   const query = useQuery({ queryKey: ['host-availability'], queryFn: () => trpcClient.service.awakeGet.query({}), enabled: managed && owner, refetchInterval: 10_000, retry: false });

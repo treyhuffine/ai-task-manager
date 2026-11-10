@@ -1,4 +1,4 @@
-/** The rail's actual footer, wide and collapsed, against an isolated synthetic API: an account only you can fix shows, and leads to its page. */
+/** The rail's actual footer, wide and collapsed, against an isolated synthetic API: an account only you can fix shows, and leads to its page. An update waiting on running work shows, and leads to Settings, Updates. */
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -12,6 +12,9 @@ let server: http.Server;
 let browser: Browser;
 let base: string;
 let attention: unknown[] = [];
+const IDLE = { phase: 'running', canManage: true, canUseUpdates: true, update: { format: 1, phase: 'idle', changedAt: '' } };
+let service: unknown = IDLE;
+let serviceCalls = 0;
 
 beforeAll(async () => {
   const require = createRequire(import.meta.url);
@@ -44,7 +47,7 @@ beforeAll(async () => {
     if (url.pathname.startsWith('/api/trpc/')) {
       for await (const chunk of req) void chunk;
       const procedure = url.pathname.slice('/api/trpc/'.length);
-      const data = procedure === 'integrations.attentionGet' ? attention : procedure === 'spaces.list' ? [] : undefined;
+      const data = procedure === 'integrations.attentionGet' ? attention : procedure === 'spaces.list' ? [] : procedure === 'service.list' ? (serviceCalls++, service) : undefined;
       res.setHeader('content-type', 'application/json');
       if (data === undefined) { res.statusCode = 500; res.end(JSON.stringify({ error: { message: `Unexpected request: ${procedure}`, code: -32603, data: { code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 } } })); }
       else res.end(JSON.stringify({ result: { data } }));
@@ -78,6 +81,7 @@ const wide = (page: Page) => page.locator('[data-rail="wide"]');
 const strip = (page: Page) => page.locator('[data-rail="strip"]');
 
 it('counts accounts only you can fix, names them, and goes to the page that fixes them', async () => {
+  service = IDLE;
   attention = [
     { key: 'work', name: 'Google', account: 'Work', target: { kind: 'provider', id: 'google' } },
     { key: 'home', name: 'Google', account: 'Home', target: { kind: 'provider', id: 'google' } },
@@ -108,6 +112,7 @@ it('counts accounts only you can fix, names them, and goes to the page that fixe
 
 it('stays quiet while every account works', async () => {
   attention = [];
+  service = IDLE;
   const page = await open();
   try {
     const connect = wide(page).getByRole('button', { name: 'Connect accounts', exact: true });
@@ -119,6 +124,49 @@ it('stays quiet while every account works', async () => {
     await page.screenshot({ path: '/tmp/ri-rail-footer-quiet.png' });
     await connect.click();
     expect(await settings(page)).toBe('plugins integrations');
+  } finally {
+    await page.close();
+  }
+});
+
+it('shows an update waiting on running work near Settings, and leads to Settings, Updates', async () => {
+  attention = [];
+  service = { ...IDLE, update: { format: 1, phase: 'waiting', changedAt: '', reason: '8 chats, 2 background tasks' } };
+  const page = await open();
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  try {
+    const row = wide(page).getByRole('button', { name: /^Update ready/ });
+    await row.waitFor();
+    expect(await row.innerText()).toBe('Update ready\nWaiting for 8 chats, 2 background tasks to finish');
+    // Above the Settings row, below the space selector.
+    expect(await wide(page).getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label') ?? button.textContent?.split('Waiting')[0])))
+      .toEqual(expect.arrayContaining(['Update ready', 'Settings']));
+    await page.screenshot({ path: '/tmp/ri-rail-footer-update.png' });
+    await row.click();
+    expect(await settings(page)).toBe('updates null');
+
+    const icon = strip(page).getByRole('button', { name: 'Update ready. Waiting for 8 chats, 2 background tasks to finish' });
+    await icon.waitFor();
+    expect(await strip(page).getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))))
+      .toEqual(['Update ready. Waiting for 8 chats, 2 background tasks to finish', 'Settings']);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('says nothing about a waiting update to someone who can\'t act on it', async () => {
+  attention = [];
+  service = { ...IDLE, canUseUpdates: false, update: { format: 1, phase: 'waiting', changedAt: '', reason: '1 chat' } };
+  const before = serviceCalls;
+  const page = await open();
+  try {
+    await wide(page).getByRole('button', { name: 'Connect accounts', exact: true }).waitFor();
+    // Asked and answered, so the row's absence is a decision, not a pending request.
+    await expect.poll(() => serviceCalls).toBeGreaterThan(before);
+    await page.waitForTimeout(300);
+    expect(await page.getByRole('button', { name: /Update ready/ }).count()).toBe(0);
+    expect(await strip(page).getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))).toEqual(['Settings']);
   } finally {
     await page.close();
   }

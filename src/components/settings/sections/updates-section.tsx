@@ -13,6 +13,7 @@ import { describeRollback, maintenanceWindowText, updateProgress, updateStatusTe
 import { MaintenanceWindowSchema, type ReleasePreferences, type UpdateAction, type UpdatePreferences } from '@/lib/service/update-settings';
 import { trpcClient } from '@/lib/trpc/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { SERVICE_STATUS_KEY, serviceStatusQuery } from '@/hooks/use-service-status';
 import { useId, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -124,7 +125,7 @@ export function UpdatesSection() {
   const id = useId();
   const client = useQueryClient();
   const [working, setWorking] = useState(false);
-  const status = useQuery({ queryKey: ['local-service'], queryFn: () => trpcClient.service.list.query({}), refetchInterval: 2000, retry: false });
+  const status = useQuery(serviceStatusQuery(2000));
   const data = status.data;
   const update = data && 'update' in data ? data.update : undefined;
   const action = async (input: UpdateAction) => {
@@ -132,7 +133,7 @@ export function UpdatesSection() {
     try {
       if (input.action === 'apply' || input.action === 'apply-now' || input.action === 'when-idle') await documentSaves.flushAll();
       await trpcClient.service.updatePost.mutate({body: input});
-      await client.invalidateQueries({ queryKey: ['local-service'] });
+      await client.invalidateQueries({ queryKey: SERVICE_STATUS_KEY });
     } catch (error) { toast.error(apiErrorText(error)); }
     finally { setWorking(false); }
   };
@@ -140,7 +141,7 @@ export function UpdatesSection() {
     setWorking(true);
     try {
       await trpcClient.service.updatePolicyPatch.mutate({body: preferences});
-      await client.invalidateQueries({ queryKey: ['local-service'] });
+      await client.invalidateQueries({ queryKey: SERVICE_STATUS_KEY });
     } catch (error) { toast.error(apiErrorText(error)); }
     finally { setWorking(false); }
   };

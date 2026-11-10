@@ -121,6 +121,7 @@ The `ri service ...` commands stay as the detailed form (`status` as JSON, `awak
 - **Settings, Updates** (`src/components/settings/sections/updates-section.tsx`). Shows "Up to date", or what a downloaded update is waiting for ("Waiting for 2 chats to finish"), with **Update now**. Also holds the automatic updates switch and, under Advanced, the channel.
   - This section belongs to the Home's own Settings, not to the desktop app. Like every page, it comes from the Home, so it shows the same in a browser, on a phone or in the app.
   - Who can change it is section 7.1.
+  - While an installed update waits on running work, the rail shows one quiet row above Settings, "Update ready" with what it is waiting for (`src/components/workspaces/rail-update-row.tsx`), and the collapsed rail an icon. It opens this section and goes away when the Home switches. Only people who can use updates see it. It reads the status each window already polls, with no poll of its own beyond a slow fallback.
 - **App menu.** "Check for Updates…", the Mac convention.
 - **Opening the window at login** is a separate, optional preference. It's for convenience and has nothing to do with whether the Home is up.
 - **Removed:** Tools > Start at Login… / Disable Start at Login… (replaced by the switch) and Tools > Install terminal command, which today writes `~/.local/bin/ri-desktop` (replaced by "Add `ri` to Terminal", which installs the same `ri` the install script does).
@@ -274,6 +275,7 @@ Around that rule:
 - **Automatic updates never stop running work.** A Home that is never quiet for 10 minutes keeps its version, and after 24 hours `ri status` and Settings say what it is waiting for.
 - **At most one automatic update every 12 hours,** so a Home on `latest` doesn't restart for every release. A release that arrives in between is picked up at the next one.
 - **Only people who can change update settings (section 7.1) see the heads-up's buttons.** Everyone else sees the refresh notice afterwards.
+- **Until the heads-up, the rail says an update is waiting.** For those same people, a quiet "Update ready" row above Settings names what it waits for and opens Settings, Updates. `ri update` waits only for running work, so without it a person who ran the command had no sign in the app that the Home hadn't switched.
 - **A maintenance window** (`ri update when-idle --hour`) still narrows when step 1 can happen, and carries to later releases. Update now goes ahead of it.
 
 For everything else:

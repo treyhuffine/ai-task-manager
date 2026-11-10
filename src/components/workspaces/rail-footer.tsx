@@ -11,6 +11,7 @@ import { RailCount, RailDot } from './rail-count';
 import { TeamRailFooter } from '@/components/team/team-rail-footer';
 import { useOptionalHomeContext } from '@/components/home/home-context';
 import { RailIconButton } from './rail-icon-button';
+import { RailUpdateRow } from './rail-update-row';
 
 // The bottom of the rail: what you set up rather than visit. Settings, and
 // connecting accounts (where agents can act). Both are occasional, so they
@@ -27,6 +28,9 @@ import { RailIconButton } from './rail-icon-button';
 // fanned tiles into an amber count, and Connect accounts goes straight to
 // that account's page. The collapsed rail shows a plug with a dot for as
 // long as one waits, and nothing otherwise (src/lib/integrations/attention.ts).
+//
+// An update installed and waiting on running work gets one quiet row above
+// Settings, for as long as it waits (rail-update-row.tsx).
 //
 // Replaces the old ⌘K/⌘J hint labels + theme toggle that used to live here:
 // the shortcuts stay global, and theme still toggles from the command palette
@@ -74,6 +78,7 @@ function PersonalRailFooter({ collapsed }: { collapsed: boolean }) {
         {/* My Ri and its teams, once one is connected (docs/homes-spec.md §3.2). */}
         <SpaceSelector variant="collapsed" />
         {reconnect && <RailIconButton icon={Plug} label={reconnect} onClick={connectAccounts} badge={<RailDot tone="attention" />} />}
+        <RailUpdateRow collapsed />
         <Tip label="Settings">
           <button
             type="button"
@@ -91,6 +96,7 @@ function PersonalRailFooter({ collapsed }: { collapsed: boolean }) {
     <footer className="flex flex-shrink-0 flex-col gap-1.5 px-2 py-2 border-t border-border/40">
       {/* My Ri and its teams, once one is connected (docs/homes-spec.md §3.2). */}
       <SpaceSelector variant="wide" />
+      <RailUpdateRow collapsed={false} />
       <div className="flex items-stretch gap-1.5">
       <Tip label="Settings">
         <button

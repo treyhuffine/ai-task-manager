@@ -15,6 +15,16 @@ export function updateWaitingText(update: Pick<UpdateRecord, 'reason' | 'headsUp
   return /^\d+ /.test(reason) ? `Waiting for ${reason} to finish` : `Waiting for ${reason}`;
 }
 
+/**
+ * The rail's row while an installed update waits on running work, or null.
+ * Only for people who can act on updates, and only while one waits: what it
+ * says is what Settings and `ri status` say (`updateWaitingText`).
+ */
+export function railUpdateNotice(status: { canUseUpdates: boolean; update?: Pick<UpdateRecord, 'phase' | 'reason' | 'headsUpAt' | 'heldUntil'> } | undefined, now = Date.now()): string | null {
+  if (!status?.canUseUpdates || status.update?.phase !== 'waiting') return null;
+  return updateWaitingText(status.update, now);
+}
+
 export function updateStatusText(update: UpdateRecord & { busy?: boolean }) {
   if (update.phase === 'downloading') return (update.bytes ?? 0) >= (update.release?.runtime.size ?? Infinity) ? 'Verifying and preparing the downloaded runtime…' : 'Downloading update…';
   if (update.phase === 'waiting') return updateWaitingText(update);

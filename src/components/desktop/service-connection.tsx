@@ -10,6 +10,7 @@ import { trpcClient } from '@/lib/trpc/client';
 import { rpcOptions } from '@/lib/trpc/request-options';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { SERVICE_STATUS_KEY } from '@/hooks/use-service-status';
 
 /** At most this often, a window says a person is using it (docs/always-on-spec.md 7.2). */
 const USE_EVERY_MS = 30_000;
@@ -61,10 +62,14 @@ export function ServiceConnection() {
           setMessage('Ri was updated.');
           setRefresh('updated');
           setHeadsUp(false);
+          // The new server answers for the rail and Settings, not the old one's last word.
+          void queryClient.invalidateQueries({ queryKey: SERVICE_STATUS_KEY });
           await reloadIfHidden();
           return;
         }
         const status = await trpcClient.service.list.query({}, rpcOptions({ timeoutMs: 3000 }));
+        // One poll per window: the rail's update row and Settings read this answer.
+        queryClient.setQueryData(SERVICE_STATUS_KEY, status);
         const update = 'update' in status ? status.update : undefined;
         setHeadsUp(!!update?.headsUpAt && status.canUseUpdates);
         if (update?.phase === 'draining') {

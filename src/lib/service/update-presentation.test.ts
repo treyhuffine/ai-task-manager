@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import type { Release } from './release-trust';
 import type { UpdateRecord } from './update';
-import { maintenanceWindowText, updateProgress, updateStatusText } from './update-presentation';
+import { maintenanceWindowText, railUpdateNotice, updateProgress, updateStatusText } from './update-presentation';
 
 const record: UpdateRecord = { format: 1, phase: 'downloading', changedAt: '', release: { runtime: { size: 4 * 1024 ** 2 } } as Release };
 it('distinguishes byte transfer from verification after the last byte', () => {
@@ -22,4 +22,16 @@ it('retains the waiting reason and identifies maintenance phases while busy', ()
 });
 it('shows windows that cross midnight in the selected zone', () => {
   expect(maintenanceWindowText({ hour: 23, durationHours: 3, timeZone: 'America/Denver' })).toBe('between 23:00 and 02:00 (America/Denver)');
+});
+it('puts a waiting update in the rail only for people who can act on it, and only while it waits', () => {
+  const waiting = { ...record, phase: 'waiting' as const, reason: '8 chats, 2 background tasks' };
+  expect(railUpdateNotice({ canUseUpdates: true, update: waiting })).toBe('Waiting for 8 chats, 2 background tasks to finish');
+  // Someone who can't act on updates sees the refresh notice afterwards instead.
+  expect(railUpdateNotice({ canUseUpdates: false, update: waiting })).toBeNull();
+  for (const phase of ['idle', 'available', 'downloading', 'ready', 'draining', 'checkpointing', 'validating', 'committed', 'failed'] as const) {
+    expect(railUpdateNotice({ canUseUpdates: true, update: { ...waiting, phase } })).toBeNull();
+  }
+  expect(railUpdateNotice({ canUseUpdates: true })).toBeNull();
+  expect(railUpdateNotice(undefined)).toBeNull();
+  expect(railUpdateNotice({ canUseUpdates: true, update: { ...waiting, headsUpAt: new Date().toISOString() } })).toBe('Ri will update in 1 minute');
 });
