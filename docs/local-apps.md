@@ -1,5 +1,7 @@
 # Local apps and the built-in builder
 
+November 10 direction: new apps will be built with the shared open-source app kit, with Ri as their host. [shared-app-kit-spec.md](shared-app-kit-spec.md) is current where it conflicts with this document, especially on the builder and the app model.
+
 October 8 clarification: this document describes the Ri-managed origin of apps. The [connected-app contract](app-connector-mentions-spec.md#9-connected-mcp-apps-and-a-common-view-host) adds externally connected MCP services with UI to the same Apps destination, source picker and view host. Local ownership is not a requirement for an app experience. Both origins use MCP Apps for views, with separately qualified capabilities and authority adapters. Connected apps retain their provider's storage/runtime and Ri's existing account connections. They do not require the builder, a local package or Finances. The older deferral of independently running service attachment does not exclude this defined connected-MCP slice.
 
 Product direction and implementation handoff, October 7, 2026, updated October 8. The MVP is implemented in Ri and enabled by default. Start with [the handoff](local-apps-handoff.md), [verified evidence](local-apps-progress.md) and [the runbook](local-apps-runbook.md). This document preserves the product direction and future boundaries.

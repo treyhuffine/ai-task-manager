@@ -1,5 +1,7 @@
 # Local apps modularity and open-source distribution
 
+November 10 direction: the open-source app kit is now a separate project, and Ri hosts its apps. The plan below to extract all of `packages/app-kit` into its own repository is replaced. Its host half stays in Ri and its authoring half is frozen. See [shared-app-kit-spec.md](shared-app-kit-spec.md).
+
 October 7, 2026. Architecture decision for [local apps](local-apps.md), with mechanics in [the implementation contract](local-apps-implementation.md). This specifies the agreed package boundary. The workspace library and independent packed consumer are implemented and qualified. No external repository has been created. See [verification evidence](local-apps-progress.md).
 
 ## Shared source checkout

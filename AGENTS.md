@@ -34,6 +34,8 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 
 Finances source is in `apps/finances`, a pnpm workspace in this repository. Its own `AGENTS.md` governs its separate service/schema and scoped broker boundary. Ri never imports its domain code. Use `pnpm finances:test`, `pnpm finances:typecheck`, `pnpm finances:package`, `pnpm apps:catalog` and `pnpm apps:dev`. Development and commit flow are documented in `docs/finances-development.md`.
 
+New apps are moving to the shared open-source app kit, with Ri as their host. Read `docs/shared-app-kit-spec.md` before changing how apps are built, hosted or connected, and don't add app-facing features to `@ri/app-kit`'s SDK, templates or UI.
+
 ## Rules
 
 - **Use pnpm** — not npm or yarn
