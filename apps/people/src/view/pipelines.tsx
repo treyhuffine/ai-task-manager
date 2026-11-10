@@ -88,7 +88,7 @@ export function PipelinesView({ onCreate }: { onCreate(): void }) {
     </div>
   );
   return (
-    <SplitView list={board} detailOpen={!!open} onBack={() => ui.go({ record: null })} backLabel={`Back to ${pipeline.name}`} detailLabel="Opportunity" minSplitWidth={100000}
+    <SplitView list={board} detailOpen={!!open} onBack={() => ui.back({ record: null })} backLabel={`Back to ${pipeline.name}`} detailLabel="Opportunity" minSplitWidth={100000}
       detail={open ? <OpportunityWorkspace id={open} reload={() => void opportunities.reload()} /> : null} />
   );
 }

@@ -7,7 +7,7 @@
  * re-resolves them under the chat's own access.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { AppFrame, installStyles, LoadingState, SectionTabs, useRiApp } from "@ri/app-kit/ui";
+import { AppFrame, installStyles, LoadingState, SectionTabs, useLocationMoves, useRiApp } from "@ri/app-kit/ui";
 import type { OpenData } from "../schemas.js";
 import { AccessScreen } from "./access.js";
 import { ConnectScreen } from "./connect.js";
@@ -38,7 +38,10 @@ function routeFromData(data: OpenData): Route {
 
 interface Nav {
   route: Route;
-  navigate(next: Route, options?: { silent?: boolean }): void;
+  /** Go somewhere. A new path is a place Back returns from, and a new search or tag updates this one. */
+  navigate(next: Route): void;
+  /** Close what is open: Back the way the person came, or to `to` when they arrived here directly. */
+  back(to: Route): void;
   data: OpenData;
 }
 const NavContext = createContext<Nav | null>(null);
@@ -67,6 +70,12 @@ export function BookmarksApp() {
     setRoute(next);
     app.setLocation(pathOf(next));
   }, [app]);
+  const back = useCallback((to: Route) => {
+    setRoute(to);
+    app.goBack(pathOf(to));
+  }, [app]);
+  // Back and Forward move the open view to another place, with the opener's data for it.
+  useLocationMoves<OpenData>((moved) => setRoute(routeFromData(moved)));
 
   useEffect(() => {
     if (!data || !route) return;
@@ -79,7 +88,7 @@ export function BookmarksApp() {
     } else app.context({ section: route.section });
   }, [route, Boolean(data)]);
 
-  const nav = useMemo<Nav | null>(() => (data && route ? { route, navigate, data } : null), [route, navigate, data]);
+  const nav = useMemo<Nav | null>(() => (data && route ? { route, navigate, back, data } : null), [route, navigate, back, data]);
   if (!nav) return <AppFrame><div className="ri-shell"><LoadingState label="Opening Bookmarks" /></div></AppFrame>;
   return (
     <NavContext.Provider value={nav}>

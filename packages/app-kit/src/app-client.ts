@@ -4,6 +4,8 @@ import { App, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-wi
 export interface AppClientCallbacks {
   result?: (data: unknown) => void;
   theme?: (theme: "light" | "dark") => void;
+  /** The host moved this view to a new location. The opener result for it follows. */
+  move?: (url: string) => void;
 }
 export async function connectApp(callbacks: AppClientCallbacks = {}) {
   const app = new App(
@@ -16,6 +18,9 @@ export async function connectApp(callbacks: AppClientCallbacks = {}) {
   };
   app.onhostcontextchanged = (context) => {
     if (context.theme) { document.documentElement.dataset.theme = context.theme; callbacks.theme?.(context.theme); }
+    // The same signal Ri sends a connected app's open screen: move here, without reloading.
+    const link = (context as Record<string, unknown>)["openai/deepLink"] as { url?: unknown } | undefined;
+    if (typeof link?.url === "string") callbacks.move?.(link.url);
   };
   await app.connect(new PostMessageTransport(window.parent, window.parent));
   const initialTheme = app.getHostContext()?.theme;

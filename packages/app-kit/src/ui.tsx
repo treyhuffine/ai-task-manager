@@ -12,10 +12,12 @@ export {
   RiAppProvider,
   useRiApp,
   useOptionalRiApp,
+  useLocationMoves,
   createMemoryClient,
   createCoalescer,
   chatIntentUrl,
   locationIntentUrl,
+  FOLLOW_MOVES_URL,
   directionsUrl,
   downloadContents,
   assertHttpsUrl,
@@ -35,6 +37,7 @@ export type {
   MemoryClientOptions,
   MemoryCall,
   CoalescerOptions,
+  LocationEntry,
 } from "./ui/app.js";
 export { useQuery, useMutation } from "./ui/hooks.js";
 export type { QueryResult, MutationResult } from "./ui/hooks.js";

@@ -35,25 +35,28 @@ describe("manifest", () => {
 });
 
 describe("package", () => {
+  /** Every file in a zip with its contents. Compressed bytes differ between zlib builds, so compare what unpacks. */
+  const unpack = (zip: Buffer) => {
+    const files = new Map<string, Buffer>();
+    for (let offset = 0; zip.readUInt32LE(offset) === 0x04034b50; ) {
+      const packed = zip.readUInt32LE(offset + 18), nameLength = zip.readUInt16LE(offset + 26);
+      files.set(zip.subarray(offset + 30, offset + 30 + nameLength).toString(), inflateRawSync(zip.subarray(offset + 30 + nameLength, offset + 30 + nameLength + packed)));
+      offset += 30 + nameLength + packed;
+    }
+    return files;
+  };
   it("embeds exactly what is in the folder", () => {
-    const zip = buildZip(extension);
-    expect(EXTENSION_PACKAGE.base64, "Run pnpm --filter ri-bookmarks extension:package").toBe(zip.toString("base64"));
-    expect(fs.readFileSync(path.join(root, "src/extension-package.generated.ts"), "utf8")).toBe(generatedSource(manifest.version, zip));
+    const embedded = unpack(Buffer.from(EXTENSION_PACKAGE.base64, "base64"));
+    expect([...embedded.keys()], "Run pnpm --filter ri-bookmarks extension:package").toEqual(listFiles(extension));
+    for (const [name, data] of embedded) expect(data.equals(fs.readFileSync(path.join(extension, name))), `${name} changed. Run pnpm --filter ri-bookmarks extension:package`).toBe(true);
     expect(EXTENSION_PACKAGE.version).toBe(manifest.version);
+    expect(generatedSource(manifest.version, Buffer.from("x"))).toContain("export const EXTENSION_PACKAGE");
   });
   it("is a valid zip of every file", () => {
     const zip = buildZip(extension);
-    const names: string[] = [];
-    let offset = 0;
-    while (zip.readUInt32LE(offset) === 0x04034b50) {
-      const packed = zip.readUInt32LE(offset + 18), nameLength = zip.readUInt16LE(offset + 26);
-      const name = zip.subarray(offset + 30, offset + 30 + nameLength).toString();
-      names.push(name);
-      const data = inflateRawSync(zip.subarray(offset + 30 + nameLength, offset + 30 + nameLength + packed));
-      expect(data.equals(fs.readFileSync(path.join(extension, name))), name).toBe(true);
-      offset += 30 + nameLength + packed;
-    }
-    expect(names).toEqual(listFiles(extension));
+    const files = unpack(zip);
+    expect([...files.keys()]).toEqual(listFiles(extension));
+    for (const [name, data] of files) expect(data.equals(fs.readFileSync(path.join(extension, name))), name).toBe(true);
     expect(zip.length).toBeLessThan(500 * 1024);
   });
 });

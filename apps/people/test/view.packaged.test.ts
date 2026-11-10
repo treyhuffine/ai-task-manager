@@ -135,7 +135,7 @@ describe('packaged People view', () => {
       await ui.getByText('2 selected').waitFor();
       await ui.getByRole('button', { name: 'Change selected' }).click();
       await ui.getByRole('menuitem', { name: 'Pin', exact: true }).click();
-      await ui.getByText('2 of 2 updated').waitFor({ state: 'attached' });
+      await ui.getByRole('status').filter({ hasText: '2 of 2 updated' }).waitFor({ state: 'attached' });
       expect(await pinnedNames()).toEqual([...pinnedBefore, 'Elena Park', 'Sam Okafor'].sort());
       await ui.getByRole('button', { name: 'Done selecting' }).click();
       await ui.getByRole('row', { name: /Jordan Bell/ }).click();

@@ -145,7 +145,7 @@ export function AppPage({
           authorityRevision={(access.data?.revision ?? 0) * 100000 + (owner?.revision ?? 0)}
           digest={instance.digest}
           onNavigate={(value) => navigate(`${instance.slug}${value}`)}
-          onLocation={(value) => navigate(`${instance.slug}${value}`, { replace: true })}
+          onLocation={(value, entry) => navigate(`${instance.slug}${value}`, { replace: entry === 'replace' })}
           onSources={() => setSourcesOpen(true)}
           onAsk={(text) => {
             setMode('chat');

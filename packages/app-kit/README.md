@@ -74,7 +74,9 @@ createRoot(document.getElementById("root")!).render(<RiAppProvider><TravelView /
 | `context(state)` | Model context for Ri chat. Coalesced: only the latest state, about 150 ms after changes settle, at most 10 a second, identical states skipped. Keep it to IDs, filters and revisions. States over 8,000 bytes are skipped with a console warning. |
 | `ask(prompt)` | Stages editable text in Ri's native composer through `/__host/chat?prompt=`. Trimmed to 2,000 characters. Never sends, never grants access. |
 | `openSources()`, `manageAccess()` | Opens `/__host/sources` and `/__host/manage-access`. |
-| `setLocation(path)` | Remembers the view location (tab, day, selection, filters) in the host URL through `/__host/location?to=`, with replace semantics. Debounced 300 ms, latest wins. |
+| `setLocation(path, options?)` | Remembers the view location (tab, day, selection, filters) in the host URL through `/__host/location?to=`. Debounced 300 ms, latest wins. A new path is a new place the browser's Back returns from, and a change only to the query updates the current place. `{ replace: true }` holds it to the current place, and `{ push: true }` makes a new place from a query change, as for a record selected beside a list. |
+| `goBack(fallback)` | For a close or back button: goes Back the way the person came when this view brought them here, otherwise to `fallback` in place. Sends `entry=back`. |
+| `useLocationMoves(onMove)` | Follows Back, Forward and links in place instead of being reopened. The host runs the opener for the new location and `onMove` receives its result, so read the route from it. Announced once with `/__host/location?follows=1`. A view that doesn't follow is reopened at the new location. |
 | `openExternal(url)`, `openDirections(address)` | HTTPS links only, opened by the host after confirmation. Directions open Google Maps outside the view. |
 | `selectFile()`, `download({ name, mimeType, text \| base64 })` | Native host file selection and download. |
 

@@ -283,6 +283,13 @@ export const localAppsRouter = router({
         localApps().closeView(input.viewId, ctx.key!.apiKeyId),
       ),
     ),
+  moveView: p
+    .input(z.object({ viewId: id, ...location }).strict())
+    .mutation(({ input, ctx }) =>
+      appOperation(() =>
+        localApps().moveView(input.viewId, ctx.key!.apiKeyId, { path: input.path, query: input.query }),
+      ),
+    ),
   refreshView: p
     .input(z.object({ viewId: id }).strict())
     .mutation(({ input, ctx }) =>

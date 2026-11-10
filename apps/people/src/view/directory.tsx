@@ -187,7 +187,7 @@ export function Directory({ kind }: { kind: Kind }) {
       className={kind === 'person' ? 'pe-directory' : undefined}
       list={list}
       detailOpen={!!open}
-      onBack={() => ui.go({ record: null })}
+      onBack={() => ui.back({ record: null })}
       backLabel={kind === 'person' ? 'Back to people' : 'Back to companies'}
       detailLabel={kind === 'person' ? 'Person' : 'Company'}
       minSplitWidth={kind === 'person' ? 1000 : 100000}

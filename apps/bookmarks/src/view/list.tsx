@@ -37,7 +37,7 @@ function StateNotice() {
 
 export function ListScreen() {
   const app = useRiApp();
-  const { route: anyRoute, navigate, data } = useNav();
+  const { route: anyRoute, navigate, back, data } = useNav();
   const route = anyRoute as ListRoute;
   const [typed, setTyped] = useState(route.query);
   const [adding, setAdding] = useState(false);
@@ -47,6 +47,7 @@ export function ListScreen() {
   const latest = useRef(route);
   latest.current = route;
   const update = (patch: Partial<ListRoute>) => navigate({ ...latest.current, ...patch });
+  const close = () => back({ ...latest.current, bookmarkId: null });
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (debounce.current) clearTimeout(debounce.current); }, []);
   const onType = (value: string) => {
@@ -118,9 +119,9 @@ export function ListScreen() {
         ) : (
           <SplitView
             detailOpen={Boolean(route.bookmarkId)}
-            onBack={() => update({ bookmarkId: null })}
+            onBack={close}
             backLabel="All bookmarks"
-            detail={route.bookmarkId ? <BookmarkInspector key={route.bookmarkId} id={route.bookmarkId} onClose={() => update({ bookmarkId: null })} onChanged={(change) => {
+            detail={route.bookmarkId ? <BookmarkInspector key={route.bookmarkId} id={route.bookmarkId} onClose={close} onChanged={(change) => {
               void list.reload();
               void tags.reload();
               setExtra((current) => current && { ...current, items: change.deleted ? current.items.filter((item) => item.id !== change.deleted) : current.items.map((item) => (item.id === change.record?.id ? change.record : item)) });

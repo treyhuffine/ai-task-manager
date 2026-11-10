@@ -2139,6 +2139,22 @@ export class LocalAppsService {
     const view = this.views.get(id);
     if (view?.keyId === keyId) this.views.delete(id);
   }
+  /**
+   * Move an open view to a new location, as Back and Forward do, without reopening it: the opener
+   * runs for the new location, and later refreshes use it. A location that would change what the
+   * view may do (another resource, actions or bindings) is refused, and the host reopens instead.
+   */
+  async moveView(id: string, keyId: string, location: { path: string; query: Record<string, string> }) {
+    const view = this.view(id, keyId);
+    const previous = view.input;
+    view.input = { ...view.input, path: location.path, query: location.query };
+    try {
+      return await this.refreshView(id, keyId);
+    } catch (error) {
+      view.input = previous;
+      throw error;
+    }
+  }
   async refreshView(id: string, keyId: string) {
     const view = this.view(id, keyId),
       artifact = await this.artifact(view.instanceId, !!view.draftId),

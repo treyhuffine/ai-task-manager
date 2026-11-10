@@ -6,7 +6,7 @@
  * reopening return to the same place.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppShell, Button, EmptyState, LoadingState, Notice, SectionPanel, SectionTabs, useQuery, useRiApp } from '@ri/app-kit/ui';
+import { AppShell, Button, EmptyState, LoadingState, Notice, SectionPanel, SectionTabs, useLocationMoves, useQuery, useRiApp } from '@ri/app-kit/ui';
 import type { Stage } from '../domain/labels.js';
 import { AccessScreen } from './access.js';
 import { TodayView } from './today.js';
@@ -91,11 +91,34 @@ function Main({ data }: { data: Extract<ViewData, { mode: 'app' }> }) {
   const [location, setLocationState] = useState<Location>(() => locationFrom(data.path, data.query, data.landing));
   const [saveOpen, setSaveOpen] = useState<null | { opportunityId?: string }>(null);
   const first = useRef(true);
+  // A place reached by Back, Forward or a close button is already where the address is. Don't report it again.
+  const arrived = useRef<string | null>(null);
+  const previous = useRef(location);
   useEffect(() => {
+    const before = previous.current;
+    previous.current = location;
     if (first.current) { first.current = false; return; }
-    app.setLocation(pathOf(location));
+    if (arrived.current === pathOf(location)) { arrived.current = null; return; }
+    const path = pathOf(location);
+    // An opportunity selected beside the board is a place Back closes, and closing it goes Back the way the person came.
+    if (!before.selected && location.selected) app.setLocation(path, { push: true });
+    else if (before.selected && !location.selected && pathOf({ ...before, selected: null }) === path) app.goBack(path);
+    else app.setLocation(path);
   }, [location, app]);
+  useLocationMoves<ViewData>((moved) => {
+    if (moved.mode !== 'app') return;
+    const next = locationFrom(moved.path, moved.query, moved.landing);
+    arrived.current = pathOf(next);
+    setLocationState(next);
+  });
   const go = useCallback((patch: Partial<Location> | ((current: Location) => Partial<Location>)) => setLocationState((current) => ({ ...current, ...(typeof patch === 'function' ? patch(current) : patch) })), []);
+  /** Close what is open: Back the way the person came, or to the place `patch` names when they arrived here directly. */
+  const back = useCallback((patch: Partial<Location>) => {
+    const next = { ...location, ...patch };
+    arrived.current = pathOf(next);
+    setLocationState(next);
+    app.goBack(pathOf(next));
+  }, [location, app]);
   const sources = useQuery<{ sources: SourceSummary[] }>('list_sources', {}, { enabled: data.owner });
   const attention = useMemo(() => (sources.data?.sources ?? []).filter((source) => source.granted && (source.status === 'reconnect' || source.status === 'error')), [sources.data]);
   const empty = data.owner && data.setup.opportunities === 0 && data.setup.materials === 0;
@@ -126,7 +149,7 @@ function Main({ data }: { data: Extract<ViewData, { mode: 'app' }> }) {
       </EmptyState>
     );
   } else if (location.prepare) {
-    body = <PreparationView key={`${location.prepare.opportunityId}:${location.prepare.interviewId}`} target={location.prepare} onBack={() => go({ prepare: null })} backLabel={location.opportunityId ? 'Back to the opportunity' : 'Back to opportunities'} go={go} />;
+    body = <PreparationView key={`${location.prepare.opportunityId}:${location.prepare.interviewId}`} target={location.prepare} onBack={() => back({ prepare: null })} backLabel={location.opportunityId ? 'Back to the opportunity' : 'Back to opportunities'} go={go} />;
   } else if (location.tab === 'today') {
     body = <TodayView go={go} onSaveJob={() => setSaveOpen({})} />;
   } else if (location.tab === 'opportunities') {

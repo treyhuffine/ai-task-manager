@@ -28,8 +28,8 @@ export interface RiAppClient {
     openLink(params: { url: string }): Promise<{ isError?: boolean } & Record<string, unknown>>;
     downloadFile?(params: { contents: DownloadContent[] }): Promise<{ isError?: boolean } & Record<string, unknown>>;
   };
-  /** Optional push channel used by memory clients to deliver opener results and theme changes. */
-  subscribe?(listener: { result?: (data: unknown) => void; theme?: (theme: Theme) => void }): () => void;
+  /** Optional push channel used by memory clients to deliver opener results, theme changes and moves. */
+  subscribe?(listener: { result?: (data: unknown) => void; theme?: (theme: Theme) => void; move?: (url: string) => void }): () => void;
 }
 
 export interface DownloadContent {
@@ -63,8 +63,21 @@ export interface RiApp<TData = unknown> {
   openSources(): Promise<void>;
   /** Open Ri's account access controls for this app. */
   manageAccess(): Promise<void>;
-  /** Remember a view path such as `/trips/lisbon?tab=bookings` in the host URL with replace semantics. Debounced 300 ms. */
-  setLocation(path: string): void;
+  /**
+   * Remember a view path such as `/trips/lisbon?tab=bookings` in the host URL. Debounced 300 ms.
+   * A new path, such as opening a record or a section, is a place Back returns from. A change only
+   * to the query, such as a filter or a search, updates the current place. Pass `replace` to
+   * update the current place even when the path changes, or `push` to make a new place even when
+   * only the query changes, as when a selected record opens beside a list.
+   */
+  setLocation(path: string, options?: { replace?: boolean; push?: boolean }): void;
+  /**
+   * Leave this place the way the person came, which Back would also do. When they arrived here
+   * directly, as from a link, go to `fallback` instead. For a close or back button.
+   */
+  goBack(fallback: string): void;
+  /** Counts the times the host moved this view, as with Back and Forward. Each delivers new `data`. */
+  moves: number;
   /** Open an HTTPS link through the host, which confirms first. Other schemes throw. */
   openExternal(url: string): Promise<void>;
   /** Open an address in an external map through the host. Nothing loads inside the view. */
@@ -81,6 +94,22 @@ export function useRiApp<TData = unknown>(): RiApp<TData> {
   if (!value) throw new Error("useRiApp needs a RiAppProvider above this component");
   return value as RiApp<TData>;
 }
+/**
+ * Move the view when the host moves it, as with Back and Forward, instead of being reopened
+ * there. `onMove` receives the opener result for the new location. Read the route from it.
+ */
+export function useLocationMoves<TData = unknown>(onMove: (data: TData) => void) {
+  const app = useContext(RiAppContext);
+  if (!app) throw new Error("useLocationMoves needs a RiAppProvider above this component");
+  const handler = useRef(onMove);
+  // Kept current before any effect runs, so a move always reaches the latest handler.
+  useInsertionEffect(() => {
+    handler.current = onMove;
+  });
+  const follow = (app as unknown as { follow(listener: (data: unknown) => void): () => void }).follow;
+  useEffect(() => follow((data) => handler.current(data as TData)), [follow]);
+}
+
 /** The app connection, or null outside a provider. */
 export function useOptionalRiApp<TData = unknown>(): RiApp<TData> | null {
   return useContext(RiAppContext) as RiApp<TData> | null;
@@ -100,10 +129,17 @@ export const MAX_CONTEXT_BYTES = 8000;
 export function chatIntentUrl(prompt: string): string {
   return `${HOST_PATHS.chat}?prompt=${encodeURIComponent(clampText(prompt, MAX_PROMPT_LENGTH))}`;
 }
+/**
+ * How a location joins the host's history. Without one the host decides: a new path is a new
+ * place, and a new query updates the current one. `back` returns the way the person came.
+ */
+export type LocationEntry = "replace" | "push" | "back";
 /** The host location intent for a view path. */
-export function locationIntentUrl(path: string): string {
-  return `${HOST_PATHS.location}?to=${encodeURIComponent(path)}`;
+export function locationIntentUrl(path: string, entry?: LocationEntry): string {
+  return `${HOST_PATHS.location}?to=${encodeURIComponent(path)}${entry ? `&entry=${entry}` : ""}`;
 }
+/** Tells the host this view follows its moves, so Back and Forward needn't reopen it. */
+export const FOLLOW_MOVES_URL = `${HOST_PATHS.location}?follows=1`;
 /** A validated HTTPS URL, or an error explaining why it cannot open. */
 export function assertHttpsUrl(url: string): string {
   let parsed: URL;
@@ -208,6 +244,9 @@ export function RiAppProvider({ children, client: providedClient, initialData, i
   const [theme, setTheme] = useState<Theme>(initialTheme ?? "light");
   const [connected, setConnected] = useState(Boolean(providedClient));
   const [error, setError] = useState<string | null>(null);
+  const [moves, setMoves] = useState(0);
+  const moving = useRef(false);
+  const movers = useRef(new Set<(data: unknown) => void>());
   const resultCount = useRef(initialData === undefined ? 0 : 1);
   const lastResultKey = useRef(initialData === undefined ? null : stableJson(initialData));
   const clientRef = useRef<RiAppClient | null>(providedClient ?? null);
@@ -216,11 +255,21 @@ export function RiAppProvider({ children, client: providedClient, initialData, i
 
   const receive = useCallback((value: unknown) => {
     const key = stableJson(value);
-    if (key === lastResultKey.current) return;
+    // A move always places the view, even when the new location's result matches the last one.
+    const moved = moving.current;
+    moving.current = false;
+    if (key === lastResultKey.current && !moved) return;
     lastResultKey.current = key;
     setData(value);
     // The first opener result is the initial view, not a refresh.
     if (resultCount.current++ > 0) setRevision((current) => current + 1);
+    if (moved) {
+      setMoves((current) => current + 1);
+      for (const listener of movers.current) listener(value);
+    }
+  }, []);
+  const receiveMove = useCallback(() => {
+    moving.current = true;
   }, []);
   const receiveTheme = useCallback((value: Theme) => {
     setTheme(value);
@@ -232,10 +281,10 @@ export function RiAppProvider({ children, client: providedClient, initialData, i
       clientRef.current = providedClient;
       setConnected(true);
       for (const resolve of waiting.current.splice(0)) resolve(providedClient);
-      return providedClient.subscribe?.({ result: receive, theme: receiveTheme });
+      return providedClient.subscribe?.({ result: receive, theme: receiveTheme, move: receiveMove });
     }
     let active = true;
-    connecting.current ??= connect({ result: (value) => receive(value), theme: (value) => receiveTheme(value) }) as Promise<RiAppClient>;
+    connecting.current ??= connect({ result: (value) => receive(value), theme: (value) => receiveTheme(value), move: () => receiveMove() }) as Promise<RiAppClient>;
     connecting.current.then(
       (client) => {
         clientRef.current = client;
@@ -252,7 +301,7 @@ export function RiAppProvider({ children, client: providedClient, initialData, i
     return () => {
       active = false;
     };
-  }, [providedClient, connect, receive, receiveTheme]);
+  }, [providedClient, connect, receive, receiveTheme, receiveMove]);
 
   const ready = useCallback((): Promise<RiAppClient> => {
     if (clientRef.current) return Promise.resolve(clientRef.current);
@@ -274,8 +323,8 @@ export function RiAppProvider({ children, client: providedClient, initialData, i
         .catch((failure: unknown) => setError(errorMessage(failure, "Ri could not update the chat context")));
     }, { delay: 150, maxWait: 1000, minInterval: 100 });
   if (!locationCoalescer.current)
-    locationCoalescer.current = createCoalescer<string>((path) => {
-      void open(locationIntentUrl(path)).catch(() => undefined);
+    locationCoalescer.current = createCoalescer<string>((intent) => {
+      void open(intent).catch(() => undefined);
     }, { delay: 300, maxWait: 2000, minInterval: 300 });
   useEffect(() => () => {
     contextCoalescer.current?.flush();
@@ -300,8 +349,19 @@ export function RiAppProvider({ children, client: providedClient, initialData, i
     ask: (prompt: string) => open(chatIntentUrl(prompt)),
     openSources: () => open(HOST_PATHS.sources),
     manageAccess: () => open(HOST_PATHS.manageAccess),
-    setLocation(path: string) {
-      locationCoalescer.current!.push(path, path);
+    setLocation(path: string, options: { replace?: boolean; push?: boolean } = {}) {
+      const intent = locationIntentUrl(path, options.replace ? "replace" : options.push ? "push" : undefined);
+      locationCoalescer.current!.push(intent, intent);
+    },
+    goBack(fallback: string) {
+      // A location still waiting to be reported is where the person is leaving from.
+      locationCoalescer.current!.flush();
+      void open(locationIntentUrl(fallback, "back")).catch(() => undefined);
+    },
+    follow(listener: (data: unknown) => void) {
+      movers.current.add(listener);
+      if (movers.current.size === 1) void open(FOLLOW_MOVES_URL).catch(() => undefined);
+      return () => { movers.current.delete(listener); };
     },
     openExternal: async (url: string) => open(assertHttpsUrl(url)),
     openDirections: (address: string) => open(directionsUrl(address)),
@@ -313,7 +373,7 @@ export function RiAppProvider({ children, client: providedClient, initialData, i
       if (result?.isError) throw new Error("The download was cancelled or blocked");
     },
   }), [ready, open]);
-  const value = useMemo<RiApp>(() => ({ data, revision, theme, connected, error, ...actions }), [data, revision, theme, connected, error, actions]);
+  const value = useMemo<RiApp>(() => ({ data, revision, theme, connected, error, moves, ...actions }), [data, revision, theme, connected, error, moves, actions]);
 
   return (
     <RiAppContext.Provider value={value}>
@@ -330,6 +390,8 @@ export interface MemoryClient extends RiAppClient {
   downloads: DownloadContent[][];
   /** Deliver a new opener result, as the host does after a refresh. */
   emitResult(data: unknown): void;
+  /** Move the view to a new location with its opener result, as the host does for Back and Forward. */
+  emitMove(url: string, data: unknown): void;
   setTheme(theme: Theme): void;
 }
 export interface MemoryClientOptions {
@@ -347,7 +409,7 @@ export interface MemoryClientOptions {
  * context states, opened links and downloads, and needs no host.
  */
 export function createMemoryClient(options: MemoryClientOptions = {}): MemoryClient {
-  const listeners = new Set<{ result?: (data: unknown) => void; theme?: (theme: Theme) => void }>();
+  const listeners = new Set<{ result?: (data: unknown) => void; theme?: (theme: Theme) => void; move?: (url: string) => void }>();
   let latest = options.data;
   const wait = () => (options.latency ? new Promise((resolve) => setTimeout(resolve, options.latency)) : Promise.resolve());
   const client: MemoryClient = {
@@ -389,6 +451,10 @@ export function createMemoryClient(options: MemoryClientOptions = {}): MemoryCli
     emitResult(data) {
       latest = data;
       for (const listener of listeners) listener.result?.(data);
+    },
+    emitMove(url, data) {
+      latest = data;
+      for (const listener of listeners) { listener.move?.(url); listener.result?.(data); }
     },
     setTheme(theme) {
       for (const listener of listeners) listener.theme?.(theme);

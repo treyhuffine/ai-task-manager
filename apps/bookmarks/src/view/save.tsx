@@ -5,13 +5,14 @@
  * person add tags or a note. A repeat merges, so a reload changes nothing.
  */
 import { useEffect, useRef, useState } from "react";
-import { AppShell, Button, ErrorState, LoadingState, Notice, TextArea, TextInput, useAnnounce, useMutation } from "@ri/app-kit/ui";
+import { AppShell, Button, ErrorState, LoadingState, Notice, TextArea, TextInput, useAnnounce, useMutation, useRiApp } from "@ri/app-kit/ui";
 import type { BookmarkRecord } from "../schemas.js";
 import { useNav } from "./app.js";
 import { errorMessage, parseTags } from "./util.js";
 
 export function SaveScreen() {
   const { data, navigate } = useNav();
+  const app = useRiApp();
   const announce = useAnnounce();
   const save = useMutation<Record<string, unknown>, { created: boolean; record: BookmarkRecord }>("save_bookmark");
   const update = useMutation<Record<string, unknown>, { status: "saved" } | { status: "conflict"; current: BookmarkRecord }>("update_bookmark");
@@ -27,6 +28,8 @@ export function SaveScreen() {
     started.current = true;
     save.run({ url: link.url, title: link.title, via: "bookmarklet" }).then((result) => {
       save.reset();
+      // The address names the saved link now, so Back or a reload never saves it again.
+      app.setLocation(`/bookmarks/${encodeURIComponent(result.record.id)}`, { replace: true });
       setRecord(result.record);
       setTags(result.record.tags.join(", "));
       setNote(result.record.note ?? link.note ?? "");

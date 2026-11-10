@@ -84,10 +84,15 @@ export function AppBuilder({
   draft,
   data,
   navigate,
+  path = '/',
+  query = {},
 }: {
   draft: LocalAppDraft;
   data: LocalAppsList;
-  navigate: (route: string) => void;
+  navigate: (route: string, options?: { replace?: boolean }) => void;
+  /** Where the preview is inside the app, from the address. */
+  path?: string;
+  query?: Record<string, string>;
 }) {
   const id = draft.id;
   const { busy, run } = useAppAction();
@@ -160,7 +165,7 @@ export function AppBuilder({
   const preview = (
     <div className="relative min-h-0 min-w-0 flex-1">
       {validated ? (
-        draft.hasView ? <AppView id={id} draft path="/" digest={draft.validatedDigest ?? ''} waiting={busy} onNavigate={() => {}} /> : <AppToolSummary id={id} draft />
+        draft.hasView ? <AppView id={id} draft path={path} query={query} digest={draft.validatedDigest ?? ''} waiting={busy} onNavigate={() => {}} onLocation={(value, entry) => navigate(`drafts/${id}${value}`, { replace: entry === 'replace' })} /> : <AppToolSummary id={id} draft />
       ) : (
         <div className="flex h-full items-center justify-center p-8">
           <div className="max-w-xs rounded-xl border border-dashed border-border px-6 py-8 text-center">

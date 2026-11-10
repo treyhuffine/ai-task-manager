@@ -26,7 +26,8 @@ export function AppsShell({ route }: { route: string }) {
 
   const navigate = useCallback((value: string, options?: { replace?: boolean }) => {
     const location = new URL(value, 'https://app.invalid/');
-    setActiveView({ kind: 'apps', route: location.pathname.slice(1), query: Object.fromEntries(location.searchParams) }, options);
+    // An app's own root is `/`, which would otherwise leave a trailing slash on its address.
+    setActiveView({ kind: 'apps', route: location.pathname.replace(/\/+$/, '').slice(1), query: Object.fromEntries(location.searchParams) }, options);
   }, [setActiveView]);
 
   const parts = route.split('/').filter(Boolean);
@@ -90,7 +91,8 @@ export function AppsShell({ route }: { route: string }) {
         onClick: () => navigate(''),
       });
     }
-    return <AppBuilder key={draft.id} draft={draft} data={data} navigate={navigate} />;
+    // The preview keeps its own place in the address, so Back works inside it too.
+    return <AppBuilder key={draft.id} draft={draft} data={data} navigate={navigate} path={`/${parts.slice(2).join('/')}`} query={appQuery} />;
   }
 
   const instance = data.instances.find((item) => item.slug === parts[0]);

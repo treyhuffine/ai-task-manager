@@ -64,7 +64,8 @@ export async function openHarness(options: { html: string; invoke: Invoke; width
     state.hostLinks.push(url);
     const parsed = new URL(url, 'https://view.local');
     if (parsed.pathname === '/__host/chat') state.prompts.push(parsed.searchParams.get('prompt') ?? '');
-    if (parsed.pathname === '/__host/location') { location = parsed.searchParams.get('to') ?? location; state.locations.push(location); await refresh(); }
+    // Like Ri, a location intent without a place (the view announcing it follows moves) moves nothing.
+    if (parsed.pathname === '/__host/location' && parsed.searchParams.get('to')) { location = parsed.searchParams.get('to')!; state.locations.push(location); await refresh(); }
   });
   await page.exposeFunction('__riDownload', async (contents: unknown) => { state.downloads.push(contents); });
   await page.exposeFunction('__riSelect', async () => options.file ?? null);

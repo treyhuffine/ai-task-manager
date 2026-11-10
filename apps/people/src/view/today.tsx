@@ -90,7 +90,7 @@ export function TodayView() {
       className="pe-today"
       list={list}
       detailOpen={!!focus}
-      onBack={() => ui.go({ record: null })}
+      onBack={() => ui.back({ record: null })}
       backLabel="Back to today"
       detailLabel="Selected person"
       minSplitWidth={900}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AppShell, Button, ButtonRow, Dialog, InlineError, LoadingState, Notice, SectionPanel, SectionTabs, Select, TextInput, useAnnounce, useQuery, useRiApp,
+  AppShell, Button, ButtonRow, Dialog, InlineError, LoadingState, Notice, SectionPanel, SectionTabs, Select, TextInput, useAnnounce, useQuery, useLocationMoves, useRiApp,
 } from '@ri/app-kit/ui';
 import type { OpenData } from '../actions/common.js';
 import { Directory } from './directory.js';
@@ -37,7 +37,7 @@ export function PeopleApp() {
 }
 
 function AccessShell({ data }: { data: OpenData }) {
-  const ui = useMemo<PeopleUi>(() => ({ data, route: { section: 'sources', record: null, query: {} }, go() {}, setQuery() {}, openPerson() {}, openCompany() {}, openOpportunity() {}, showEvidence() {}, followUp() {} }), [data]);
+  const ui = useMemo<PeopleUi>(() => ({ data, route: { section: 'sources', record: null, query: {} }, go() {}, back() {}, setQuery() {}, openPerson() {}, openCompany() {}, openOpportunity() {}, showEvidence() {}, followUp() {} }), [data]);
   return <UiProvider value={ui}><AppShell eyebrow="People" title="Choose what this chat can use" context="Accounts, collections and imports, and whether it may also add records."><AccessView /></AppShell></UiProvider>;
 }
 
@@ -58,12 +58,19 @@ function Main({ data }: { data: OpenData }) {
     const incoming = routeFrom(data);
     if (pathFor(incoming) !== pushed.current) { pushed.current = pathFor(incoming); setRoute(incoming); }
   }, [data.route.section, data.route.id, JSON.stringify(data.query)]);
-  const commit = useCallback((next: Route) => {
+  const commit = useCallback((next: Route, how: 'go' | 'back' = 'go') => {
     setRoute(next);
     const path = pathFor(next);
     pushed.current = path;
-    app.setLocation(path);
+    if (how === 'back') app.goBack(path);
+    else app.setLocation(path);
   }, [app]);
+  // Back and Forward move the open view to another place, with the opener's data for it.
+  useLocationMoves<OpenData>((moved) => {
+    const next = routeFrom(moved);
+    pushed.current = pathFor(next);
+    setRoute(next);
+  });
   useEffect(() => {
     const selected = route.record ? [{ kind: route.record.kind === 'company' ? 'organization' : route.record.kind, id: route.record.id }] : [];
     let filters: unknown;
@@ -76,6 +83,7 @@ function Main({ data }: { data: OpenData }) {
   const ui = useMemo<PeopleUi>(() => ({
     data, route,
     go(next) { commit({ section: next.section ?? route.section, record: next.record === undefined ? route.record : next.record, query: next.query ?? (next.section && next.section !== route.section ? {} : route.query) }); },
+    back(next) { commit({ section: next.section ?? route.section, record: next.record === undefined ? route.record : next.record, query: next.query ?? (next.section && next.section !== route.section ? {} : route.query) }, 'back'); },
     setQuery(patch) { const query = { ...route.query }; for (const [key, value] of Object.entries(patch)) { if (value === null) delete query[key]; else query[key] = value; } commit({ ...route, query }); },
     openPerson(id) { commit({ section: route.section === 'today' ? 'today' : 'people', record: { kind: 'person', id }, query: route.section === 'today' ? { from: 'today' } : route.section === 'people' ? { ...route.query, tab: '' } : {} }); },
     openCompany(id) { commit({ section: 'companies', record: { kind: 'company', id }, query: route.section === 'companies' ? route.query : {} }); },

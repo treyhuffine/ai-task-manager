@@ -37,8 +37,11 @@ export function AppView({
   onAsk?: (prompt: string) => void;
   /** The app asked for Ri's Sources dialog. */
   onSources?: () => void;
-  /** The app reports its own location (tab, selection, filters) for the URL, without reopening. */
-  onLocation?: (path: string) => void;
+  /**
+   * The app reports its own location (tab, selection, filters) for the URL, without reopening.
+   * `push` makes it a place Back returns from, `replace` updates the place the person is in.
+   */
+  onLocation?: (path: string, entry: 'push' | 'replace') => void;
 }) {
   const mount = useRef<HTMLDivElement>(null),
     [error, setError] = useState<string | null>(null),
@@ -55,12 +58,22 @@ export function AppView({
   sources.current = onSources;
   const locate = useRef(onLocation);
   locate.current = onLocation;
-  // A location the app itself reported is already showing, so it must not
-  // reopen the view. Any other location change (Back, a link) reopens it.
+  // The location the view is showing. One the app reported itself is already
+  // showing. Any other change (Back, Forward, a link) moves a view that follows
+  // its moves, and reopens any other view there.
   const locationKey = JSON.stringify([path, query]);
-  const reported = useRef<string | null>(null);
+  const shown = useRef(locationKey);
   const [openKey, setOpenKey] = useState(locationKey);
-  if (locationKey !== openKey && locationKey !== reported.current) setOpenKey(locationKey);
+  const follows = useRef(false), viewIdRef = useRef(''), controllerRef = useRef<AppViewController | null>(null), lastRef = useRef('');
+  // The places this view pushed from, newest last, so a close button can go Back the way the person came.
+  const backStack = useRef<string[]>([]);
+  const moveSeq = useRef(0);
+  if (locationKey !== shown.current && !(follows.current && viewIdRef.current)) {
+    shown.current = locationKey;
+    // Back to where the view first opened is a reopen too, since the app has moved on from there.
+    if (locationKey !== openKey) setOpenKey(locationKey);
+    else setReopen((value) => value + 1);
+  }
   const [openPath, openQuery] = JSON.parse(openKey) as [string, Record<string, string>];
   navigation.current = onNavigate;
   const paused = useRef(waiting);
@@ -115,11 +128,21 @@ export function AppView({
           if (sources.current) sources.current();
           else openSettings('plugins');
         } else if (value.startsWith('/__host/location?')) {
-          const to = new URL(value, 'https://app.invalid').searchParams.get('to') ?? '';
+          const params = new URL(value, 'https://app.invalid').searchParams;
+          if (params.get('follows') === '1') { follows.current = true; return; }
+          const to = params.get('to') ?? '';
           if (!to.startsWith('/') || to.startsWith('//') || to.length > 1024 || !locate.current) return;
+          const entry = params.get('entry');
+          // A close button: Back when this view brought the person here, else the fallback in place.
+          if (entry === 'back' && backStack.current.length) { window.history.back(); return; }
           const target = new URL(to, 'https://app.invalid');
-          reported.current = JSON.stringify([target.pathname, Object.fromEntries(target.searchParams)]);
-          locate.current(target.pathname + target.search);
+          const key = JSON.stringify([target.pathname, Object.fromEntries(target.searchParams)]);
+          if (key === shown.current) return;
+          // A new path is a new place, which Back returns from. A new query, such as a filter, updates this one.
+          const push = entry === 'push' || (!entry && target.pathname !== (JSON.parse(shown.current) as [string])[0]);
+          if (push) backStack.current.push(shown.current);
+          shown.current = key;
+          locate.current(target.pathname + target.search, push ? 'push' : 'replace');
         } else navigation.current(value);
       },
       externalLink: (url) => {
@@ -145,10 +168,13 @@ export function AppView({
     });
     setError(null);
     setReady(false);
+    controllerRef.current = controller;
+    // A reopened view starts over: it announces again if it follows moves, and has no places behind it.
+    follows.current = false;
+    backStack.current = [];
     const locationQuery = JSON.parse(queryKey) as Record<string, string>;
     let visible = true,
-      refreshing = false,
-      last = "";
+      refreshing = false;
     const refresh = async () => {
       if (
         cancelled ||
@@ -165,8 +191,8 @@ export function AppView({
           viewId,
         });
         const serialized = JSON.stringify(result.result);
-        if (result.result !== null && serialized !== last) {
-          last = serialized;
+        if (result.result !== null && serialized !== lastRef.current) {
+          lastRef.current = serialized;
           ack = null;
           await controller.refresh(result.result);
         }
@@ -184,12 +210,13 @@ export function AppView({
       .mutate({ id, draft, path: openPath, query: locationQuery, chatId })
       .then(async (result) => {
         viewId = result.viewId;
+        viewIdRef.current = result.viewId;
         accessAction.current = result.accessAction;
         if (cancelled) {
           await trpcClient.localApps.closeView.mutate({ viewId });
           return;
         }
-        last = JSON.stringify(result.result);
+        lastRef.current = JSON.stringify(result.result);
         if (chatId && !draft && result.hasContext)
           unregister = registerAppContext(chatId, async () => {
             await controller.flushContext();
@@ -236,6 +263,8 @@ export function AppView({
     return () => {
       cancelled = true;
       refreshRef.current = null;
+      viewIdRef.current = '';
+      if (controllerRef.current === controller) controllerRef.current = null;
       clearInterval(timer);
       viewport.disconnect();
       window.removeEventListener("focus", focus);
@@ -247,6 +276,25 @@ export function AppView({
         void trpcClient.localApps.closeView.mutate({ viewId }).catch(() => {});
     };
   }, [id, draft, openPath, queryKey, chatId, digest, authorityRevision, reopen]);
+  // Back, Forward or a link changed the location of a view that follows its moves: move it there in place.
+  useEffect(() => {
+    if (locationKey === shown.current || !follows.current || !viewIdRef.current) return;
+    shown.current = locationKey;
+    if (backStack.current.at(-1) === locationKey) backStack.current.pop();
+    const seq = ++moveSeq.current;
+    const [movePath, moveQuery] = JSON.parse(locationKey) as [string, Record<string, string>];
+    void trpcClient.localApps.moveView.mutate({ viewId: viewIdRef.current, path: movePath, query: moveQuery }).then(async (result) => {
+      // A later move has started. It owns the view now.
+      if (seq !== moveSeq.current || !controllerRef.current) return;
+      const search = new URLSearchParams(moveQuery).toString();
+      controllerRef.current.hostContextChanged({ 'openai/deepLink': { url: movePath + (search ? `?${search}` : '') } });
+      lastRef.current = JSON.stringify(result.result);
+      await controllerRef.current.refresh(result.result);
+    }, () => {
+      // It couldn't move in place, so open it there.
+      if (seq === moveSeq.current) setOpenKey(locationKey);
+    });
+  }, [locationKey]);
   return (
     <>
       {files.picker}

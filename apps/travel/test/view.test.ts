@@ -104,7 +104,7 @@ beforeAll(async () => {
           return reply.result;
         },
         context:async(envelope)=>{state.contexts.push(envelope);},
-        navigate:(path)=>{state.links.push(path);if(path.startsWith('/__host/location?to='))state.location=decodeURIComponent(path.slice('/__host/location?to='.length));},
+        navigate:(path)=>{state.links.push(path);if(path.startsWith('/__host/location?')){const to=new URL(path,'https://app.invalid').searchParams.get('to');if(to)state.location=to;}},
         externalLink:(url)=>{state.links.push(url);},
         error:(error)=>{state.errors.push(error.message);},
         selectFile:async()=>window.__file||null,

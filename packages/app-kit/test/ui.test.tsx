@@ -5,7 +5,7 @@ import { parseHTML } from "linkedom";
 import {
   UI_KIT_VERSION, baseStyles, installStyles, layoutForWidth, formatMoney, parseMoneyInput, minorToDecimal, currencyDigits, plural, initialsFor,
   chatIntentUrl, locationIntentUrl, assertHttpsUrl, directionsUrl, downloadContents, createCoalescer, HOST_PATHS,
-  RiAppProvider, useRiApp, useQuery, useMutation, useAnnounce, createMemoryClient,
+  RiAppProvider, useRiApp, useQuery, useMutation, useAnnounce, createMemoryClient, useLocationMoves, FOLLOW_MOVES_URL,
   AppShell, SectionTabs, SectionPanel, SegmentedControl, FilterChips, SearchField, Toolbar, SplitView, Inspector,
   Button, ButtonRow, StatusLabel, Notice, EmptyState, LoadingState, ErrorState, KeyValueList, DataTable, Timeline, SourceLine, Avatar, Menu,
   Dialog, Field, TextInput, TextArea, Select, Checkbox, RadioGroup, DateInput, MoneyInput,
@@ -97,6 +97,9 @@ describe("pure logic", () => {
     const emoji = chatIntentUrl("x".repeat(1999) + "😀 tail");
     expect(decodeURIComponent(emoji.split("prompt=")[1])).toBe("x".repeat(1999));
     expect(locationIntentUrl("/trips/lisbon?tab=bookings&day=2026-11-10")).toBe("/__host/location?to=%2Ftrips%2Flisbon%3Ftab%3Dbookings%26day%3D2026-11-10");
+    expect(locationIntentUrl("/trips", "back")).toBe("/__host/location?to=%2Ftrips&entry=back");
+    expect(locationIntentUrl("/trips?selected=b1", "push")).toBe("/__host/location?to=%2Ftrips%3Fselected%3Db1&entry=push");
+    expect(FOLLOW_MOVES_URL).toBe("/__host/location?follows=1");
     expect(directionsUrl(" Rua da Prata 80, Lisbon ")).toBe("https://www.google.com/maps/search/?api=1&query=Rua%20da%20Prata%2080%2C%20Lisbon");
     expect(assertHttpsUrl("https://example.com/a b")).toBe("https://example.com/a%20b");
     expect(() => assertHttpsUrl("http://example.com")).toThrow(/https/);
@@ -624,6 +627,43 @@ describe("client hooks", () => {
     await act(async () => { await query.reload(); });
     expect(query.error).toBe("Offline");
     expect(query.data).toEqual({ n: 1 });
+  });
+
+  it("lets the host decide history, sends a close as Back, and moves the view when the host moves it", async () => {
+    const client = createMemoryClient({ data: { path: "/", n: 1 } });
+    let app!: RiApp;
+    const moved: unknown[] = [];
+    const Probe = () => {
+      useReported(useRiApp(), (value) => { app = value; });
+      useLocationMoves((data) => moved.push(data));
+      return null;
+    };
+    const view = await mount(client, <Probe />);
+    await settle(20);
+    // Following moves is announced once, so the host moves this view instead of reopening it.
+    expect(client.links).toEqual([FOLLOW_MOVES_URL]);
+    await act(async () => {
+      app.setLocation("/trips/lisbon");
+      app.setLocation("/trips/porto", { replace: true });
+    });
+    await settle(400);
+    // No entry lets the host decide. `replace` holds it to the place the person is in.
+    expect(client.links.slice(1)).toEqual(["/__host/location?to=%2Ftrips%2Fporto&entry=replace"]);
+    await act(async () => {
+      app.setLocation("/trips/porto?tab=bookings");
+      app.goBack("/trips");
+    });
+    // A close flushes the place being left first, then asks to go Back, with a fallback.
+    expect(client.links.slice(2)).toEqual(["/__host/location?to=%2Ftrips%2Fporto%3Ftab%3Dbookings", "/__host/location?to=%2Ftrips&entry=back"]);
+    // A refresh is not a move. A move always places the view, even with the same data.
+    await act(async () => client.emitResult({ path: "/", n: 2 }));
+    expect(moved).toEqual([]);
+    await act(async () => client.emitMove("/trips", { path: "/trips", n: 2 }));
+    await act(async () => client.emitMove("/trips", { path: "/trips", n: 2 }));
+    expect(moved).toEqual([{ path: "/trips", n: 2 }, { path: "/trips", n: 2 }]);
+    expect(app.moves).toBe(2);
+    expect(app.data).toEqual({ path: "/trips", n: 2 });
+    await view.unmount();
   });
 
   it("stages chat drafts and host intents, coalesces context and debounces location", async () => {

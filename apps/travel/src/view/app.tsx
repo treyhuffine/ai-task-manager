@@ -7,7 +7,7 @@
  * authority: the backend re-resolves them under the chat's own access.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AppFrame, installStyles, LoadingState, SectionTabs, useRiApp } from "@ri/app-kit/ui";
+import { AppFrame, installStyles, LoadingState, SectionTabs, useLocationMoves, useRiApp } from "@ri/app-kit/ui";
 import { AccessScreen } from "./access.js";
 import { AddBookingDialog } from "./add.js";
 import { ReviewScreen } from "./review.js";
@@ -81,18 +81,31 @@ export function TravelApp() {
     // Only a new path matters here, not each refresh.
   }, [data?.path]);
 
+  const current = useRef(route);
+  current.current = route;
   const navigate = useCallback((next: Route) => {
+    const before = current.current;
     setRoute(next);
     const path = pathOf(next);
     emitted.current.add(path);
     if (emitted.current.size > 200) emitted.current = new Set([path, data?.path ?? path]);
-    app.setLocation(path);
+    // A booking opened beside the itinerary is a place Back closes, and closing it goes Back the way the person came.
+    const sameTrip = before.section === "trip" && next.section === "trip" && before.tripId === next.tripId && before.tab === next.tab;
+    if (sameTrip && !before.selected && next.selected) app.setLocation(path, { push: true });
+    else if (sameTrip && before.selected && !next.selected) app.goBack(path);
+    else app.setLocation(path);
     // Remember the trip once per trip, not on every day or tab change.
     if (next.section === "trip" && data?.owner && remembered.current !== next.tripId) {
       remembered.current = next.tripId;
       void app.call("remember_view", { lastTripId: next.tripId }).catch(() => undefined);
     }
   }, [app, data?.owner]);
+
+  // Back and Forward move the open view to another place, with the opener's data for it.
+  useLocationMoves<OpenData>((moved) => {
+    emitted.current.add(moved.path);
+    setRoute(routeFromData(moved));
+  });
 
   useEffect(() => {
     if (data) app.context(contextState(route, revisions));

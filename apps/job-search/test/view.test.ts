@@ -177,7 +177,8 @@ async function openView(instance: Instance, options: { path: string; width: numb
       navigate: async (value: string) => {
         const url = new URL(value, 'https://app.invalid');
         if (url.pathname === '/__host/chat') w.hostState.chat.push(url.searchParams.get('prompt'));
-        else if (url.pathname === '/__host/location') { w.hostState.locations.push(url.searchParams.get('to')); await w.hostLocation(url.searchParams.get('to')); }
+        // Like Ri, a location intent without a place (the view announcing it follows moves) moves nothing.
+        else if (url.pathname === '/__host/location' && url.searchParams.get('to')) { w.hostState.locations.push(url.searchParams.get('to')); await w.hostLocation(url.searchParams.get('to')); }
         else if (url.pathname === '/__host/sources' || url.pathname === '/__host/manage-access') w.hostState.sources++;
       },
       externalLink: () => {},

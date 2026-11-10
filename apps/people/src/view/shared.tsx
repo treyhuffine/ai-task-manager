@@ -13,6 +13,8 @@ export interface PeopleUi {
   data: OpenData;
   route: Route;
   go(next: Partial<Route> & { section?: Section }): void;
+  /** Close what is open: Back the way the person came, or to the place `next` names when they arrived here directly. */
+  back(next: Partial<Route> & { section?: Section }): void;
   setQuery(patch: Record<string, string | null>): void;
   openPerson(id: string): void;
   openCompany(id: string): void;
