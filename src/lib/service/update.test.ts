@@ -126,6 +126,20 @@ it('restores the checkpoint after migration or validation failure', async () => 
   expect(read()).toBe('before'); expect(installedRuntime()?.id).toBe(prior);
   expect(updater.status().phase).toBe('failed'); expect(backend.restart).toHaveBeenCalledOnce();
 });
+it('brings the Home back on the version it ran when it cannot check for other writers', async () => {
+  // A stuck lsof once held this check, and the Home offline with it, for good.
+  backend.assertNoLegacyWriters = vi.fn(async () => { throw new Error("Ri couldn't check whether another program has this database open"); });
+  backend.restart = vi.fn(async () => { expect(readMaintenance()).toBeNull(); });
+  const updater = coordinator();
+  await expect(updater.apply()).rejects.toThrow("couldn't check");
+  expect(backend.stop).toHaveBeenCalled();
+  expect(backend.validate).not.toHaveBeenCalled();
+  expect(backend.restart).toHaveBeenCalledOnce();
+  expect(installedRuntime()?.id).toBe(prior);
+  expect(updater.status()).toMatchObject({ phase: 'failed', busy: false, error: expect.stringContaining("couldn't check") });
+  expect(readMaintenance()).toBeNull();
+  expect(read()).toBe('before');
+});
 it('restarts the unchanged prior runtime after checkpoint disk exhaustion without migrating or restoring', async () => {
   backend.checkpoint = vi.fn(async () => { throw Object.assign(new Error('No space left on device'), { code: 'ENOSPC' }); });
   backend.restore = vi.fn();

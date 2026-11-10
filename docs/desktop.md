@@ -588,7 +588,7 @@ Use the ZIP/AppImage produced by `pnpm desktop:release` and its matching electro
 
 Version numbers and publisher sequence must advance. Publish immutable artifacts and platform metadata first, then the short-lived signed envelope. The signing script never uploads. The package command uses `publish: never`. Keep expired/withdrawn releases unavailable for new activation, subject to the [native Squirrel staging boundary](#post-implementation-review). A changed publisher key requires an explicit trusted policy/bridge update, not accepting an arbitrary key from the feed. Ordinary unsigned local builds have no configured feed and clearly report that updates are unavailable.
 
-Do not run `db:push`, a baseline rebuild or an older legacy binary against an updating installation. Cooperative CLI DB connections hold a shared access lease, and migration waits for all of them. `lsof` blocks activation when an older uncooperative process still has the database open. These are operational fences, not protection from an administrator manually replacing files.
+Do not run `db:push`, a baseline rebuild or an older legacy binary against an updating installation. Cooperative CLI DB connections hold a shared access lease, and migration waits for all of them. `lsof` blocks activation when an older uncooperative process still has the database open. lsof checks every mounted volume, so one drive that stops answering leaves it stuck in the kernel for good. The check stops waiting after 30 seconds, the update fails with that reason, and the Home starts again on the version it ran. These are operational fences, not protection from an administrator manually replacing files.
 
 
 ### Foundation verification, 26 September 2026

@@ -8,14 +8,13 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { atomicWriteFile } from '@/lib/config/atomic-file';
 import { readAuthConfig } from '@/lib/auth/config-file';
 import { DEFAULT_PORT } from '@/lib/auth/port';
 import { runtimeReleaseIdentity, runtimeRepository } from '@/lib/releases/runtime-identity';
-import { untraced } from '@/lib/utils/untraced';
 import type { ServiceStatus } from './client';
 import { servicePaths } from './paths';
+import { lsof } from './processes';
 import { adoptRelease, installedRuntime, stageRuntime } from './runtime';
 import { latestRelease } from './store';
 import { clearStopped } from './stopped';
@@ -64,11 +63,12 @@ export async function portHolder(port: number): Promise<string | null> {
   });
   if (free) return null;
   try {
-    const out = execFileSync(untraced('lsof'), ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpc'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    // Only names the holder, so it doesn't wait long on a stuck lsof.
+    const out = await lsof(['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpc'], 5_000);
     const pid = /^p(\d+)$/m.exec(out)?.[1];
     const name = /^c(.+)$/m.exec(out)?.[1];
     if (pid) return `${name ?? 'a process'} (pid ${pid})`;
-  } catch { /* lsof is missing or found nothing it may show */ }
+  } catch { /* lsof is missing, stuck, or found nothing it may show */ }
   return 'another program';
 }
 
