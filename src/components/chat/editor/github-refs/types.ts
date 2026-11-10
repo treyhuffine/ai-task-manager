@@ -18,3 +18,17 @@ export interface PrMentionItem {
   url: string
   updatedAt: string
 }
+
+/**
+ * Wire shape for an issue surfaced in the same `@#` picker. Mirrors
+ * `IssueListItem` from `sessions.issuesGet`. Like a PR, the chip carries
+ * the `url` so it serializes to a full context line (`formatIssueRef`)
+ * without reading the list again at send time.
+ */
+export interface IssueMentionItem {
+  number: number
+  title: string
+  state: 'OPEN' | 'CLOSED'
+  url: string
+  updatedAt: string
+}

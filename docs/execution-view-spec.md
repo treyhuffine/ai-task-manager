@@ -239,11 +239,23 @@ agents), which narrows to it. A path-like query (`src/`, `.tsx`) puts files firs
 A filter after the `@` searches one kind: `task:`, `note:` and `agent:` (spaces
 allowed, since titles and names have them, up to 50 with a "Showing 50 of N"
 caption), `app:` (every app and connector the chat can use) and `connector:`
-(connected accounts only), both with spaces too, `file:`, and `#` for pull
-requests. The plain list ends with a line naming them all.
+(connected accounts only), both with spaces too, `file:`, and `#` for GitHub
+issues and pull requests. The plain list ends with a line naming them all.
+
+`#` lists issues and pull requests together, newest activity first, the way
+GitHub's own `#` does: the two share one number space in a repository, so
+`@#412` finds whichever it is. A number matches exactly, then by prefix, then
+anywhere in it. Words match the title, then a PR's branch. Up to 50 show, with
+the same "Showing 50 of N" caption. The chat composer reads them through
+`sessions.prsGet` and `sessions.issuesGet` (open and closed, an empty list when
+gh is missing or signed out, the folder isn't on GitHub, or the repository has
+issues turned off). The new chat composer reuses the open ones its browse
+panel already loads. A pick becomes a chip (`chat/editor/github-refs/`) that
+sends one line with the number, title, state and link, plus a PR's branches,
+so the agent needs no lookup to know what was meant.
 
 Kind chips sit above the list from the first `@`: All, Tasks, Notes, Agents,
-Apps, Connectors, Files, PRs, the current one pressed. A chip only writes its
+Apps, Connectors, Files, Issues & PRs, the current one pressed. A chip only writes its
 prefix into the query (`@task:`, keeping the search), so the editor text stays
 the one record of the filter and the chips, the text and the results can't
 disagree. All removes the prefix. While nothing is searched yet, ← and →
@@ -253,7 +265,7 @@ typed the arrows move the caret again, so a typo can still be fixed. A path
 (`@src/`, `@backend/`) shows no chips, since it is about files.
 
 Typing the start of a kind's name, two letters or more (`ta`, `no`, `ag`,
-`ap`, `co`, `fi`, `pr`), puts that kind on top ("Search tasks", `task:`).
+`ap`, `co`, `fi`, and `is` or `pr` for issues and PRs), puts that kind on top ("Search tasks", `task:`).
 Tab or Enter completes the query to its prefix without choosing anything,
 and the search continues inside that kind. The results stay listed below,
 one ↓ away, and the row goes as soon as the typing leaves the kind's name, so

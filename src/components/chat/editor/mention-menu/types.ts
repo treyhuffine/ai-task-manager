@@ -2,7 +2,7 @@ import type { SourceSearchItem, SourceSearchResult } from '@/lib/chat-sources/ty
 import type { McpIcon } from '@/lib/integrations/mcp-icons';
 import type { AgentPictureSource } from '@/components/agents/agent-icon';
 /**
- * Items in the `@`-mention picker. One picker covers seven kinds, with a
+ * Items in the `@`-mention picker. One picker covers eight kinds, with a
  * discriminator so the popup can section-render and the extension can
  * dispatch to the right chip on select.
  *
@@ -18,12 +18,15 @@ import type { AgentPictureSource } from '@/components/agents/agent-icon';
  *   - reference — a reference folder (docs/reference-folders-spec.md).
  *     Selecting a result inserts a folder chip and closes the picker.
  *     `/` optionally searches its files.
- *   - pr — a GitHub pull request, reached by typing `@#` (see
- *     `pr-trigger.ts`). Insertion → PrChipNode, which serializes to a
- *     full context line via `formatPrRef`.
+ *   - pr / issue — a GitHub pull request or issue, listed together when
+ *     the query opens with `@#` (see `github-trigger.ts`), as GitHub's own
+ *     `#` lists both. Insertion → PrChipNode / IssueChipNode, which
+ *     serialize to a full context line via `formatPrRef` /
+ *     `formatIssueRef`.
  *   - more — the end of a short task, note or agent list: how many
  *     matched in all. Picking it narrows the picker to that kind
- *     (`@task:<query>`). In a narrowed picker it's only a caption.
+ *     (`@task:<query>`). In a narrowed picker (issues and PRs are always
+ *     one) it's only a caption.
  *   - filter — narrows the picker to one kind by rewriting the query
  *     (`@ta` becomes `@task:`). Offered as a row while a kind's name is
  *     typed, and what the kind chips above the list apply.
@@ -32,7 +35,7 @@ import type { AgentPictureSource } from '@/components/agents/agent-icon';
  * (`SearchMentionEntities`), so a mention can reach any of them.
  */
 
-import type { PrMentionItem } from '../pr-menu/types';
+import type { IssueMentionItem, PrMentionItem } from '../github-refs/types';
 
 export interface FileMentionItem {
   kind: 'file' | 'dir';
@@ -108,9 +111,14 @@ export interface PrMentionMenuItem extends PrMentionItem {
   kind: 'pr';
 }
 
+/** An issue surfaced under `@#`, handed to `insertIssueChip` the same way. */
+export interface IssueMentionMenuItem extends IssueMentionItem {
+  kind: 'issue';
+}
+
 export interface MoreMentionItem {
   kind: 'more';
-  of: 'task' | 'note' | 'agent' | 'app';
+  of: 'task' | 'note' | 'agent' | 'app' | 'github';
   /** Every match, shown or not. */
   total: number;
   shown: number;
@@ -121,7 +129,7 @@ export interface MoreMentionItem {
 }
 
 /** What a query narrows the picker to, read from how it opens (`task:`, `#`). */
-export type MentionFilter = 'task' | 'note' | 'agent' | 'file' | 'pr' | 'app' | 'connector';
+export type MentionFilter = 'task' | 'note' | 'agent' | 'file' | 'github' | 'app' | 'connector';
 
 /**
  * Narrows the picker to one kind, or back to every kind (`filter: null`),
@@ -171,6 +179,7 @@ export type MentionItem =
   | ScratchpadMentionItem
   | ReferenceFolderMentionItem
   | PrMentionMenuItem
+  | IssueMentionMenuItem
   | MoreMentionItem
   | FilterMentionItem;
 

@@ -32,11 +32,11 @@ import type {
   SearchMentionSources,
 } from './types'
 import { appMentionItems, shouldSearchAppMentions } from './app-mentions'
-import type { PrMentionItem } from '../pr-menu/types'
+import type { IssueMentionItem, PrMentionItem } from '../github-refs/types'
 import { createReferenceMentionPlugin } from './reference-mention'
 
 // Distinct PluginKey so this Suggestion plugin doesn't collide with the
-// slash and PR menus — Tiptap's `Suggestion` defaults to a shared
+// slash menu — Tiptap's `Suggestion` defaults to a shared
 // `suggestion$` key, which ProseMirror rejects when more than one
 // instance lives in the same editor.
 const MENTION_MENU_PLUGIN_KEY = new PluginKey('mentionMenuSuggestion')
@@ -88,24 +88,27 @@ interface MentionMenuOptions {
    * `@#` filter just shows its empty state there.
    */
   getPrs?: () => PrMentionItem[]
+  /** GitHub issues, listed with the pull requests under `@#`. Same contract as `getPrs`. */
+  getIssues?: () => IssueMentionItem[]
 }
 
 /**
  * Tiptap extension that opens an `@`-picker covering files / tasks / notes /
- * agents / scratchpad / reference folders / pull requests. One trigger, seven
- * kinds — the popup renders results in sections so visual scanning stays
- * fast. Ranking lives in `./ranking`, which is deliberately free of Tiptap so
+ * agents / scratchpad / reference folders / issues and pull requests. One
+ * trigger, eight kinds — the popup renders results in sections so visual
+ * scanning stays fast. Ranking lives in `./ranking`, which is deliberately free of Tiptap so
  * it can be tested alone.
  *
  * Selecting a file inserts a `MentionChipNode` (the existing chip —
  * serialized to `@<path>` on send). Selecting an agent / task / note /
  * scratchpad inserts an `EntityChipNode` (serialized to `[[agent:id]]` /
- * `[[task:id]]` / `[[note:id]]` / `[[scratchpad]]`). Selecting a PR inserts a `PrChipNode` (serialized to
- * a full context line via `formatPrRef`). Selecting a reference folder
+ * `[[task:id]]` / `[[note:id]]` / `[[scratchpad]]`). Selecting a PR or an issue inserts a `PrChipNode` /
+ * `IssueChipNode` (serialized to a full context line via `formatPrRef` /
+ * `formatIssueRef`). Selecting a reference folder
  * inserts a folder chip and closes the picker. Typing `/` just after that chip
  * restores `@<alias>/` to optionally search its files.
  *
- * PRs are gated behind a `#` after the `@` (`@#193`) — see `pr-trigger.ts`.
+ * Issues and PRs are gated behind a `#` after the `@` (`@#193`) — see `github-trigger.ts`.
  * This replaced a standalone `#` trigger whose send-time raw-text expansion
  * surprised users by rewriting numbers they meant literally. `task:`,
  * `note:`, `agent:`, `app:`, `connector:` and `file:` narrow the same way
@@ -128,6 +131,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
       getReferenceFolders: undefined,
       loadReferenceTree: undefined,
       getPrs: undefined,
+      getIssues: undefined,
     }
   },
 
@@ -139,6 +143,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
     const getAgents = () => this.options.getAgents?.() ?? []
     const getReferences = () => this.options.getReferenceFolders?.() ?? []
     const getPrs = () => this.options.getPrs?.() ?? []
+    const getIssues = () => this.options.getIssues?.() ?? []
     const loadReferenceTree = this.options.loadReferenceTree
     const renderPopup = createSuggestionPopupRenderer<MentionItem>(MentionMenuList, { asyncItems: true })
 
@@ -202,6 +207,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
           references,
           referenceFiles,
           prs: getPrs(),
+          issues: getIssues(),
           drillDown,
           query,
         })])
@@ -269,6 +275,9 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
           // the PR cache at send time.
           const { kind: _kind, ...pr } = item
           chain.insertPrChip(pr).insertContent(' ').run()
+        } else if (item.kind === 'issue') {
+          const { kind: _kind, ...issue } = item
+          chain.insertIssueChip(issue).insertContent(' ').run()
         }
       },
       render: () => {

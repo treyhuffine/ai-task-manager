@@ -62,7 +62,7 @@ it.each(engines)('narrows the @ menu by kind with chips, arrows and typed names 
     await reset();
     await type('@');
     await shows('Take out trash');
-    expect(await chips.allInnerTexts()).toEqual(['All', 'Tasks', 'Notes', 'Agents', 'Apps', 'Connectors', 'Files', 'PRs']);
+    expect(await chips.allInnerTexts()).toEqual(['All', 'Tasks', 'Notes', 'Agents', 'Apps', 'Connectors', 'Files', 'Issues & PRs']);
     expect(await pressed()).toBe('All');
     const hint = (await popup.innerText()).replace(/\s+/g, ' ');
     for (const prefix of ['task:', 'note:', 'agent:', 'app:', 'connector:', 'file:', '#']) expect(hint).toContain(prefix);
@@ -77,9 +77,10 @@ it.each(engines)('narrows the @ menu by kind with chips, arrows and typed names 
     await expect.poll(text).toBe('@note:');
     await shows('Notes from standup');
     expect(await row('Take out trash').count()).toBe(0);
-    await chip('PRs').click();
+    await chip('Issues & PRs').click();
     await expect.poll(text).toBe('@#');
     await shows('Add SEO footer');
+    await shows('Footer overlaps on mobile');
     await chip('All').click();
     await expect.poll(text).toBe('@');
     await shows('Take out trash');
@@ -121,7 +122,7 @@ it.each(engines)('narrows the @ menu by kind with chips, arrows and typed names 
     await shows('README.md');
     // The ends wrap around.
     await page.keyboard.press('ArrowLeft');
-    expect(await focusedChip.innerText()).toBe('PRs');
+    expect(await focusedChip.innerText()).toBe('Issues & PRs');
     await page.keyboard.press('ArrowRight');
     expect(await focusedChip.innerText()).toBe('All');
 
@@ -185,7 +186,7 @@ it.each(engines)('narrows the @ menu by kind with chips, arrows and typed names 
     expect(await sent()).toEqual([]);
 
     // Enter completes it too, for every kind a two-letter start names.
-    for (const [typed, completed, label] of [['no', '@note:', 'Search notes'], ['ag', '@agent:', 'Search agents'], ['ap', '@app:', 'Search apps'], ['co', '@connector:', 'Search connectors'], ['fi', '@file:', 'Search files'], ['pr', '@#', 'Search pull requests']]) {
+    for (const [typed, completed, label] of [['no', '@note:', 'Search notes'], ['ag', '@agent:', 'Search agents'], ['ap', '@app:', 'Search apps'], ['co', '@connector:', 'Search connectors'], ['fi', '@file:', 'Search files'], ['pr', '@#', 'Search issues or pull requests'], ['is', '@#', 'Search issues or pull requests']]) {
       await reset();
       await type(`@${typed}`);
       await shows(label);
@@ -229,6 +230,27 @@ it.each(engines)('narrows the @ menu by kind with chips, arrows and typed names 
     await page.keyboard.press('Enter');
     await expect.poll(text).toBe('@file:');
     await shows('README.md');
+
+    // `#` lists issues with the pull requests, newest first, and the number
+    // finds either. An issue reaches the agent as its number, title, state
+    // and link, and Backspace on its chip reopens the list to swap it.
+    await reset();
+    await type('@#');
+    await shows('Footer overlaps on mobile');
+    expect(await rows.allInnerTexts()).toEqual(['#193Add SEO footerseo-footer', '#188Footer overlaps on mobile']);
+    await type('188');
+    await expect.poll(() => rows.allInnerTexts()).toEqual(['#188Footer overlaps on mobile']);
+    await page.keyboard.press('Enter');
+    await expect.poll(text).toBe('Issue #188 "Footer overlaps on mobile" (state: OPEN) https://github.com/o/r/issues/188');
+    expect(await sent()).toEqual([]);
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('Backspace');
+    await expect.poll(text).toBe('@#');
+    await shows('Footer overlaps on mobile');
+    await type('seo');
+    await expect.poll(() => rows.allInnerTexts()).toEqual(['#193Add SEO footerseo-footer']);
+    await page.keyboard.press('Enter');
+    await expect.poll(text).toBe('PR #193 "Add SEO footer" (head: seo-footer, base: main, state: OPEN) https://github.com/o/r/pull/193');
 
     // A path is about files, so it shows no chips.
     await reset();

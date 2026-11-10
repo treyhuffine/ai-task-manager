@@ -7,7 +7,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 
 // The real composer with a small home behind its @ menu: tasks and notes whose
 // titles start like kind names (`Take out trash`, `Notes from standup`), an
-// agent, a pull request and files. Enter sends, recorded in `sent`.
+// agent, a pull request, an issue and files. Enter sends, recorded in `sent`.
 const tasks = [
   { kind: 'task' as const, id: 'task-trash', title: 'Take out trash', status: 'todo' },
   { kind: 'task' as const, id: 'task-tax', title: 'Tax return', status: 'in_progress' },
@@ -57,6 +57,7 @@ function Fixture() {
             searchMentionEntities={searchMentionEntities}
             mentionAgents={[{ kind: 'agent', id: 'ws-finances', name: 'Finances', slug: 'finances', picture: { image: null, emoji: null }, purpose: 'Budgets and bills' }]}
             prs={[{ number: 193, title: 'Add SEO footer', state: 'OPEN', isDraft: false, headRefName: 'seo-footer', baseRefName: 'main', url: 'https://github.com/o/r/pull/193', updatedAt: '2026-10-29T00:00:00.000Z' }]}
+            issues={[{ number: 188, title: 'Footer overlaps on mobile', state: 'OPEN', url: 'https://github.com/o/r/issues/188', updatedAt: '2026-10-28T00:00:00.000Z' }]}
           />
         </div>
       </TooltipProvider>

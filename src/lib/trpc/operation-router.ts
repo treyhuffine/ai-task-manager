@@ -152,6 +152,7 @@ import * as operation133 from "@/lib/server/operations/sessions/[id]/file/resolv
 import * as operation134 from "@/lib/server/operations/sessions/[id]/help-with-error";
 import * as operation135 from "@/lib/server/operations/sessions/[id]/history";
 import * as operation136 from "@/lib/server/operations/sessions/[id]/interrupt";
+import * as operation266 from "@/lib/server/operations/sessions/[id]/issues";
 import * as operation137 from "@/lib/server/operations/sessions/[id]/merge";
 import * as operation138 from "@/lib/server/operations/sessions/[id]/messages";
 import * as operation139 from "@/lib/server/operations/sessions/[id]/new-chat";
@@ -516,6 +517,7 @@ export const internalRouters = {
     helpWithErrorPost: sp.input(operation134.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation134.POST(input, operationContext(ctx.request, input, "/sessions/[id]/help-with-error")))),
     historyGet: sp.input(operation135.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation135.GET(input, operationContext(ctx.request, input, "/sessions/[id]/history")))),
     interruptPost: sp.input(operation136.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation136.POST(input, operationContext(ctx.request, input, "/sessions/[id]/interrupt")))),
+    issuesGet: sharedActionProcedure('read').input(operation266.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation266.GET(input, operationContext(ctx.request, input, "/sessions/[id]/issues")))),
     mergePost: sharedActionProcedure('openAgentTerminal').input(operation137.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation137.POST(input, operationContext(ctx.request, input, "/sessions/[id]/merge")))),
     messagesPost: sp.input(operation138.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation138.POST(input, operationContext(ctx.request, input, "/sessions/[id]/messages")))),
     newChatPost: sp.input(operation139.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation139.POST(input, operationContext(ctx.request, input, "/sessions/[id]/new-chat")))),
@@ -664,8 +666,8 @@ export const internalRouters = {
     foldersDeviceIdPut: sp.input(operation233.PUTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation233.PUT(input, operationContext(ctx.request, input, "/workspaces/[id]/folders/[deviceId]")))),
     foldersDeviceIdDelete: sp.input(operation233.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation233.DELETE(input, operationContext(ctx.request, input, "/workspaces/[id]/folders/[deviceId]")))),
     foldersLinkedDeviceIdReferenceFolderIdPut: sp.input(operation234.PUTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation234.PUT(input, operationContext(ctx.request, input, "/workspaces/[id]/folders/[deviceId]/linked/[referenceFolderId]")))),
-    githubIssuesGet: p.input(operation235.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation235.GET(input, operationContext(ctx.request, input, "/workspaces/[id]/github/issues")))),
-    githubIssuesNumberGet: p.input(operation236.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation236.GET(input, operationContext(ctx.request, input, "/workspaces/[id]/github/issues/[number]")))),
+    githubIssuesGet: sharedActionProcedure('read').input(operation235.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation235.GET(input, operationContext(ctx.request, input, "/workspaces/[id]/github/issues")))),
+    githubIssuesNumberGet: sharedActionProcedure('read').input(operation236.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation236.GET(input, operationContext(ctx.request, input, "/workspaces/[id]/github/issues/[number]")))),
     githubPrsGet: sharedActionProcedure('read').input(operation237.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation237.GET(input, operationContext(ctx.request, input, "/workspaces/[id]/github/prs")))),
     githubPrsNumberGet: sharedActionProcedure('read').input(operation238.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation238.GET(input, operationContext(ctx.request, input, "/workspaces/[id]/github/prs/[number]")))),
     previewRestoreSetPost: sp.input(operation239.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation239.POST(input, operationContext(ctx.request, input, "/workspaces/[id]/preview/restore-set")))),

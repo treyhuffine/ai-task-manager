@@ -24,7 +24,7 @@ import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { useLaunchSlashCommands } from '@/hooks/use-slash-commands';
 import { useUserState } from '@/hooks/use-user-state';
-import { useMentionAgents, useRunOn, useSetDefaultDevice, useWorkspacePRs, useWorkspaces } from '@/hooks/use-workspaces';
+import { useMentionAgents, useRunOn, useSetDefaultDevice, useWorkspaceIssues, useWorkspacePRs, useWorkspaces } from '@/hooks/use-workspaces';
 import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import { useLoadReferenceTree, useReferenceFolders } from '@/hooks/use-reference-folders';
 import type { ReferenceFolderMentionItem } from '@/components/chat/editor/mention-menu/types';
@@ -304,10 +304,13 @@ function LaunchModalInner({
         )
       : null);
 
-  // The launcher already fetches this workspace's open PRs for browse; the
-  // editor's `#` menu takes the same shape, so it costs nothing extra.
+  // The launcher already fetches this workspace's open PRs and issues for
+  // browse. The editor's `#` menu takes the same shapes, so it costs nothing
+  // extra.
   const { data: workspacePrs } = useWorkspacePRs(isGit ? workspaceId : null);
   const prMentions = useMemo(() => workspacePrs ?? [], [workspacePrs]);
+  const { data: workspaceIssues } = useWorkspaceIssues(isGit ? workspaceId : null);
+  const issueMentions = useMemo(() => workspaceIssues ?? [], [workspaceIssues]);
 
   const base = resolveBase(chips);
   const continuation = continuationOf(chips);
@@ -763,7 +766,7 @@ function LaunchModalInner({
             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 pb-2">
               {/* The SAME editor the chat composer uses. Brings auto-grow
                   (20px → 200px then scrolls), image paste/drop as attachments,
-                  long-paste-becomes-a-file, and `#` PR mentions for free.
+                  long-paste-becomes-a-file, and `#` issue and PR mentions for free.
                   Worktree file mentions wait for a worktree. Tasks, notes,
                   agents, reference folders and installed skills can all be
                   picked before a chat exists. */}
@@ -777,6 +780,7 @@ function LaunchModalInner({
                   disabled={launching}
                   slashCommands={runsHere && personalControls ? slashCommands.data?.commands : undefined}
                   prs={prMentions}
+                  issues={issueMentions}
                   mentionReferenceFolders={mentionReferenceFolders}
                   loadReferenceTree={loadReferenceTree}
                   mentionAgents={mentionAgents}

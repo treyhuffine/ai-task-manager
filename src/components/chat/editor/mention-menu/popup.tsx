@@ -19,10 +19,6 @@ import {
   StickyNote,
   Notebook,
   AlertTriangle,
-  GitPullRequest,
-  GitPullRequestDraft,
-  GitPullRequestClosed,
-  GitMerge,
   ListFilter,
   FileText,
 } from 'lucide-react'
@@ -32,6 +28,7 @@ import { SourceMark } from '@/components/chat-ui/references/source-mark'
 import { McpIconImage } from '@/components/mcp-apps/mcp-icon'
 import { AgentPicture } from '@/components/agents/agent-icon'
 import { Kbd } from '@/components/ui/kbd'
+import { IssueStateIcon, PrStateIcon } from '../github-refs/state-icons'
 import { HOTKEYS } from '@/constants/commands'
 import type { SuggestionPopupRef } from '../suggestion/renderer'
 import { isSuggestionCommitKey, suggestionKindDelta, suggestionNavDelta } from '../suggestion/keys'
@@ -49,12 +46,12 @@ function isCaption(item: MentionItem): item is MoreMentionItem {
   return item.kind === 'more' && item.narrowed
 }
 
-const KIND_NOUNS = { task: 'tasks', note: 'notes', agent: 'agents', file: 'files', pr: 'pull requests', app: 'apps', connector: 'connectors' } as const
+const KIND_NOUNS = { task: 'tasks', note: 'notes', agent: 'agents', file: 'files', github: 'issues or pull requests', app: 'apps', connector: 'connectors' } as const
 
 /** The chips above the list: every kind, then each one alone. */
 const KIND_CHIPS: readonly (MentionFilter | null)[] = [null, ...MENTION_KINDS.map((kind) => kind.filter)]
 
-type Section = 'filter' | 'app' | 'entity' | 'agent' | 'task' | 'note' | 'reference' | 'file' | 'pr' | `ref:${string}` | `mention:${string}`
+type Section = 'filter' | 'app' | 'entity' | 'agent' | 'task' | 'note' | 'reference' | 'file' | 'github' | `ref:${string}` | `mention:${string}`
 
 function sectionFor(item: MentionItem): Section {
   // A kind suggestion leads the list on its own, with no header.
@@ -68,7 +65,8 @@ function sectionFor(item: MentionItem): Section {
   if (item.kind === 'note') return 'note'
   if (item.kind === 'more') return item.of
   if (item.kind === 'reference') return 'reference'
-  if (item.kind === 'pr') return 'pr'
+  // One band: GitHub's `#` lists issues and pull requests together.
+  if (item.kind === 'pr' || item.kind === 'issue') return 'github'
   // Files pulled out of a reference folder band under that folder's alias, so
   // a drill-down visibly separates "inside @backend" from worktree matches.
   if (item.referenceAlias) return `ref:${item.referenceAlias}`
@@ -92,6 +90,8 @@ function keyFor(item: MentionItem): string {
       return `reference:${item.id}`
     case 'pr':
       return `pr:${item.number}`
+    case 'issue':
+      return `issue:${item.number}`
     case 'more':
       return `more:${item.of}`
     case 'filter':
@@ -371,7 +371,7 @@ function SectionHeader({ kind, label: named }: { kind: Section; label?: string }
   else if (kind === 'task') label = 'Tasks'
   else if (kind === 'note') label = 'Notes'
   else if (kind === 'reference') label = 'Reference folders'
-  else if (kind === 'pr') label = 'Pull requests'
+  else if (kind === 'github') label = 'Issues and pull requests'
   else if (kind.startsWith('ref:')) label = `In @${kind.slice(4)} · read-only`
   else label = 'Files'
   return (
@@ -410,19 +410,6 @@ function MentionRow({ item, index, selected, onSelect, onHover }: MentionRowProp
   )
 }
 
-function PrRowIcon({ state, isDraft }: { state: string; isDraft: boolean }) {
-  if (state === 'MERGED') {
-    return <GitMerge size={11} className="text-violet-500 dark:text-violet-400" />
-  }
-  if (state === 'CLOSED') {
-    return <GitPullRequestClosed size={11} className="text-rose-500 dark:text-rose-400" />
-  }
-  if (isDraft) {
-    return <GitPullRequestDraft size={11} className="text-muted-foreground/80" />
-  }
-  return <GitPullRequest size={11} className="text-emerald-500 dark:text-emerald-400" />
-}
-
 function RowIcon({ item }: { item: MentionItem }) {
   if (item.kind === 'source') return <SourceMark mark={item.source.mark} name={item.source.service} size={13} />
   if (item.kind === 'sourceGroup') return <SourceMark mark={item.mark} name={item.label} size={13} />
@@ -441,7 +428,10 @@ function RowIcon({ item }: { item: MentionItem }) {
     return <AgentPicture picture={item.picture} name={item.name} size="sm" />
   }
   if (item.kind === 'pr') {
-    return <PrRowIcon state={item.state} isDraft={item.isDraft} />
+    return <PrStateIcon state={item.state} isDraft={item.isDraft} />
+  }
+  if (item.kind === 'issue') {
+    return <IssueStateIcon state={item.state} />
   }
   if (item.kind === 'reference') {
     if (!item.exists) return <AlertTriangle size={11} className="text-destructive/80" />
@@ -556,16 +546,18 @@ function RowBody({ item }: { item: MentionItem }) {
       </>
     )
   }
-  if (item.kind === 'pr') {
+  if (item.kind === 'pr' || item.kind === 'issue') {
     return (
       <>
         <span className="font-mono text-[11px] text-muted-foreground shrink-0">
           #{item.number}
         </span>
         <span className="text-[11px] text-foreground truncate min-w-0">{item.title}</span>
-        <span className="ml-auto pl-2 font-mono text-[10px] text-muted-foreground/70 truncate max-w-[40%]">
-          {item.headRefName}
-        </span>
+        {item.kind === 'pr' && (
+          <span className="ml-auto pl-2 font-mono text-[10px] text-muted-foreground/70 truncate max-w-[40%]">
+            {item.headRefName}
+          </span>
+        )}
       </>
     )
   }

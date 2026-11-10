@@ -14,7 +14,7 @@ import {
   queryAllowsSpaces,
   toReferenceFileItems,
   rankReferences,
-  rankPrs,
+  rankGithubRefs,
   rankAgents,
 } from './ranking';
 import type {
@@ -25,7 +25,7 @@ import type {
   MentionItem,
   MoreMentionItem,
 } from './types';
-import type { PrMentionItem } from '../pr-menu/types';
+import type { IssueMentionItem, PrMentionItem } from '../github-refs/types';
 
 /**
  * `@`-picker behavior for reference folders (docs/reference-folders-spec.md §8).
@@ -62,6 +62,17 @@ function pr(overrides: Partial<PrMentionItem> = {}): PrMentionItem {
   };
 }
 
+function issue(overrides: Partial<IssueMentionItem> = {}): IssueMentionItem {
+  return {
+    number: 2,
+    title: 'Login loops on Safari',
+    state: 'OPEN',
+    url: 'https://github.com/owner/repo/issues/2',
+    updatedAt: '2026-07-20T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 /** What the server answered: rows in its order, and every match counted. */
 function entities(
   taskTitles: string[],
@@ -81,6 +92,7 @@ const EMPTY = {
   references: [],
   referenceFiles: null,
   prs: [],
+  issues: [],
   drillDown: null,
 };
 
@@ -270,64 +282,85 @@ describe('buildItems', () => {
     expect(kinds(items)).toEqual(['scratchpad', 'task', 'note', 'file']);
   });
 
-  it('switches to PR-only results the moment the query opens with `#`', () => {
-    // Files/tasks/notes are all present, but `@#` must return PRs alone.
+  it('switches to issues and PRs alone the moment the query opens with `#`', () => {
+    // Files/tasks/notes are all present, but `@#` must return GitHub's alone.
     const items = buildItems({
       ...EMPTY,
       files: [file('src/app.ts')],
       entities: entities(['Ship it'], ['Ideas']),
       prs: [pr({ number: 193, title: 'Add SEO footer' })],
+      issues: [issue({ number: 190, title: 'Footer is missing', updatedAt: '2026-07-01T00:00:00.000Z' })],
       query: '#',
     });
-    expect(kinds(items)).toEqual(['pr']);
-    expect((items[0] as { number: number }).number).toBe(193);
+    expect(kinds(items)).toEqual(['pr', 'issue']);
+    expect((items as { number: number }[]).map((i) => i.number)).toEqual([193, 190]);
   });
 
-  it('keeps PRs out of the default `@` list', () => {
+  it('keeps issues and PRs out of the default `@` list', () => {
     const items = buildItems({
       ...EMPTY,
       files: [file('src/app.ts')],
       prs: [pr({ number: 193 })],
+      issues: [issue({ number: 190 })],
       query: '',
     });
     expect(kinds(items)).not.toContain('pr');
+    expect(kinds(items)).not.toContain('issue');
   });
 
-  it('filters PRs by the query after the `#`', () => {
+  it('filters issues and PRs by the query after the `#`', () => {
     const items = buildItems({
       ...EMPTY,
       prs: [pr({ number: 12 }), pr({ number: 193 }), pr({ number: 7 })],
+      issues: [issue({ number: 19 }), issue({ number: 40 })],
       query: '#19',
     });
-    expect((items as { number: number }[]).map((i) => i.number)).toEqual([193]);
+    expect((items as { number: number }[]).map((i) => i.number)).toEqual([19, 193]);
+  });
+
+  it('caps the list and says how many matched, like the other narrowed lists', () => {
+    const issues = Array.from({ length: NARROWED_LIMIT + 5 }, (_, i) => issue({ number: i + 1 }));
+    const items = buildItems({ ...EMPTY, issues, query: '#' });
+    expect(items.filter((i) => i.kind === 'issue')).toHaveLength(NARROWED_LIMIT);
+    expect(items.at(-1)).toEqual({ kind: 'more', of: 'github', total: NARROWED_LIMIT + 5, shown: NARROWED_LIMIT, query: '', narrowed: true });
   });
 });
 
-describe('rankPrs', () => {
+describe('rankGithubRefs', () => {
   const prs = [
     pr({ number: 22, title: 'Fix login', headRefName: 'fix/login', updatedAt: '2026-07-01T00:00:00.000Z' }),
     pr({ number: 221, title: 'Add settings', headRefName: 'feat/settings', updatedAt: '2026-07-03T00:00:00.000Z' }),
     pr({ number: 322, title: 'Refactor auth', headRefName: 'chore/auth', updatedAt: '2026-07-02T00:00:00.000Z' }),
   ];
+  const issues = [
+    issue({ number: 2, title: 'Login loops on Safari', updatedAt: '2026-07-04T00:00:00.000Z' }),
+    issue({ number: 122, title: 'Settings page is slow', state: 'CLOSED', updatedAt: '2026-06-30T00:00:00.000Z' }),
+  ];
+  const ranked = (query: string) => rankGithubRefs(prs, issues, query).map((item) => `${item.kind}#${item.number}`);
 
-  it('returns everything for an empty query, tagged as `pr`', () => {
-    const out = rankPrs(prs, '');
-    expect(out).toHaveLength(3);
-    expect(out.every((p) => p.kind === 'pr')).toBe(true);
+  it('lists issues and PRs together, newest activity first, for an empty query', () => {
+    expect(ranked('')).toEqual(['issue#2', 'pr#221', 'pr#322', 'pr#22', 'issue#122']);
   });
 
-  it('ranks a numeric query exact → number-prefix → number-substring', () => {
-    // `22` should surface #22 first, then #221 (prefix), then #322 (substring).
-    expect(rankPrs(prs, '22').map((p) => p.number)).toEqual([22, 221, 322]);
+  it('ranks a numeric query exact → number-prefix → number-substring across both', () => {
+    // `22`: #22 exactly, then #221 (prefix), then #322 and #122 (substring), newest first.
+    expect(ranked('22')).toEqual(['pr#22', 'pr#221', 'pr#322', 'issue#122']);
+    expect(ranked('2')).toEqual(['issue#2', 'pr#221', 'pr#22', 'pr#322', 'issue#122']);
   });
 
-  it('matches a text query on title, then head branch', () => {
-    expect(rankPrs(prs, 'settings').map((p) => p.number)).toEqual([221]);
-    expect(rankPrs(prs, 'auth').map((p) => p.number)).toEqual([322]);
+  it('matches a text query on title, then a PR head branch', () => {
+    expect(ranked('settings')).toEqual(['issue#122', 'pr#221']);
+    expect(ranked('login')).toEqual(['issue#2', 'pr#22']);
+    expect(ranked('auth')).toEqual(['pr#322']);
   });
 
-  it('drops PRs that match neither number, title, nor branch', () => {
-    expect(rankPrs(prs, 'zzz')).toEqual([]);
+  it('drops what matches neither number, title, nor branch', () => {
+    expect(ranked('zzz')).toEqual([]);
+  });
+
+  it('works with only one of the two', () => {
+    expect(rankGithubRefs([], issues, '').map((item) => item.kind)).toEqual(['issue', 'issue']);
+    expect(rankGithubRefs(prs, [], '').map((item) => item.kind)).toEqual(['pr', 'pr', 'pr']);
   });
 });
 
@@ -356,7 +389,7 @@ describe('a linked folder whose files are on another device', () => {
 
 describe('parseMentionQuery', () => {
   it('reads the filter from how the query opens, case aside', () => {
-    expect(parseMentionQuery('#193')).toEqual({ filter: 'pr', text: '193' });
+    expect(parseMentionQuery('#193')).toEqual({ filter: 'github', text: '193' });
     expect(parseMentionQuery('task:deploy')).toEqual({ filter: 'task', text: 'deploy' });
     expect(parseMentionQuery('Tasks: deploy keys ')).toEqual({ filter: 'task', text: 'deploy keys' });
     expect(parseMentionQuery('note:')).toEqual({ filter: 'note', text: '' });
@@ -520,7 +553,7 @@ describe('agents in the picker', () => {
     expect(filterQueryText('agent', 'jo')).toBe('@agent:jo');
   });
 
-  it('keeps agents out of the PR, file and drill-down lists', () => {
+  it('keeps agents out of the issue and PR, file and drill-down lists', () => {
     const agents = [agent('Ri')];
     expect(names(buildItems({ ...EMPTY, agents, prs: [pr({ title: 'Ri fix' })], query: '#ri' }))).toEqual(['pr']);
     expect(names(buildItems({ ...EMPTY, agents, files: [file('ri.ts')], query: 'file:ri' }))).toEqual(['file']);
@@ -538,19 +571,19 @@ describe('kinds', () => {
   it('reads every kind from its own prefix and its plural, and maps each back', () => {
     for (const kind of MENTION_KINDS) {
       expect(parseMentionQuery(`${kind.prefix}x`)).toEqual({ filter: kind.filter, text: 'x' });
-      if (kind.filter !== 'pr') {
-        expect(parseMentionQuery(`${kind.name}:x`)).toEqual({ filter: kind.filter, text: 'x' });
+      if (kind.filter !== 'github') {
+        for (const name of kind.names) expect(parseMentionQuery(`${name}:x`)).toEqual({ filter: kind.filter, text: 'x' });
         expect(parseMentionQuery(`${kind.prefix.toUpperCase()}x`).filter).toBe(kind.filter);
       }
     }
     expect(MENTION_KINDS.map((kind) => kind.prefix)).toEqual(['task:', 'note:', 'agent:', 'app:', 'connector:', 'file:', '#']);
-    expect(MENTION_KINDS.map((kind) => kind.label)).toEqual(['Tasks', 'Notes', 'Agents', 'Apps', 'Connectors', 'Files', 'PRs']);
+    expect(MENTION_KINDS.map((kind) => kind.label)).toEqual(['Tasks', 'Notes', 'Agents', 'Apps', 'Connectors', 'Files', 'Issues & PRs']);
   });
 
   it('rewrites the query for a chip, keeping the search', () => {
     expect(filterQueryText('task', '')).toBe('@task:');
     expect(filterQueryText('note', 'launch')).toBe('@note:launch');
-    expect(filterQueryText('pr', '19')).toBe('@#19');
+    expect(filterQueryText('github', '19')).toBe('@#19');
     expect(filterQueryText('connector', 'gmail')).toBe('@connector:gmail');
     expect(filterQueryText('file', 'page')).toBe('@file:page');
     // All drops the prefix.
@@ -563,7 +596,7 @@ describe('kinds', () => {
     expect(filterQueryText('app', 'google drive')).toBe('@app:google drive');
     expect(filterQueryText(null, 'deploy keys')).toBe('@');
     expect(filterQueryText('file', 'deploy keys')).toBe('@file:');
-    expect(filterQueryText('pr', 'deploy keys')).toBe('@#');
+    expect(filterQueryText('github', 'deploy keys')).toBe('@#');
   });
 
   it('round-trips: the rewritten query parses back to the chip and the search', () => {
@@ -583,14 +616,16 @@ describe('kindSuggestions', () => {
     expect(suggested('ap')).toEqual(['app']);
     expect(suggested('co')).toEqual(['connector']);
     expect(suggested('fi')).toEqual(['file']);
-    expect(suggested('pr')).toEqual(['pr']);
+    expect(suggested('pr')).toEqual(['github']);
+    expect(suggested('is')).toEqual(['github']);
   });
 
   it('keeps offering it up to the whole name, singular or plural, case aside', () => {
     expect(suggested('task')).toEqual(['task']);
     expect(suggested('Tasks')).toEqual(['task']);
     expect(suggested('connect')).toEqual(['connector']);
-    expect(suggested('prs')).toEqual(['pr']);
+    expect(suggested('prs')).toEqual(['github']);
+    expect(suggested('Issues')).toEqual(['github']);
   });
 
   it('rewrites the query to the prefix alone, since the letters were the name', () => {

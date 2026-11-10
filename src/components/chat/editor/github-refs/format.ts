@@ -1,4 +1,4 @@
-import type { PrMentionItem } from './types'
+import type { IssueMentionItem, PrMentionItem } from './types'
 
 /**
  * Format a PR reference as the single-line context string the agent
@@ -18,4 +18,16 @@ import type { PrMentionItem } from './types'
 export function formatPrRef(pr: PrMentionItem): string {
   const draft = pr.isDraft ? ', draft' : ''
   return `PR #${pr.number} "${pr.title}" (head: ${pr.headRefName}, base: ${pr.baseRefName}, state: ${pr.state}${draft}) ${pr.url}`
+}
+
+/**
+ * The same single line for an issue picked from `@#`. An issue has no
+ * branches, so it carries its state and link, which is what the agent needs
+ * to open it with `gh issue view`.
+ *
+ *   "Issue #412 \"Login loops on Safari\" (state: OPEN)
+ *     https://github.com/owner/repo/issues/412"
+ */
+export function formatIssueRef(issue: IssueMentionItem): string {
+  return `Issue #${issue.number} "${issue.title}" (state: ${issue.state}) ${issue.url}`
 }

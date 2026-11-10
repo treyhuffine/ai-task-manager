@@ -69,8 +69,9 @@ import type {
   SearchMentionEntities,
 } from '@/components/chat/editor/mention-menu/types';
 import { ENTITY_PREVIEW_LIMIT } from '@/components/chat/editor/mention-menu/ranking';
-import type { PrMentionItem } from '@/components/chat/editor/pr-menu/types';
+import type { IssueMentionItem, PrMentionItem } from '@/components/chat/editor/github-refs/types';
 import { usePrList } from '@/hooks/use-prs';
+import { useIssueList } from '@/hooks/use-issues';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { DEFAULT_HARNESS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import { Tip } from '@/components/ui/tip';
@@ -348,9 +349,9 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     // chats can reach each other: a team chat has no coordination.
     const mentionAgents = useMentionAgents(useChatCapabilities().coordination !== false);
 
-    // GitHub PRs → items in the `@`-picker's `#` filter (`@#193`). Empty
-    // when gh is missing / unauthenticated or the workspace is non-git; the
-    // picker just shows its empty state in those cases.
+    // GitHub PRs and issues → items in the `@`-picker's `#` filter (`@#193`).
+    // Empty when gh is missing / unauthenticated or the workspace is non-git;
+    // the picker just shows its empty state in those cases.
     const prListQuery = usePrList(sessionId);
     const prMentions = useMemo<PrMentionItem[]>(
       () =>
@@ -365,6 +366,18 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
           updatedAt: p.updatedAt,
         })),
       [prListQuery.data?.prs],
+    );
+    const issueListQuery = useIssueList(sessionId);
+    const issueMentions = useMemo<IssueMentionItem[]>(
+      () =>
+        (issueListQuery.data?.issues ?? []).map((i) => ({
+          number: i.number,
+          title: i.title,
+          state: i.state,
+          url: i.url,
+          updatedAt: i.updatedAt,
+        })),
+      [issueListQuery.data?.issues],
     );
 
     // Sent-message recall (ArrowUp in the composer). Derived from the same
@@ -749,6 +762,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   searchMentionEntities={searchMentionEntities}
                   mentionAgents={mentionAgents}
                   prs={prMentions}
+                  issues={issueMentions}
                   draftKey={draftKey ?? (sessionId ? `exec:${sessionId}` : undefined)}
                   history={messageHistory}
                 />

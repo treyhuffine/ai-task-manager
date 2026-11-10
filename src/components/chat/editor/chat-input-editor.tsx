@@ -86,9 +86,10 @@ import {
   MENTION_CHIP_NAME,
   type MentionChipAttrs,
 } from './mention-menu/mention-chip-node';
-import type { PrMentionItem } from './pr-menu/types';
-import { PrChipNode, PR_CHIP_NAME, type PrChipAttrs } from './pr-menu/pr-chip-node';
-import { formatPrRef } from './pr-menu/format';
+import type { IssueMentionItem, PrMentionItem } from './github-refs/types';
+import { PrChipNode, PR_CHIP_NAME, type PrChipAttrs } from './github-refs/pr-chip-node';
+import { IssueChipNode, ISSUE_CHIP_NAME, type IssueChipAttrs } from './github-refs/issue-chip-node';
+import { formatIssueRef, formatPrRef } from './github-refs/format';
 import { EntityChipNode, ENTITY_CHIP_NAME, type EntityChipAttrs } from './entity-chip-node';
 import { AppSnippetNode, APP_SNIPPET_NAME, type AppSnippetAttrs } from './app-snippet-node';
 import { scheduleEditorAutoFocus } from './auto-focus';
@@ -267,6 +268,8 @@ export interface ChatInputEditorProps {
    * omitted, `@#` just shows an empty state.
    */
   prs?: PrMentionItem[];
+  /** GitHub issues, listed with the PRs under `@#`. Sourced from `useIssueList`. */
+  issues?: IssueMentionItem[];
   /**
    * When set, the editor persists unsent content to `localStorage`
    * under this key. On mount (and whenever the key changes), any saved
@@ -414,6 +417,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       mentionReferenceFolders,
       loadReferenceTree,
       prs,
+      issues,
       draftKey: requestedDraftKey,
       history,
     },
@@ -466,6 +470,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     loadReferenceTreeRef.current = loadReferenceTree;
     const prsRef = useRef(prs);
     prsRef.current = prs;
+    const issuesRef = useRef(issues);
+    issuesRef.current = issues;
     // Mirror the recall ring in a ref so the keymap (built once) always
     // reads the latest sent-message list without re-creating the editor.
     const historyRef = useRef(history);
@@ -801,6 +807,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         Placeholder.configure({ placeholder: placeholder ?? '' }),
         FileChipNode,
         PrChipNode,
+        IssueChipNode,
         MentionChipNode,
         EntityChipNode,
         AppSnippetNode,
@@ -826,6 +833,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           // PRs live under the `@` picker's `#` filter (`@#193`); there is
           // no separate `#` trigger anymore.
           getPrs: () => prsRef.current ?? [],
+          getIssues: () => issuesRef.current ?? [],
         }),
         KeymapExtension,
       ],
@@ -1258,6 +1266,12 @@ export function buildMarkerOutput(editor: Pick<Editor, 'state'> | null): { text:
       lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + formatPrRef(attrs);
       return false;
     }
+    if (node.type.name === ISSUE_CHIP_NAME) {
+      // Issue chips the same way, via `formatIssueRef`.
+      const attrs = node.attrs as IssueChipAttrs;
+      lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + formatIssueRef(attrs);
+      return false;
+    }
     if (node.type.name === MENTION_CHIP_NAME) {
       // File/folder chips emit `@<relative-path>` — same wire format
       // the manual `@<path>` typing path uses, so the agent sees one
@@ -1352,6 +1366,10 @@ export function buildUiMessageParts(editor: Pick<Editor, 'state'> | null): {
       // as a text run that flows with the surrounding sentence.
       const attrs = node.attrs as PrChipAttrs;
       textBuf += formatPrRef(attrs);
+      return false;
+    }
+    if (node.type.name === ISSUE_CHIP_NAME) {
+      textBuf += formatIssueRef(node.attrs as IssueChipAttrs);
       return false;
     }
     if (node.type.name === MENTION_CHIP_NAME) {

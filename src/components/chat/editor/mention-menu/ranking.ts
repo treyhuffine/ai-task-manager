@@ -5,7 +5,7 @@
  *
  * Tasks and notes arrive already searched and ranked by the server (the
  * whole home, this chat and this agent first), so they're placed here, not
- * scored. Agents, files, reference folders and PRs are ranked locally.
+ * scored. Agents, files, reference folders, issues and PRs are ranked locally.
  */
 
 import type {
@@ -16,12 +16,13 @@ import type {
   MentionFilter,
   ReferenceFolderMentionItem,
   PrMentionMenuItem,
+  IssueMentionMenuItem,
   MentionEntityResults,
   MentionEntitySearch,
   MoreMentionItem,
 } from './types'
-import type { PrMentionItem } from '../pr-menu/types'
-import { PR_QUERY_PREFIX } from './pr-trigger'
+import type { IssueMentionItem, PrMentionItem } from '../github-refs/types'
+import { GITHUB_QUERY_PREFIX } from './github-trigger'
 
 export type { MentionFilter }
 
@@ -31,10 +32,9 @@ export const MAX_FILES = 30
  * "All N" row when more matched, which narrows to that kind.
  */
 export const ENTITY_PREVIEW_LIMIT = 6
-/** Rows in a list narrowed to one kind (`@task:`, `@note:`, `@agent:`, `@file:`). */
+/** Rows in a list narrowed to one kind (`@task:`, `@note:`, `@agent:`, `@file:`, `@#`). */
 export const NARROWED_LIMIT = 50
 export const MAX_REFERENCES = 8
-export const MAX_PRS = 30
 
 export interface ParsedMentionQuery {
   filter: MentionFilter | null
@@ -48,24 +48,27 @@ export interface MentionKind {
   label: string
   /** What narrows the picker to it when typed after the `@`. */
   prefix: string
-  /** Its name in full, which a kind suggestion matches the start of (`ta`). */
-  name: string
+  /**
+   * Its names in full, which a kind suggestion matches the start of (`ta`).
+   * Issues and PRs answer to either (`is`, `pr`).
+   */
+  names: readonly string[]
 }
 
 /**
  * The kinds the picker narrows to, in the order their chips show. `task:`
  * reads like the `[[task:id]]` markers chips become, and `#` is GitHub's
- * own PR syntax. `app:` lists every app and connector a chat can use,
- * `connector:` only connected accounts.
+ * own syntax for issues and pull requests alike. `app:` lists every app and
+ * connector a chat can use, `connector:` only connected accounts.
  */
 export const MENTION_KINDS: readonly MentionKind[] = [
-  { filter: 'task', label: 'Tasks', prefix: 'task:', name: 'tasks' },
-  { filter: 'note', label: 'Notes', prefix: 'note:', name: 'notes' },
-  { filter: 'agent', label: 'Agents', prefix: 'agent:', name: 'agents' },
-  { filter: 'app', label: 'Apps', prefix: 'app:', name: 'apps' },
-  { filter: 'connector', label: 'Connectors', prefix: 'connector:', name: 'connectors' },
-  { filter: 'file', label: 'Files', prefix: 'file:', name: 'files' },
-  { filter: 'pr', label: 'PRs', prefix: PR_QUERY_PREFIX, name: 'prs' },
+  { filter: 'task', label: 'Tasks', prefix: 'task:', names: ['tasks'] },
+  { filter: 'note', label: 'Notes', prefix: 'note:', names: ['notes'] },
+  { filter: 'agent', label: 'Agents', prefix: 'agent:', names: ['agents'] },
+  { filter: 'app', label: 'Apps', prefix: 'app:', names: ['apps'] },
+  { filter: 'connector', label: 'Connectors', prefix: 'connector:', names: ['connectors'] },
+  { filter: 'file', label: 'Files', prefix: 'file:', names: ['files'] },
+  { filter: 'github', label: 'Issues & PRs', prefix: GITHUB_QUERY_PREFIX, names: ['issues', 'prs'] },
 ]
 
 export function mentionKind(filter: MentionFilter): MentionKind {
@@ -76,12 +79,14 @@ export function mentionKind(filter: MentionFilter): MentionKind {
 
 /** The word prefixes, singular and plural (`task:`, `tasks:`), case aside. */
 const FILTER_PREFIXES: ReadonlyArray<readonly [string, MentionFilter]> = MENTION_KINDS.flatMap((kind) =>
-  kind.prefix === PR_QUERY_PREFIX ? [] : [[kind.prefix, kind.filter] as const, [`${kind.name}:`, kind.filter] as const],
+  kind.prefix === GITHUB_QUERY_PREFIX
+    ? []
+    : [[kind.prefix, kind.filter] as const, ...kind.names.map((name) => [`${name}:`, kind.filter] as const)],
 )
 
 export function parseMentionQuery(query: string): ParsedMentionQuery {
-  if (query.startsWith(PR_QUERY_PREFIX)) {
-    return { filter: 'pr', text: query.slice(PR_QUERY_PREFIX.length) }
+  if (query.startsWith(GITHUB_QUERY_PREFIX)) {
+    return { filter: 'github', text: query.slice(GITHUB_QUERY_PREFIX.length) }
   }
   const lower = query.toLowerCase()
   for (const [prefix, filter] of FILTER_PREFIXES) {
@@ -121,12 +126,12 @@ export const KIND_SUGGESTION_MIN_LENGTH = 2
  * Kinds whose name starts with what's typed after the `@` (`ta`, `notes`),
  * offered above the results. Picking one rewrites the query to its prefix
  * (`@task:`) and the search goes on inside that kind. Only for a plain word:
- * a filter, a path or a PR number already says what it's after.
+ * a filter, a path or an issue or PR number already says what it's after.
  */
 export function kindSuggestions(query: string): FilterMentionItem[] {
   const q = query.toLowerCase()
   if (q.length < KIND_SUGGESTION_MIN_LENGTH || !/^[a-z]+$/.test(q)) return []
-  return MENTION_KINDS.filter((kind) => kind.name.startsWith(q)).map((kind) => ({
+  return MENTION_KINDS.filter((kind) => kind.names.some((name) => name.startsWith(q))).map((kind) => ({
     kind: 'filter',
     filter: kind.filter,
     query: '',
@@ -135,7 +140,7 @@ export function kindSuggestions(query: string): FilterMentionItem[] {
 
 /**
  * What to ask the server for, or null when this query shows no tasks or
- * notes (pull requests, files, or inside a reference folder).
+ * notes (issues and pull requests, files, or inside a reference folder).
  */
 export function entitySearchFor(
   parsed: ParsedMentionQuery,
@@ -268,55 +273,69 @@ export function rankReferences(
     .map((s) => s.item)
 }
 
-function toPrItem(pr: PrMentionItem): PrMentionMenuItem {
-  return { kind: 'pr', ...pr }
+type GithubRefItem = PrMentionMenuItem | IssueMentionMenuItem
+
+/** Newest activity first, which is what someone picking one mid-conversation is almost always after. */
+function byRecency(a: GithubRefItem, b: GithubRefItem): number {
+  if (a.updatedAt === b.updatedAt) return 0
+  return a.updatedAt < b.updatedAt ? 1 : -1
 }
 
 /**
- * Rank pull requests for the `@#` picker. `query` is the text after the
- * `#` prefix (already stripped by the caller).
+ * Rank issues and pull requests together for the `@#` picker, the way
+ * GitHub's own `#` lists them: one list, since the two share one number
+ * space in a repository. `query` is the text after the `#` (already stripped
+ * by the caller).
  *
- * A pure-digit query filters by PR number — exact, then number-prefix,
- * then number-substring — so typing `@#22` surfaces #22 above #221 / #322
- * rather than an arbitrary ordering. A text query matches the title
- * (prefix beats substring) and then the head branch, tie-broken by
- * recency since the feed already arrives newest-first.
+ * A pure-digit query matches the number: exact, then number-prefix, then
+ * number-substring, so `@#22` puts #22 above #221 and #322. A text query
+ * matches the title (prefix beats substring) and then a PR's head branch.
+ * Ties, and an empty query, go newest activity first. Every match comes back.
+ * The caller caps the rows.
  */
-export function rankPrs(prs: PrMentionItem[], query: string): PrMentionMenuItem[] {
-  if (!query) return prs.slice(0, MAX_PRS).map(toPrItem)
-
-  if (/^\d+$/.test(query)) {
-    const exact: PrMentionItem[] = []
-    const startsWith: PrMentionItem[] = []
-    const contains: PrMentionItem[] = []
-    for (const p of prs) {
-      const num = String(p.number)
-      if (num === query) exact.push(p)
-      else if (num.startsWith(query)) startsWith.push(p)
-      else if (num.includes(query)) contains.push(p)
-    }
-    return [...exact, ...startsWith, ...contains].slice(0, MAX_PRS).map(toPrItem)
-  }
+export function rankGithubRefs(
+  prs: PrMentionItem[],
+  issues: IssueMentionItem[],
+  query: string,
+): GithubRefItem[] {
+  const all: GithubRefItem[] = [
+    ...prs.map((pr): GithubRefItem => ({ kind: 'pr', ...pr })),
+    ...issues.map((issue): GithubRefItem => ({ kind: 'issue', ...issue })),
+  ].sort(byRecency)
+  if (!query) return all
 
   const q = query.toLowerCase()
-  type Scored = { item: PrMentionItem; score: number }
-  const scored: Scored[] = []
-  for (const p of prs) {
-    const title = p.title.toLowerCase()
-    const branch = p.headRefName.toLowerCase()
-    let score: number
-    if (title.startsWith(q)) score = 0
-    else if (title.includes(q)) score = 1
-    else if (branch.includes(q)) score = 2
-    else continue
-    scored.push({ item: p, score })
+  const score = /^\d+$/.test(query)
+    ? (item: GithubRefItem) => {
+        const num = String(item.number)
+        if (num === query) return 0
+        if (num.startsWith(query)) return 1
+        if (num.includes(query)) return 2
+        return Infinity
+      }
+    : (item: GithubRefItem) => {
+        const title = item.title.toLowerCase()
+        if (title.startsWith(q)) return 0
+        if (title.includes(q)) return 1
+        if (item.kind === 'pr' && item.headRefName.toLowerCase().includes(q)) return 2
+        return Infinity
+      }
+  // A stable sort, so equal scores keep the recency order above.
+  return all
+    .map((item) => ({ item, score: score(item) }))
+    .filter((s) => Number.isFinite(s.score))
+    .sort((a, b) => a.score - b.score)
+    .map((s) => s.item)
+}
+
+/** Ranked issues and PRs, with a caption saying how many matched when some didn't fit. */
+function githubRows(prs: PrMentionItem[], issues: IssueMentionItem[], text: string): MentionItem[] {
+  const ranked = rankGithubRefs(prs, issues, text)
+  const rows: MentionItem[] = ranked.slice(0, NARROWED_LIMIT)
+  if (ranked.length > rows.length) {
+    rows.push({ kind: 'more', of: 'github', total: ranked.length, shown: rows.length, query: text, narrowed: true })
   }
-  scored.sort((a, b) => {
-    if (a.score !== b.score) return a.score - b.score
-    // Tiebreak by recency (feed is already sorted newest-first).
-    return a.item.updatedAt < b.item.updatedAt ? 1 : -1
-  })
-  return scored.slice(0, MAX_PRS).map((s) => toPrItem(s.item))
+  return rows
 }
 
 export interface ReferenceDrillDown {
@@ -407,9 +426,9 @@ function entityRows(
  * matches. A path-like query (`src/`, `.tsx`) puts files first instead, so
  * a home full of tasks never buries the file being named.
  *
- * A filter after the `@` narrows to one kind: `task:`, `note:` and `agent:`
- * (up to NARROWED_LIMIT rows, with a caption when more matched), `file:`,
- * and `#` for pull requests.
+ * A filter after the `@` narrows to one kind: `task:`, `note:`, `agent:` and
+ * `#` for issues and pull requests (up to NARROWED_LIMIT rows, with a caption
+ * when more matched), and `file:`.
  *
  * Inside a drill-down (`@alias/…`) that reference's files lead, since the user
  * has said exactly where they are looking — but worktree matches still follow
@@ -425,16 +444,17 @@ export function buildItems(args: {
   references: ReferenceFolderMentionItem[]
   referenceFiles: FileMentionItem[] | null
   prs: PrMentionItem[]
+  issues: IssueMentionItem[]
   drillDown: ReferenceDrillDown | null
   query: string
 }): MentionItem[] {
-  const { files, agents = [], entities, references, referenceFiles, prs, drillDown, query } = args
+  const { files, agents = [], entities, references, referenceFiles, prs, issues, drillDown, query } = args
   const parsed = parseMentionQuery(query)
 
   // Checked before everything else so a filter wins even if the remainder
   // looks like a file query.
   if (parsed.filter === 'app' || parsed.filter === 'connector') return []
-  if (parsed.filter === 'pr') return rankPrs(prs, parsed.text)
+  if (parsed.filter === 'github') return githubRows(prs, issues, parsed.text)
   if (parsed.filter === 'file') return rankFiles(files, parsed.text, NARROWED_LIMIT)
   if (parsed.filter === 'agent') return agentRows(agents, parsed.text, true)
   if (parsed.filter === 'task' || parsed.filter === 'note') {
