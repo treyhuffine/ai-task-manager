@@ -55,7 +55,7 @@ it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a de
         return <>
           <output id="label">{locationLabel(session,true,labels.mode)??'unlabeled'}</output>
           <button onClick={()=>labels.setMode('always')}>Name all devices</button>
-          <Popover.Root><Popover.Trigger>Execution menu</Popover.Trigger><Popover.Portal><Popover.Content>
+          <Popover.Root><Popover.Trigger>Chat menu</Popover.Trigger><Popover.Portal><Popover.Content>
             <MoveActions session={session} workspace={workspace}/>
           </Popover.Content></Popover.Portal></Popover.Root>
           <DropdownMenu><DropdownMenuTrigger asChild><button id="more" aria-label="More for Review agent">⋯</button></DropdownMenuTrigger>
@@ -90,7 +90,7 @@ it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a de
     expect(await page.locator('#label').textContent()).toBe('unlabeled');
     await page.getByRole('button', { name: 'Name all devices' }).click();
     expect(await page.locator('#label').textContent()).toBe('Review home');
-    await page.getByRole('button', { name: 'Execution menu' }).click();
+    await page.getByRole('button', { name: 'Chat menu' }).click();
     await page.getByRole('button', { name: 'Move to Review worker' }).click();
     await page.getByRole('dialog', { name: 'Move to Review worker' }).waitFor();
     await page.getByRole('button', { name: 'Move to Review worker', exact: true }).click();

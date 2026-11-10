@@ -26,9 +26,25 @@ it.each([true, false])('shows server-owned manager authority without ineffective
   });
   const html = renderToStaticMarkup(<QueryClientProvider client={cache}><TipProvider><CoordinationSettings sessionId="chat" /></TipProvider></QueryClientProvider>);
   expect(html.includes('Manager chats are unrestricted.')).toBe(unrestricted);
-  expect(html.includes('aria-label="Coordination for chat"')).toBe(!unrestricted);
+  expect(html.includes('aria-label="Coordination for this chat"')).toBe(!unrestricted);
   expect(html.includes('Ask first')).toBe(!unrestricted);
   expect(html).toContain('Pause incoming');
+  cache.clear();
+});
+
+it('names an execution-level policy a workstream, never an execution', () => {
+  const cache = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  cache.setQueryData(coordinationKey('chat'), {
+    unrestricted: false, policy: 'allow', source: 'execution',
+    levels: [{ source: 'chat', value: null }, { source: 'execution', value: 'allow' }, { source: 'agent', value: null }, { source: 'global', value: null }],
+    scopes: { chat: 'chat', execution: 'exec', agent: 'agent', global: '1' }, heldAt: null, approvals: [],
+  });
+  const html = renderToStaticMarkup(<QueryClientProvider client={cache}><TipProvider><CoordinationSettings sessionId="chat" /></TipProvider></QueryClientProvider>);
+  expect(html).toContain('Allow automatically, from this workstream.');
+  expect(html).toContain('All chats in this workstream');
+  expect(html).toContain('aria-label="Coordination for this workstream"');
+  expect(html).toContain('aria-label="Coordination for this agent"');
+  expect(html).not.toMatch(/execution/i);
   cache.clear();
 });
 

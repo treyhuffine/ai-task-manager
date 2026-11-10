@@ -56,6 +56,9 @@ function IncomingPauseButton({ sessionId }: { sessionId: string }) {
   </button></Tip>;
 }
 
+/** What each policy scope is called on screen. Code says execution, people say workstream. */
+const COORDINATION_SCOPE_NOUNS: Record<string, string> = { agent: 'agent', execution: 'workstream', chat: 'chat' };
+
 /** Standing preferences live in the chat menu, away from everyday input. */
 export function CoordinationSettings({ sessionId }: { sessionId: string }) {
   const enabled = useChatCapabilities().coordination !== false;
@@ -67,12 +70,13 @@ function AvailableCoordinationSettings({ sessionId }: { sessionId: string }) {
   if (!data) return null;
   return <div className="space-y-3 text-xs">
     <p className="font-medium">Messages to other chats</p>
-    {data.unrestricted ? <p className="text-muted-foreground">Manager chats are unrestricted. This chat can message other chats and start new ones without coordination approval. Execution and other chats still follow their saved preferences.</p> : <>
-    <p className="text-muted-foreground">{data.policy === 'allow' ? 'Allow automatically' : 'Ask first'}{data.source === 'default' ? ' by default' : `, from ${data.source === 'global' ? 'your default' : `this ${data.source}`}`}.</p>
-    {data.levels.filter(level => level.source !== 'global').map(level => {
+    {data.unrestricted ? <p className="text-muted-foreground">Manager chats are unrestricted. This chat can message other chats and start new ones without coordination approval. Other chats still follow their saved preferences.</p> : <>
+    <p className="text-muted-foreground">{data.policy === 'allow' ? 'Allow automatically' : 'Ask first'}{data.source === 'default' ? ' by default' : `, from ${data.source === 'global' ? 'your default' : `this ${COORDINATION_SCOPE_NOUNS[data.source] ?? data.source}`}`}.</p>
+    {data.levels.map(level => {
+      if (level.source === 'global') return null;
       const id = data.scopes[level.source];
       if (!id) return null;
-      return <label key={level.source} className="flex min-w-0 items-center justify-between gap-3"><span>{level.source === 'chat' ? 'This chat' : level.source === 'execution' ? 'All chats in this execution' : 'This agent'}</span><select aria-label={`Coordination for ${level.source}`} className="min-w-0 max-w-40 rounded border bg-background p-1" value={level.value ?? ''} disabled={policy.isPending} onChange={event => policy.mutate({ scope: level.source, id, policy: event.target.value === 'ask' ? 'ask' : event.target.value === 'allow' ? 'allow' : null })}><option value="">Inherit</option><option value="ask">Ask first</option><option value="allow">Allow automatically</option></select></label>;
+      return <label key={level.source} className="flex min-w-0 items-center justify-between gap-3"><span>{level.source === 'chat' ? 'This chat' : level.source === 'execution' ? 'All chats in this workstream' : 'This agent'}</span><select aria-label={`Coordination for this ${COORDINATION_SCOPE_NOUNS[level.source] ?? level.source}`} className="min-w-0 max-w-40 rounded border bg-background p-1" value={level.value ?? ''} disabled={policy.isPending} onChange={event => policy.mutate({ scope: level.source, id, policy: event.target.value === 'ask' ? 'ask' : event.target.value === 'allow' ? 'allow' : null })}><option value="">Inherit</option><option value="ask">Ask first</option><option value="allow">Allow automatically</option></select></label>;
     })}
     <p className="text-muted-foreground">Applies to new sends. Approved messages keep their authorization.</p>
     </>}
@@ -84,7 +88,7 @@ function AvailableCoordinationSettings({ sessionId }: { sessionId: string }) {
 export function DefaultCoordinationSetting() {
   const { data } = useQuery({ queryKey: ['coordination', 'defaults'], queryFn: () => trpcClient.coordination.defaults.query() });
   const mutation = useCoordinationPolicy();
-  return <div className="space-y-2"><label className="flex items-center justify-between gap-3 text-sm"><span>Default coordination</span><select aria-label="Default coordination" className="rounded-md border bg-background px-2 py-1" value={data?.global ?? 'ask'} disabled={mutation.isPending} onChange={event => mutation.mutate({ scope: 'global', id: '1', policy: event.target.value === 'allow' ? 'allow' : 'ask' })}><option value="ask">Ask first</option><option value="allow">Allow automatically</option></select></label><p className="text-xs text-muted-foreground">Applies to execution and other chats. Agent, execution and chat overrides take precedence. Agent main chats and Ri&apos;s main chat are unrestricted. Already approved sends keep their authorization.</p></div>;
+  return <div className="space-y-2"><label className="flex items-center justify-between gap-3 text-sm"><span>Default coordination</span><select aria-label="Default coordination" className="rounded-md border bg-background px-2 py-1" value={data?.global ?? 'ask'} disabled={mutation.isPending} onChange={event => mutation.mutate({ scope: 'global', id: '1', policy: event.target.value === 'allow' ? 'allow' : 'ask' })}><option value="ask">Ask first</option><option value="allow">Allow automatically</option></select></label><p className="text-xs text-muted-foreground">Agent, workstream and chat overrides take precedence. Agent main chats and Ri&apos;s main chat are unrestricted. Already approved sends keep their authorization.</p></div>;
 }
 
 export function IncomingDeliveryStatus({sessionId,deliveryId}:{sessionId:string;deliveryId:string}) {

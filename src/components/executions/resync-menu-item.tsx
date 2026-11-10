@@ -9,7 +9,7 @@ import { useResyncSession } from '@/hooks/use-execution';
 import { Tip } from '@/components/ui/tip';
 
 /**
- * "Resync this session" — under the 3-dot menu. Safety hatch for when
+ * "Resync chat" — under the 3-dot menu. Safety hatch for when
  * the user perceives a session as stuck and the automated health
  * checks haven't healed it. Force-closes the cached subprocess,
  * force-reconciles, bypasses the orphan-redispatch throttle.
@@ -65,7 +65,7 @@ function PersonalResyncMenuItem({
     <Tip
       label={imported
         ? 'Pull anything new from the provider transcript this chat was imported from. Use when the terminal running it is ahead of what you see here.'
-        : "Force-resync this session. Kills the current Claude subprocess (interrupting any turn in flight), replays the transcript from disk, and redispatches any unanswered user message. Use when the session feels stuck and the automatic recovery hasn't caught up."}
+        : "Force-resync this chat. Stops the process running it (interrupting any turn in flight), replays the transcript from disk, and resends any unanswered message. Use when the chat feels stuck and the automatic recovery hasn't caught up."}
     >
       <button
         type="button"
@@ -82,7 +82,7 @@ function PersonalResyncMenuItem({
             <RefreshCw size={12} />
           )}
           <span>
-            {isPending ? 'Resyncing…' : showDone ? 'Resynced' : 'Resync session'}
+            {isPending ? 'Resyncing…' : showDone ? 'Resynced' : 'Resync chat'}
           </span>
         </span>
         {error && !isPending && (

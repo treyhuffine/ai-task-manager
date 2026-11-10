@@ -202,8 +202,8 @@ export function ExecutionHeader({
   const menu = (align: 'start' | 'end', triggerClass: string, iconSize: number) => (
     <PopoverPrimitive.Root>
       <PopoverPrimitive.Trigger asChild>
-        <Tip label="Execution menu">
-          <button type="button" aria-label="Execution menu" className={triggerClass}>
+        <Tip label="Chat menu">
+          <button type="button" aria-label="Chat menu" className={triggerClass}>
             <MoreHorizontal size={iconSize} />
           </button>
         </Tip>
@@ -268,9 +268,11 @@ export function ExecutionHeader({
               <DetailRow label="Base sha" value={`@${session.baseSha.slice(0, 7)}`} valueClass="font-mono text-foreground" />
             )}
             <DetailRow label="Status" value={chatStatus.label} valueClass="text-foreground" />
-            <CopyableDetailRow label="Session" value={session.id} copyLabel="app session id" />
+            <CopyableDetailRow label="Chat" value={session.id} copyLabel="chat id" />
             {session.executionId && (
-              <CopyableDetailRow label="Execution" value={session.executionId} copyLabel="execution id" />
+              // The chat tabs that share this folder, branch and terminal.
+              // Code calls it the execution, people know it as a workstream.
+              <CopyableDetailRow label="Workstream" value={session.executionId} copyLabel="workstream id" />
             )}
             {session.externalSessionId && (
               <>
@@ -590,7 +592,7 @@ function DetailRow({
 }) {
   return (
     <div className="flex items-baseline gap-3">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 w-16 flex-shrink-0">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 w-20 flex-shrink-0">
         {label}
       </span>
       <span className={cn('flex-1 min-w-0 text-[12px]', valueClass)}>{value}</span>
@@ -600,9 +602,9 @@ function DetailRow({
 
 /**
  * Detail row whose value is click-to-copy. Used for surfacing the
- * app session id, durable execution id, harness-side session id, and
- * resume command. Visible only when bound, so optional rows stay out of
- * the way for fresh sessions.
+ * chat id (the session), workstream id (the execution), harness-side
+ * session id, and resume command. Visible only when bound, so optional
+ * rows stay out of the way for fresh sessions.
  */
 function CopyableDetailRow({
   label,
@@ -626,7 +628,7 @@ function CopyableDetailRow({
   };
   return (
     <div className="flex items-baseline gap-3">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 w-16 flex-shrink-0">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 w-20 flex-shrink-0">
         {label}
       </span>
       <Tip label={`Copy ${copyLabel}`}>
