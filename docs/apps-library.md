@@ -1,6 +1,6 @@
 # Apps library
 
-Apps at `/apps` is the shared library for local apps, connected services, custom MCP servers, and skills. Settings → Plugins retains its existing tabs, creation controls, and management flows during this transition. Both surfaces operate on the same accounts and records.
+Apps at `/apps` is the shared library for local apps, connected services, custom MCP servers, and skills. The Plugins button in Settings closes Settings and opens Apps. Existing direct links, creation shortcuts, and sign-in returns to Settings → Plugins still open their targeted management flows. Both surfaces operate on the same accounts and records.
 
 ## Product behavior
 
@@ -37,6 +37,6 @@ pnpm ts
 pnpm exec vitest run src/components/local-apps/library-model.test.ts src/components/local-apps/library.browser.test.ts src/components/local-apps/app-places.test.ts src/lib/client/source-handoff.test.ts src/lib/chat-sources/editor.browser.test.ts src/components/settings/sections/plugins/navigation.test.ts src/components/results/result-surfaces.test.ts src/app/api/integrations/mcp-servers/oauth-return-route.test.ts src/lib/integrations/oauth-return.test.ts
 ```
 
-The browser tests render the actual library, setup components, and Settings Plugins with a synthetic API. They check mobile overflow, capabilities, exact-account selection, creation routes, partial failures, disabled local execution, and existing Settings navigation. Composer tests cover draft preservation, duplicate insertion, and chat isolation. OAuth route tests retain the Settings default and reject external return destinations.
+The browser tests render the actual library, setup components, and Settings Plugins with a synthetic API. They check mobile overflow, capabilities, exact-account selection, creation routes, partial failures, disabled local execution, the Plugins shortcut to Apps on desktop and mobile, and existing Settings management links. Composer tests cover draft preservation, duplicate insertion, and chat isolation. OAuth route tests retain the Settings default and reject external return destinations.
 
 For a dev preview, run `pnpm dev:web` and open `http://localhost:42241/apps`. This uses the dev Home and does not require restarting production.

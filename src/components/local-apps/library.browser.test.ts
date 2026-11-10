@@ -1,4 +1,4 @@
-/** The actual library and unchanged Plugins surface, against an isolated synthetic API. */
+/** The actual library and compatible Plugins management flows, against an isolated synthetic API. */
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -50,13 +50,15 @@ beforeAll(async () => {
       import {TooltipProvider} from '@/components/ui/tooltip';
       import {AppLibrary} from '@/components/local-apps/app-library';
       import {PluginsSection} from '@/components/settings/sections/plugins-section';
-      import {useSettingsStore,openSettings} from '@/components/settings/settings-store';
+      import {SettingsNav} from '@/components/settings/settings-nav';
+      import {useSettingsStore,openSettings,setSettingsSection} from '@/components/settings/settings-store';
       import {receiveChatSources} from '@/lib/client/source-handoff';
       import {useAppPane} from '@/lib/client/app-pane';
       const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
       const mode=new URLSearchParams(location.search);
       if(mode.has('settings'))openSettings('plugins');
-      window.actions=[];window.references=[];
+      if(mode.has('navigation'))openSettings('general');
+      window.actions=[];window.references=[];window.views=[];
       receiveChatSources('${chatId}',offer=>{window.references.push(offer.sourceRef);return true;});
       const data={revision:1,instances:[{id:'tracker',slug:'subscription-tracker',displayName:'Subscription tracker',description:'See recurring costs and decide what to keep.',packageId:'subscription-tracker',hasView:true,hasActions:true,enabled:true,archived:false,activation:{phase:'active'},runtime:{condition:'stopped'}}],drafts:[],grants:[],approvals:[],panels:[]};
       function PaneProbe({route}){
@@ -71,8 +73,9 @@ beforeAll(async () => {
         useEffect(()=>{const pop=()=>setQuery(Object.fromEntries(new URLSearchParams(location.search)));window.addEventListener('popstate',pop);return()=>window.removeEventListener('popstate',pop);},[]);
         const navigate=route=>{if(!route||route.startsWith('?')){history.pushState(null,'',route||'/');setQuery(Object.fromEntries(new URLSearchParams(route)));}else setDestination(route);};
         return <main className="flex h-dvh min-w-0 flex-col">
-          {destination?<><output data-destination>{destination}</output><PaneProbe key={paneMount} route={destination}/><button onClick={()=>setPaneMount(n=>n+1)}>Remount pane</button><button onClick={()=>setDestination('')}>Return to library</button></>:mode.has('settings')?<div className="mx-auto w-full max-w-3xl overflow-auto px-5" data-settings-scroll><PluginsSection/></div>:<AppLibrary data={mode.has('disabled')?undefined:data} localEnabled={!mode.has('disabled')} localLoading={false} query={query} navigate={navigate}/>}
+          {mode.has('navigation')?(settings.open&&<SettingsNav active={settings.section} onSelect={setSettingsSection}/>):destination?<><output data-destination>{destination}</output><PaneProbe key={paneMount} route={destination}/><button onClick={()=>setPaneMount(n=>n+1)}>Remount pane</button><button onClick={()=>setDestination('')}>Return to library</button></>:mode.has('settings')?<div className="mx-auto w-full max-w-3xl overflow-auto px-5" data-settings-scroll><PluginsSection/></div>:<AppLibrary data={mode.has('disabled')?undefined:data} localEnabled={!mode.has('disabled')} localLoading={false} query={query} navigate={navigate}/>}
           <output hidden data-settings-open>{String(settings.open)}</output>
+          <output hidden data-settings-section>{settings.section}</output>
         </main>;
       }
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><TooltipProvider><Fixture/></TooltipProvider></QueryClientProvider>);
@@ -81,7 +84,7 @@ beforeAll(async () => {
     define: { 'process.env.NODE_ENV': '"development"', 'process.env': '{}' },
     plugins: [{ name: 'isolated-dashboard', setup(api) {
       api.onResolve({ filter: /^@\/contexts\/dashboard-context$/ }, () => ({ path: 'dashboard', namespace: 'fixture' }));
-      api.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `export const useDashboard=()=>({openSkill:ref=>window.actions.push(['skill',ref]),goHome:()=>window.actions.push(['home']),showPanelTab:tab=>window.actions.push(['panel',tab]),setMobileTab:tab=>window.actions.push(['mobile',tab]),isFocusMode:false});export const useOptionalDashboard=useDashboard;`, loader: 'js' }));
+      api.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `export const useDashboard=()=>({setActiveView:view=>window.views.push(view),openSkill:ref=>window.actions.push(['skill',ref]),goHome:()=>window.actions.push(['home']),showPanelTab:tab=>window.actions.push(['panel',tab]),setMobileTab:tab=>window.actions.push(['mobile',tab]),isFocusMode:false});export const useOptionalDashboard=useDashboard;`, loader: 'js' }));
     } }],
   });
   server = http.createServer(async (req, res) => {
@@ -122,6 +125,21 @@ async function open(query = ''): Promise<Page> {
   return page;
 }
 const card = (page: Page, name: string) => page.locator('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
+
+it.each([1180, 390])('opens Apps from the Plugins settings button at %ipx', async width => {
+  const page = await open('?navigation');
+  try {
+    await page.setViewportSize({ width, height: 900 });
+    const navigation = page.getByRole('navigation', { name: 'Settings', exact: true });
+    await navigation.getByRole('button', { name: 'Voice', exact: true }).click();
+    expect(await page.locator('[data-settings-section]').textContent()).toBe('voice');
+    expect(await page.locator('[data-settings-open]').textContent()).toBe('true');
+    await navigation.getByRole('button', { name: 'Plugins', exact: true }).click();
+    await expect.poll(() => page.locator('[data-settings-open]').textContent()).toBe('false');
+    expect(await page.evaluate(() => (window as unknown as { views: unknown[] }).views)).toEqual([{ kind: 'apps', route: '' }]);
+    expect(await page.locator('[data-settings-section]').textContent()).toBe('voice');
+  } finally { await page.close(); }
+});
 
 it('shows real capabilities, exact accounts and setup in Apps without opening Settings', async () => {
   const page = await open();

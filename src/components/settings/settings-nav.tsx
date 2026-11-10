@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Search, type LucideIcon } from 'lucide-react';
+import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 import { SECTIONS, GET_STARTED_SECTION, type SectionId } from './settings-sections';
+import { closeSettings } from './settings-store';
 
 /** Shared desktop sidebar and mobile navigation for personal and team settings. */
 export interface SettingsNavItem<Id extends string> {
@@ -114,12 +116,19 @@ export function SettingsNavigation<Id extends string>({
   );
 }
 
-/** Personal settings retain their conditional, pinned setup checklist. */
+/** Personal settings keep the setup checklist and link Plugins to the Apps library. */
 export function SettingsNav({ active, onSelect, getStarted }: {
   active: SectionId;
   onSelect: (id: SectionId) => void;
   getStarted?: { done: number; total: number } | null;
 }) {
-  return <SettingsNavigation active={active} onSelect={onSelect} sections={SECTIONS}
+  const { setActiveView } = useDashboard();
+  const select = (id: SectionId) => {
+    if (id === 'plugins') {
+      closeSettings();
+      setActiveView({ kind: 'apps', route: '' });
+    } else onSelect(id);
+  };
+  return <SettingsNavigation active={active} onSelect={select} sections={SECTIONS}
     pinned={getStarted ? { ...GET_STARTED_SECTION, count: `${getStarted.done}/${getStarted.total}` } : undefined} />;
 }
