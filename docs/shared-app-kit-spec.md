@@ -2,10 +2,12 @@
 
 **Direction agreed November 10, 2026.** Trey wants the open-source app kit to be the default way apps are built in Ri, and to remain its own separate project that runs without Ri. Apps must be able to use Ri's integrations. The mechanics below are proposed until each phase's checks pass. This document is meant to be shared between the two repositories, so every agent working on either one builds toward the same thing.
 
+This file lives in both repositories with the same content: the kit's `docs/shared-app-kit-spec.md` is the copy to edit, and Ri's `docs/shared-app-kit-spec.md` is updated to match in the same change. Code paths in `packages/app-kit`, `packages/mcp-apps-host`, `src/` and `apps/finances` are Ri's. Paths in `packages/core` and `skills/` are the kit's.
+
 Where this document conflicts with these, this document is current:
 
-- Ri: [local-apps.md](local-apps.md) (the builder and app model), [local-apps-modularity.md](local-apps-modularity.md) (extracting `packages/app-kit` into an open-source repository), [local-apps-implementation.md](local-apps-implementation.md) §8 (builder templates).
-- The kit: `SPEC.md` "Independence and host adapters", "Connectors for app code and agents" and "Ri installation and chat context", and `docs/architecture.md` "Optional hosts and connectors". The kit keeps its own product decisions for standalone use. This document adds what hosting in Ri and reaching Ri's integrations require.
+- Ri: [local-apps.md](https://github.com/treyhuffine/ai-task-manager/blob/main/docs/local-apps.md) (the builder and app model), [local-apps-modularity.md](https://github.com/treyhuffine/ai-task-manager/blob/main/docs/local-apps-modularity.md) (extracting `packages/app-kit` into an open-source repository), [local-apps-implementation.md](https://github.com/treyhuffine/ai-task-manager/blob/main/docs/local-apps-implementation.md) §8 (builder templates).
+- The kit ([repository](https://github.com/dynamismlabs/mcp-app-builder)): `SPEC.md` "Independence and host adapters", "Connectors for app code and agents" and "Ri installation and chat context", and `docs/architecture.md` "Optional hosts and connectors". The kit keeps its own product decisions for standalone use. This document adds what hosting in Ri and reaching Ri's integrations require.
 
 ## Names
 
@@ -52,8 +54,8 @@ They differ where the kit is broader. It runs outside Ri, has its own sign-in an
 
 ## Not in scope
 
-- A public marketplace, hostile-code isolation, or running other people's apps. The trust profile stays owner-trusted native code ([local-apps-modularity.md](local-apps-modularity.md#security-boundaries)).
-- Changing how Ri hosts connected MCP services ([connected-mcp-apps.md](connected-mcp-apps.md)). A published kit app is just another connected MCP server to Ri.
+- A public marketplace, hostile-code isolation, or running other people's apps. The trust profile stays owner-trusted native code ([local-apps-modularity.md](https://github.com/treyhuffine/ai-task-manager/blob/main/docs/local-apps-modularity.md#security-boundaries)).
+- Changing how Ri hosts connected MCP services ([connected-mcp-apps.md](https://github.com/treyhuffine/ai-task-manager/blob/main/docs/connected-mcp-apps.md)). A published kit app is just another connected MCP server to Ri.
 - Two live copies of one app's data. Each data directory has one owning server, as both kits already require.
 
 ## How the modes compare
@@ -82,7 +84,9 @@ Ri already hosts a server app this way. Finances runs with `runtime.protocol: "m
 5. For each call, Ri asks the app over IPC for `authorizePrincipal` with `actorId`, `role` (`owner-ui`, `agent` or `background`), `scopeRef`, `ticket` and `expiresAt`. The app returns a short-lived `credential`. Ri calls the MCP tool with `Authorization: Bearer <credential>` and, for a scoped caller, `x-app-invocation-ticket`. When the call ends, Ri sends `revokePrincipal`.
 6. A tool error can carry a typed code in `_meta["com.ri/errorCode"]`. Otherwise Ri shows a generic failure.
 
-The kit's apps already serve standard MCP and MCP Apps on a loopback port. On November 10, Reading Log 0.2.0 answered on `127.0.0.1:4310/mcp` without sign-in, listed `list_books`, `save_book` and `update_book` with `_meta.ui.resourceUri`, served `ui://reading-log/main` as `text/html;profile=mcp-app`, and saved a record through MCP.
+The kit's apps already serve standard MCP and MCP Apps on a loopback port. On November 10, Reading Log 0.2.0 (kit commit `3077b22`) answered on `127.0.0.1:4310/mcp` without sign-in, listed `list_books`, `save_book` and `update_book` with `_meta.ui.resourceUri`, served `ui://reading-log/main` as `text/html;profile=mcp-app`, and saved a record through MCP.
+
+Later that day, kit commit `6665f49` adopted the view pattern Ri's own MCP server uses with ChatGPT and Claude. Actions are data tools that return `structuredContent: { result }` and draw nothing. Apps declare `show_*` render tools with `defineView`, which return `{ view, data }` and draw a card. The core adds `open_<app>`, which takes no input, opens the whole app and carries `openai/ui.entrypoints: [{ type: "global" }]`. Actions the screens call carry `openai/widgetAccessible`. The view declares no network domains and works in a scripts-only frame with no forms, dialogs or same-origin storage. Selection goes out through `updateModelContext` (`client.select`), and changes through `client.didChange`. That was checked in the kit's strict test host, not yet in Ri or the assistant apps.
 
 ### Kit changes
 
@@ -102,16 +106,24 @@ The kit's apps already serve standard MCP and MCP Apps on a loopback port. On No
 | `timeoutMs` | none | optional, host default | required (the adapter fills the default) |
 
   Examples double as preview fixtures and test data. The handler signature stays `(ctx, input)`, since that's the kit's API and only Ri's adapter reads the contract.
-- **Screen entrypoints.** Tools that open a screen declare `_meta["openai/ui"].entrypoints` (OpenAI's MCP extensions), so Ri's connected-app host, ChatGPT and other hosts list the screen. Hosted, the adapter copies them into `plugin.json` `ui.entrypoints`.
-- **A view that works in Ri's sandbox.** Ri shows a view in an opaque frame with no network access and no browser storage. The kit's `dist/mcp.html` is already one inline file. It must get all data through tool calls, photos through `read_photo`, and must still save without IndexedDB, with the outbox sending immediately when storage is unavailable.
-- **Optional entity descriptors and a view context schema**, mapped to Ri's contract `entities` and `contexts`, so records can be `@` mentioned and a view's selection reaches the chat. `client.select` already publishes bounded selection context.
+- **Screen entrypoints and a sandbox-safe view: done in `6665f49`.** `open_<app>` declares the global entrypoint, and the view needs no network or storage. What remains is trying it in Ri (phase 1) and in ChatGPT and Claude (the kit's own release check).
+- **An optional `path` on `open_<app>`.** Ri opens an installed app at `/apps/<slug>/<path>` and owns Back and Forward for it, with the view following moves in place (Ri commit `5d0403e2`). The kit's view uses an in-memory router. `open_<app>` keeps working with no input for ChatGPT, and when the host passes a `path`, the view starts there and reports moves back to the host.
+- **A selection resolver.** Ri doesn't put a view's raw selection into a chat. It validates the state against a declared schema, then calls the app as that chat to turn it into bounded text and record references, so the chat only sees what its grant allows (`contexts` and `ui.contextAction` in Ri's contract). The core adds one generic resolver for the bounded selection `client.select` already publishes: record IDs to titles and short summaries through the app's own read actions, under the caller's access. Other hosts can use it too.
+- **Optional entity descriptors**, mapped to Ri's contract `entities`, so records can be `@` mentioned and opened by ID.
 - **Use-time workflow skills.** An app may ship `skills/<name>/SKILL.md` for using the app in chat (not for building it). The adapter lists them as contract `workflows`.
 
 ### Ri changes
 
 - **The kit, pinned.** Ri carries the kit as a git submodule at `modules/kit`, pinned to a tested commit, until the core is published. Then Ri pins the package version instead. An installed Ri release carries the packed core and starter. Packing runs from a staged copy without workspace dev dependencies, as `packAppKit` already does for Ri's current app kit.
-- **A package adapter** (in `src/lib/local-apps/`, behind the existing feature flag). From a kit app's `dist/contract.json` and built output it writes the Ri `plugin.json` (`runtime.kind: "node"`, `protocol: "mcp-http-v1"`, `mcpPath: "/mcp"`, `entry` set to the hosted entry, `start: "on-demand"`, `ui.resources` from `dist/mcp.html`, entrypoints, integration requests) and Ri's `contract.json`. It generates the contract from the same definitions the server advertises, so qualification passes by construction.
-- **A build adapter** `kit-v1` beside `ri-esbuild-v1` and `next-standalone-v1`. It installs the frozen lockfile and runs the kit's build through Ri's owned runner and bundled toolchain.
+- **A package adapter** (in `src/lib/local-apps/`, behind the existing feature flag). From a kit app's `dist/contract.json` and built output it writes the Ri `plugin.json` and Ri's `contract.json`:
+  - `runtime`: `kind: "node"`, `protocol: "mcp-http-v1"`, `mcpPath: "/mcp"`, the exact `target` (platform and architecture), `entry` set to the hosted entry, `start: "on-demand"`.
+  - `ui.resources`: `ui://<app-id>/main` with no `file`, since a service's resources are read through MCP. Entrypoints `global` and `thread`.
+  - `ui.resolveAction`: `open_<app>`. `ui.contextAction`: the core's selection resolver, and `contexts` from its state schema.
+  - Every tool the server advertises becomes a contract action, data tools, `show_*` and `open_<app>` alike, with output schemas as advertised (`{ result }` or `{ view, data }`). Qualification compares exactly these, so it passes by construction.
+  - Integration requests and `riActions` from the app's declared connector needs.
+- **Opening a kit view.** Ri calls a view's `resolveAction` with `{ path, query }` and expects `{ resource, data, scope: { actions } }` (`viewResultSchema` in `packages/app-kit/src/contract.ts`). The kit's `open_<app>` returns `{ view, data }` instead, so Ri's opener gets a branch for `kit-v1` packages. It calls `open_<app>` with the `path`, takes `resource` from the manifest, and sets `scope.actions` to the actions marked `openai/widgetAccessible` whose audience includes `agent`. That's the same rule the kit gives its screens. The guest can never widen it.
+- **Context from a kit view.** Ri's local view host takes the standard `ui/update-model-context` message from a kit view as the context state, then applies its existing validation and `contextAction` round trip. `packages/mcp-apps-host` already parses that message for connected apps.
+- **A build adapter** `kit-v1` beside `ri-esbuild-v1` and `next-standalone-v1`. It installs the frozen lockfile and runs the kit's build through Ri's owned runner and bundled toolchain. Ri's manifest validator currently allows `mcp-http-v1` only with `next-standalone-v1` and a recipe (`packages/app-kit/src/contract.ts`). That rule widens to `kit-v1`.
 - **One pnpm.** Ri builds apps with its bundled pnpm (12.14.0 today, see `packages/app-kit/src/build.ts`). The kit's starter declares the same major, so a hosted build and a standalone build resolve the same lockfile.
 - **Nothing else in the host path changes.** Grants, approvals, the Apps library and rail, ⌘K, Ask Ri, the conversation panel, backups and removal all work through the existing instance model.
 
@@ -141,7 +153,7 @@ const found = await ctx.connectors.call("gmail.search_messages", { query: "recei
 The module is an MCP client of Ri. Only the credential changes:
 
 - **Hosted:** Ri gives the app a process credential at startup, and Ri's call into the app carries the invocation ticket. A call made while serving that request carries both, so it runs under the intersection of the app's grant and the caller's grant. A chat that may only read cannot make the app send. Background work uses the app's background grant.
-- **Standalone:** the owner connects the app to their Ri once, the way ChatGPT connects today ([mcp-oauth.md](mcp-oauth.md)). Ri's consent page names the app and lets the owner pick which accounts and actions it gets. Ri issues a token for that app installation, which the app stores with the core's encrypted `putCredential`. A missing or revoked token raises the kit's reconnect state. Ri must have a remote address for an app outside the computer to reach it, as ChatGPT also requires.
+- **Standalone:** the owner connects the app to their Ri once, the way ChatGPT connects today ([mcp-oauth.md](https://github.com/treyhuffine/ai-task-manager/blob/main/docs/mcp-oauth.md)). Ri's consent page names the app and lets the owner pick which accounts and actions it gets. Ri issues a token for that app installation, which the app stores with the core's encrypted `putCredential`. A missing or revoked token raises the kit's reconnect state. Ri must have a remote address for an app outside the computer to reach it, as ChatGPT also requires.
 
 Credentials stay on the app's backend. They are never in a view, loader data, tool results or exports. Ri never hands provider tokens to an app.
 
@@ -159,7 +171,7 @@ The bespoke HTTP broker (`/api/local-apps/broker/v1`, which carries only `gmail.
 
 ## 4. Publishing and moving
 
-- **Hosted is the default and needs no deploy.** A phone opens the app wherever Ri opens, through Ri's remote address and Ri's sign-in ([remote-access.md](remote-access.md)).
+- **Hosted is the default and needs no deploy.** A phone opens the app wherever Ri opens, through Ri's remote address and Ri's sign-in ([remote-access.md](https://github.com/treyhuffine/ai-task-manager/blob/main/docs/remote-access.md)).
 - **Give it its own address.** From the app's page, Ri runs the kit's own commands in the app folder. That's an installed always-on service on the Mac with `APP_URL` and sign-in on, or `deploy cloudflare`. The kit refuses to listen on the network without sign-in, and Ri keeps that rule. Cloudflare needs the owner's own one-time Cloudflare sign-in. Ri doesn't store that credential in the app.
 - **Moving is a data move, not a copy.** Ri stops the hosted instance, takes the kit's whole-app backup, restores it at the destination and stops supervising. The first account adopts the `local-owner` records. Ri then connects to the published app as a connected MCP server and shows it in Apps as before. The old instance is archived read-only and never writes again.
 - **Coming back** is the same move in reverse, through Import.
@@ -167,13 +179,13 @@ The bespoke HTTP broker (`/api/local-apps/broker/v1`, which carries only `gmail.
 ## 5. Ri's current app kit and the included apps
 
 - **Freeze the authoring half.** Don't add app-facing features to `@ri/app-kit/sdk`, its templates or `@ri/app-kit/ui`. Put them in the kit. Fixes and hosting work continue.
-- **The host half stays in Ri.** That's runtime supervision, the view host, contract and manifest validation, the MCP service transport, grants, schedules, backups and removal. The plan in [local-apps-modularity.md](local-apps-modularity.md) to extract all of `packages/app-kit` into an open-source repository is replaced. The kit is the open-source project.
+- **The host half stays in Ri.** That's runtime supervision, the view host, contract and manifest validation, the MCP service transport, grants, schedules, backups and removal. The plan in [local-apps-modularity.md](https://github.com/treyhuffine/ai-task-manager/blob/main/docs/local-apps-modularity.md) to extract all of `packages/app-kit` into an open-source repository is replaced. The kit is the open-source project.
 - **Move what apps rely on into the kit as optional modules:** the Gmail and Calendar sync steps, account store and mail index (`@ri/app-kit/sources`), zone-aware time (`@ri/app-kit/time`), the scope store, job queue and blob store (`@ri/app-kit/data`), and the shared UI kit where the kit's starter lacks it.
 - **Then move the included apps,** each with its records preserved: Bookmarks, Travel, Job Search and People first. Finances moves last, since it is a Next.js service with its own Plaid flow.
 
 ## Build order and checks
 
-Each phase lands in both repositories and is checked on a disposable Ri home ([environments.md](environments.md)), never production.
+Each phase lands in both repositories and is checked on a disposable Ri home ([environments.md](https://github.com/treyhuffine/ai-task-manager/blob/main/docs/environments.md)), never production.
 
 | Phase | Done when |
 | --- | --- |
@@ -187,7 +199,7 @@ Each phase lands in both repositories and is checked on a disposable Ri home ([e
 
 | Phase | The kit | Ri |
 | --- | --- | --- |
-| 1 | Hosted entry, pass-only access, `node:sqlite` driver, typed errors, richer action metadata, entrypoints, sandbox-safe view, `.claude/skills` link, pnpm major | `modules/kit`, package adapter, `kit-v1` build adapter, New app through `create`, slimmer builder brief |
+| 1 | Hosted entry, pass-only access, `node:sqlite` driver, typed errors, richer action metadata, `path` on `open_<app>`, selection resolver, `.claude/skills` link, pnpm major | `modules/kit`, package adapter, kit view opener and context, `kit-v1` build adapter and validator rule, New app through `create`, slimmer builder brief |
 | 2 | Connector module with the hosted credential | App callers on `/api/integrations/mcp`, grant intersection, Ri actions as tools |
 | 3 | Nothing new beyond existing serve, deploy and recovery | Publish and move flows on the app page, archive the hosted copy |
 | 4 | Connector module with OAuth to Ri and reconnect state | App-connectors OAuth scope and consent, per-app revocation |
@@ -211,6 +223,7 @@ Each phase lands in both repositories and is checked on a disposable Ri home ([e
 
 ## Evidence so far
 
-- November 10, 2026: Reading Log 0.2.0 built and served from a clean clone with a throwaway data directory. Tools, view resource and a write over MCP worked without sign-in as described in §1. Its tools carried no `_meta["openai/ui"].entrypoints`.
+- November 10, 2026: Reading Log 0.2.0 (kit `3077b22`) built and served from a clean clone with a throwaway data directory. Tools, view resource and a write over MCP worked without sign-in as described in §1. At that commit its tools carried no `_meta["openai/ui"].entrypoints`. Kit `6665f49` added them through `open_<app>`. That was read from the commit, not run.
 - Ri's handshake, qualification, broker limits, `--ignore-scripts` installs and integrations MCP were read from the code cited above on the same day. The kit's core depends on `better-sqlite3` 12.11.1 at runtime.
-- Not yet tested: a kit view rendering inside Ri's sandbox, the outbox without IndexedDB, and any of the phase checks.
+- Ri's view opener (`resolveAction` with `{ path, query }`, `viewResultSchema`), context round trip (`contexts`, `contextAction`) and the validator rule tying `mcp-http-v1` to `next-standalone-v1` were read from `packages/app-kit/src/contract.ts` and `src/lib/local-apps/service.ts`.
+- Not yet tested: a kit view rendering inside Ri, and any of the phase checks.
