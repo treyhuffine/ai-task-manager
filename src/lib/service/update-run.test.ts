@@ -180,3 +180,23 @@ it('still tells an unmoved Home how to move when no published releases are set u
   expect(run.said.join('\n')).toContain('ri update --from <folder>');
   expect(run.said.join('\n')).toContain("hasn't moved to a release yet");
 });
+
+it("never tells a computer whose Ri predates its own record to run ri start", async () => {
+  // Found live: a laptop running agents for a Home on a release from before
+  // October 29 has a Home folder with no record, which `ri update` can't
+  // switch. It used to print "Run `ri start` to create your Home", which on a
+  // connected computer makes a second Home.
+  const old: InstalledHome = { ...home('connected'), identity: null };
+  const run = deps([old], {});
+  expect(await runUpdate({}, run.value)).toEqual([]);
+  const said = run.said.join('\n');
+  expect(said).toContain('nothing was switched to it');
+  expect(said).toContain("Don't run `ri start`");
+  expect(said).not.toContain('Run `ri start` to create your Home');
+});
+
+it('still offers ri start on a computer with no Ri at all', async () => {
+  const run = deps([], {});
+  await runUpdate({}, run.value);
+  expect(run.said.at(-1)).toContain('Run `ri start` to create your Home');
+});

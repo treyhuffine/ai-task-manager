@@ -50,6 +50,8 @@ ri update --from "$PWD"
 
 If the `ri` terminal command is not installed, use `pnpm cli:dev update --from "$PWD"` from the checkout instead.
 
+This switches only a runtime from October 29, 2026 or later, when Ri's background service began recording itself and accepting a switch. An older one stays on its version, and `ri update` says nothing was switched. Until it moves, turn off its agents from your Ri's **Settings**, **Devices**, so it doesn't hold your Ri's updates.
+
 Install the rebuilt app from `release/desktop/mac-arm64/Ri.app`, replacing the previous application, and reopen it. Keep the saved installation selected. The runtime update uses the existing safe update path and waits for local work to finish. Saved connections, enrollment and project folders are retained.
 
 If local execution says **Update required**, update the background runtime on the named computer. Updating only the Home or refreshing its web page does not update that computer’s worker.

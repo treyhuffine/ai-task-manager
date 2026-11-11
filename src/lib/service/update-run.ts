@@ -164,7 +164,14 @@ export async function runUpdate(options: UpdateRunOptions, deps: UpdateRunDeps):
     }
     const launcher = deps.launcher();
     if (!launcher.installed) deps.say(launcher.reason);
-    if (!known.length) { deps.say(`Ri ${target.label} is installed. Run \`ri start\` to create your Home, or to keep one that's running by hand running on it.`); return outcomes; }
+    if (!known.length) {
+      // Ri runs here from before October 29, when services began recording
+      // themselves (on a connected computer, its agents). That release can't
+      // take a switch either, and `ri start` would make a second Home.
+      if (deps.homes().length) deps.say(`Ri ${target.label} is installed, but nothing was switched to it: Ri already runs here from a version older than \`ri update\` can switch. Don't run \`ri start\`, which would make a second Home. If this computer runs agents for your Ri, your Ri's Settings, Devices can turn that off, so it doesn't hold your Ri's updates.`);
+      else deps.say(`Ri ${target.label} is installed. Run \`ri start\` to create your Home, or to keep one that's running by hand running on it.`);
+      return outcomes;
+    }
     for (const home of homes) outcomes.push(await switchHome(home, target, options, deps));
   } else {
     let configured = false;
