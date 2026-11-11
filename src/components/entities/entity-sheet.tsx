@@ -4,7 +4,7 @@ import type { ComponentProps, ReactNode, Ref } from 'react';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 
 /** One detail frame, focus boundary and close protocol for every Home. */
-export function EntitySheet({ open, label, onClose, onCloseAll = onClose, width = 672, fullWidth = false, contentRef, resizing = false, showCloseButton = true, onOpenAutoFocus, children }: {
+export function EntitySheet({ open, label, onClose, onCloseAll = onClose, width = 672, fullWidth = false, contentRef, resizing = false, showCloseButton = true, onOpenAutoFocus, onCloseAutoFocus, children }: {
   open: boolean;
   label: string;
   onClose: () => void;
@@ -15,6 +15,7 @@ export function EntitySheet({ open, label, onClose, onCloseAll = onClose, width 
   resizing?: boolean;
   showCloseButton?: boolean;
   onOpenAutoFocus?: ComponentProps<typeof SheetContent>['onOpenAutoFocus'];
+  onCloseAutoFocus?: ComponentProps<typeof SheetContent>['onCloseAutoFocus'];
   children: ReactNode;
 }) {
   return (
@@ -23,10 +24,14 @@ export function EntitySheet({ open, label, onClose, onCloseAll = onClose, width 
         className="flex-row gap-0 overflow-y-auto p-0 data-[side=right]:sm:max-w-none"
         style={{ width: fullWidth ? '100vw' : `min(${width}px, 100vw)` }}
         onOpenAutoFocus={onOpenAutoFocus}
+        onCloseAutoFocus={onCloseAutoFocus}
         onInteractOutside={(event) => { if (resizing) event.preventDefault(); }}
         onEscapeKeyDown={(event) => {
           event.preventDefault();
           if (event.target instanceof Element && event.target.closest('[data-cancel-on-escape]')) return;
+          // Escape closes one frame. Its content may move back into an
+          // underlying panel synchronously as onClose runs.
+          event.stopPropagation();
           if (event.shiftKey) onCloseAll(); else onClose();
         }}
       >

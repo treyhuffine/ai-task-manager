@@ -568,6 +568,36 @@ html[data-ri-desktop='darwin'] [data-slot='sheet-content']:is([data-side='left']
   min-height: 8rem;
 }
 
+/* Quick capture keeps its width for writing. Block controls return in the
+   expanded view, where there is room for the document editor's gutter. */
+.scratchpad-editor[data-compact="true"] .rich-editor-body {
+  margin-left: 0;
+  padding-left: 0;
+}
+.scratchpad-editor[data-compact="true"] .drag-handle,
+.scratchpad-editor[data-compact="true"] .gutter-plus {
+  display: none;
+}
+.scratchpad-editor[data-compact="false"] .rich-editor-body {
+  font-size: 1rem;
+  line-height: 1.75;
+}
+.scratchpad-editor .rich-editor-body p + p {
+  margin-top: 0.4em;
+}
+.scratchpad-editor .rich-editor-body .is-empty[data-placeholder] {
+  position: relative;
+}
+.scratchpad-editor .rich-editor-body .is-empty[data-placeholder]::before {
+  position: absolute;
+  inset: 0;
+  float: none;
+  height: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Paragraphs */
 .rich-editor-body p {
   margin: 0.25em 0;

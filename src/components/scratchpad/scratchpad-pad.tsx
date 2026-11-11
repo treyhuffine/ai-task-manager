@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Editor } from '@tiptap/core';
-import { Loader2, MessageSquare, Radio, Square, StickyNote, X } from 'lucide-react';
+import { Loader2, Maximize2, MessageSquare, NotebookPen, Radio, Square, StickyNote, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { RichEditor } from '@/components/editor/rich-editor';
 import { Tip } from '@/components/ui/tip';
@@ -23,22 +23,39 @@ import { padTarget, replaceChanged, targetStillThere, titleAndBody, type PadTarg
  * when you choose: a task or a note (a chip to it stays in its place), the
  * Stream (handed off, so it leaves the page), or the chat on screen.
  */
-export function ScratchpadPad({ onClose, closeShortcut }: { onClose: () => void; closeShortcut?: string }) {
+export function ScratchpadPad({ onClose, closeShortcut, expanded = false, onExpand, onEditor, onSendToChat }: {
+  onClose: () => void;
+  closeShortcut?: string;
+  expanded?: boolean;
+  onExpand?: () => void;
+  onEditor?: (editor: Editor | null) => void;
+  onSendToChat?: () => void;
+}) {
   const { saver, snapshot, loadError, retry } = useScratchpad();
   return (
-    <div data-scratchpad className="flex h-full min-h-0 w-full flex-col bg-background">
-      <header className="flex shrink-0 items-center gap-2 border-b border-border/50 py-1 pl-3 pr-1.5">
-        <h2 className="text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">Scratchpad</h2>
+    <div data-scratchpad data-expanded={expanded} className="flex h-full min-h-0 w-full flex-col bg-background">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border/50 pl-4 pr-2">
+        <NotebookPen size={14} className="shrink-0 text-muted-foreground" />
+        <h2 className="mr-auto shrink-0 text-xs font-semibold">Scratchpad</h2>
         <SaveState saving={snapshot.saving} error={snapshot.error} updatedAt={snapshot.updatedAt} />
+        {onExpand && (
+          <Tip label="Open in a slideout">
+            <button type="button" onClick={onExpand} onMouseDown={(e) => e.preventDefault()}
+              aria-label="Expand the scratchpad"
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground">
+              <Maximize2 size={14} />
+            </button>
+          </Tip>
+        )}
         <Tip label="Close" shortcut={closeShortcut}>
           <button type="button" onClick={onClose} aria-label="Close the scratchpad"
-            className="ml-auto rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground">
-            <X size={13} />
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground">
+            <X size={15} />
           </button>
         </Tip>
       </header>
       {snapshot.ready ? (
-        <PadBody saver={saver} draft={snapshot.draft} revision={snapshot.revision} />
+        <PadBody saver={saver} draft={snapshot.draft} revision={snapshot.revision} expanded={expanded} onEditor={onEditor} onSendToChat={onSendToChat} />
       ) : loadError ? (
         <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-xs text-muted-foreground">
           <p>Your scratchpad could not be loaded.</p>
@@ -54,8 +71,13 @@ export function ScratchpadPad({ onClose, closeShortcut }: { onClose: () => void;
 }
 
 /** The editor, from the moment the stored text has arrived. */
-function PadBody({ saver, draft, revision }: { saver: ScratchpadSaver; draft: string; revision: number }) {
+function PadBody({ saver, draft, revision, expanded, onEditor, onSendToChat }: {
+  saver: ScratchpadSaver; draft: string; revision: number; expanded: boolean;
+  onEditor?: (editor: Editor | null) => void;
+  onSendToChat?: () => void;
+}) {
   const [editor, setEditor] = useState<Editor | null>(null);
+  const receiveEditor = useCallback((value: Editor | null) => { setEditor(value); onEditor?.(value); }, [onEditor]);
   // The editor starts from the text as it arrived. Everything after comes
   // through the saver's revisions below, never through the editor's prop.
   const [initial] = useState(draft);
@@ -81,8 +103,16 @@ function PadBody({ saver, draft, revision }: { saver: ScratchpadSaver; draft: st
   // The shortcut, or opening the pad, puts the caret here.
   useEffect(() => {
     if (!editor) return;
-    if (consumeScratchpadFocus()) editor.commands.focus('end');
-    const focus = () => { consumeScratchpadFocus(); editor.commands.focus('end'); };
+    // Touch browsers focus synchronously inside the command. Wait a frame
+    // for the editor's initial node views to settle before focusing.
+    const focus = () => {
+      consumeScratchpadFocus();
+      requestAnimationFrame(() => {
+        if (editor.isDestroyed) return;
+        editor.commands.focus('end');
+      });
+    };
+    if (consumeScratchpadFocus()) focus();
     window.addEventListener(SCRATCHPAD_FOCUS_EVENT, focus);
     return () => window.removeEventListener(SCRATCHPAD_FOCUS_EVENT, focus);
   }, [editor]);
@@ -91,16 +121,20 @@ function PadBody({ saver, draft, revision }: { saver: ScratchpadSaver; draft: st
 
   return (
     <>
-      <div className="scratchpad-editor min-h-0 flex-1 overflow-y-auto pb-6 pl-11 pr-4 pt-3 pointer-coarse:pl-4">
+      <div data-compact={!expanded} className={cn(
+        'scratchpad-editor min-h-0 flex-1 overflow-y-auto pb-6',
+        expanded ? 'pl-12 pr-6 pt-5 pointer-coarse:pl-4' : 'px-4 pt-3',
+      )}>
         <RichEditor
           content={initial}
           onChange={onChange}
-          onEditor={setEditor}
-          placeholder="Anything on your mind. It stays here until you move it."
+          onEditor={receiveEditor}
+          className={expanded ? 'mx-auto max-w-3xl' : undefined}
+          placeholder="Write a note…"
           hideFooter
         />
       </div>
-      {editor && <MoveBar editor={editor} />}
+      {editor && <MoveBar editor={editor} onSendToChat={onSendToChat} />}
     </>
   );
 }
@@ -128,7 +162,7 @@ function useChatOnScreen(): boolean {
   return useSyncExternalStore(subscribeComposers, () => composerTarget() !== null, () => false);
 }
 
-function MoveBar({ editor }: { editor: Editor }) {
+function MoveBar({ editor, onSendToChat }: { editor: Editor; onSendToChat?: () => void }) {
   const target = useTarget(editor);
   const chatOnScreen = useChatOnScreen();
   const createTask = useCreateTask();
@@ -178,19 +212,25 @@ function MoveBar({ editor }: { editor: Editor }) {
     const composer = composerTarget();
     if (!target || !composer) return;
     composer.insert(`${target.text} `);
+    onSendToChat?.();
   };
 
   const subject = target?.kind === 'selection' ? 'the selection' : 'this line';
   const disabled = !target || pending !== null;
   return (
-    <div className="flex shrink-0 items-center gap-0.5 border-t border-border/50 bg-muted/20 px-2 py-1">
-      <span className="mr-auto truncate pl-1 text-[10px] text-muted-foreground/60">
-        {target ? (target.kind === 'selection' ? 'Move the selection' : 'Move this line') : 'Put the caret on a line to move it'}
-      </span>
-      <MoveButton label="Task" tip={`Make ${subject} a task, and leave a link to it here`} icon={Square} busy={pending === 'task'} disabled={disabled} onClick={() => void toEntity('task')} />
-      <MoveButton label="Note" tip={`Make ${subject} a note, and leave a link to it here`} icon={StickyNote} busy={pending === 'note'} disabled={disabled} onClick={() => void toEntity('note')} />
-      <MoveButton label="Stream" tip={`Hand ${subject} to your Stream to sort out, and clear it from here`} icon={Radio} busy={pending === 'stream'} disabled={disabled} onClick={() => void toStream()} />
-      <MoveButton label="Chat" tip={chatOnScreen ? `Add ${subject} to the message you're writing` : 'Open a chat to add this to its message'} icon={MessageSquare} disabled={disabled || !chatOnScreen} onClick={toChat} />
+    <div className="shrink-0 border-t border-border/50 bg-muted/20 px-3 pb-2 pt-2">
+      <div className="mb-1.5 flex min-w-0 items-baseline gap-1.5 text-[11px] text-muted-foreground">
+        {target ? <>
+          <span className="shrink-0 font-medium">{target.kind === 'selection' ? 'Selection' : 'This line'}</span>
+          <span className="truncate text-muted-foreground/70">{target.text}</span>
+        </> : <span>Click a line or select text to move it</span>}
+      </div>
+      <div className="grid grid-cols-4 gap-1">
+        <MoveButton label="Task" tip={`Make ${subject} a task, and leave a link to it here`} icon={Square} busy={pending === 'task'} disabled={disabled} onClick={() => void toEntity('task')} />
+        <MoveButton label="Note" tip={`Make ${subject} a note, and leave a link to it here`} icon={StickyNote} busy={pending === 'note'} disabled={disabled} onClick={() => void toEntity('note')} />
+        <MoveButton label="Stream" tip={`Hand ${subject} to your Stream to sort out, and clear it from here`} icon={Radio} busy={pending === 'stream'} disabled={disabled} onClick={() => void toStream()} />
+        <MoveButton label="Chat" tip={chatOnScreen ? `Add ${subject} to the message you're writing` : 'Open a chat to add this to its message'} icon={MessageSquare} disabled={disabled || !chatOnScreen} onClick={toChat} />
+      </div>
     </div>
   );
 }
@@ -208,10 +248,10 @@ function MoveButton({ label, tip, icon: Icon, busy = false, disabled, onClick }:
       {/* Keep the editor's caret where it is, so the line stays the target. */}
       <button type="button" disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={onClick}
         className={cn(
-          'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-medium text-muted-foreground transition-colors',
-          'hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40',
+          'inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-border/70 bg-background px-1 text-[11px] font-medium transition-colors pointer-coarse:h-10',
+          'hover:bg-muted/60 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-40',
         )}>
-        {busy ? <Loader2 size={10} className="animate-spin" /> : <Icon size={10} />}
+        {busy ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <Icon size={13} className="shrink-0" />}
         {label}
       </button>
     </Tip>

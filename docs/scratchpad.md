@@ -48,20 +48,41 @@ localStorage). On a phone or tablet it's a sheet over the page. It opens
 from the notebook button in the top bar (beside search on a phone), the
 command palette ("Scratchpad"), or ⌘⇧J.
 
+The desktop column is a compact quick view with a small writing inset and
+no block-control gutter. **Expand** in its header opens the same modal
+slideout frame as notes and tasks, with a dimmed backdrop and keyboard
+focus inside it. It starts at 960px and its left edge drags to resize
+between 420px and 1400px, capped by the window. The browser remembers its
+width. The full editing gutter returns and the writing uses the note
+editor's text size, with a readable maximum line width.
+
+The column and modal share one mounted editor and saver. Moving its portal
+container between them preserves the caret, selection, undo history,
+unsent typing and pending line actions. Escape, ✕ or clicking the backdrop
+returns to the quick view, and Escape again closes the column. ⌘⇧J also
+returns from the modal to the column. Sending a line to Chat closes the
+modal and focuses the message box. On phones and tablets, the sheet
+already uses the available width.
+
 **⌘⇧J gets you to the caret and back** (`nextScratchpadAction`). Closed, it
 opens the pad with the caret in it. Open while you work elsewhere, it puts
 the caret in it. Pressed from inside the column, it takes you back to where
 you were (the message you were writing, say) and leaves the pad in view.
-Escape or ✕ closes the column. On a sheet, pressing it from inside closes
-the sheet. ⌘⇧K stays the Stream's Quick capture: the two are separate front
+Escape or ✕ closes the column (in the modal they first return to the column).
+On a sheet, pressing it from inside closes the sheet. ⌘⇧K stays the
+Stream's Quick capture: the two are separate front
 doors because they're separate jobs.
 
 **Writing.** The same editor as a note's body: checklists to cross off,
 headings, links, and chips to tasks and notes. It saves as you type.
+The empty-line hint, "Write a note…", stays on one line.
 
 **Moving a line out.** The bar along the bottom acts on the selection, or
 with nothing selected on the line the caret is on, so a single line never
 needs selecting (`pad-target.ts`).
+
+The bar previews the line or selection above four labeled buttons, so the
+target and the actions stay readable even in the narrow quick view.
 
 - **Task** or **Note** makes one (the first line is its title, the rest
   its body) and leaves a chip to it in the line's place.
