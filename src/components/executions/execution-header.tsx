@@ -268,18 +268,18 @@ export function ExecutionHeader({
               <DetailRow label="Base sha" value={`@${session.baseSha.slice(0, 7)}`} valueClass="font-mono text-foreground" />
             )}
             <DetailRow label="Status" value={chatStatus.label} valueClass="text-foreground" />
-            <CopyableDetailRow label="Chat" value={session.id} copyLabel="chat id" />
+            <CopyableDetailRow label="Chat" value={session.id} copyLabel="chat ID" />
             {session.executionId && (
               // The chat tabs that share this folder, branch and terminal.
               // Code calls it the execution, people know it as a workstream.
-              <CopyableDetailRow label="Workstream" value={session.executionId} copyLabel="workstream id" />
+              <CopyableDetailRow label="Workstream" value={session.executionId} copyLabel="workstream ID" />
             )}
             {session.externalSessionId && (
               <>
                 <CopyableDetailRow
                   label={resumeIdLabel(session.harness)}
                   value={session.externalSessionId}
-                  copyLabel={`${resumeIdLabel(session.harness).toLowerCase()}`}
+                  copyLabel={resumeIdLabel(session.harness)}
                 />
                 {providerResumeCommand && (
                   <CopyableDetailRow label="Resume" value={providerResumeCommand} copyLabel="resume command" />
@@ -602,8 +602,8 @@ function DetailRow({
 
 /**
  * Detail row whose value is click-to-copy. Used for surfacing the
- * chat id (the session), workstream id (the execution), harness-side
- * session id, and resume command. Visible only when bound, so optional
+ * chat ID (the session), workstream ID (the execution), harness-side
+ * session ID, and resume command. Visible only when bound, so optional
  * rows stay out of the way for fresh sessions.
  */
 function CopyableDetailRow({
@@ -654,7 +654,7 @@ function CopyableDetailRow({
 }
 
 function resumeIdLabel(harness: string | null): string {
-  return isKnownHarnessId(harness) ? `${harnessDefinition(harness).name} id` : 'Resume id';
+  return isKnownHarnessId(harness) ? `${harnessDefinition(harness).name} ID` : 'Resume ID';
 }
 
 
