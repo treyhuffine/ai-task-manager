@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CURRENT_COMPATIBILITY } from '@/lib/releases/compatibility';
 import { homeCompatibilityReasons, recordWorkerCompatibility } from './update-compatibility';
 const mocks = vi.hoisted(() => ({ ids: new Set(['laptop']), key: 'worker-key', commands: [] as object[], runs: [] as object[] }));
@@ -29,5 +29,32 @@ it('retains an incompatible legacy protocol report instead of showing its prior 
   const { workerCompatibilityView } = await import('./update-compatibility');
   recordWorkerCompatibility('laptop', mocks.key, undefined, undefined, false, 99);
   expect(workerCompatibilityView('laptop', 'MacBook', 4)).toMatchObject({ state: 'update-required', update: 'home' });
-  expect(homeCompatibilityReasons(CURRENT_COMPATIBILITY)).toHaveLength(1);
+  // The running release refuses it too, so this update strands nothing (below).
+  expect(homeCompatibilityReasons(CURRENT_COMPATIBILITY, CURRENT_COMPATIBILITY)).toEqual([]);
+});
+
+describe('a computer the running release already refuses', () => {
+  // Found live: an old desktop app on another Mac, missing a capability the
+  // Home has required for weeks. Every request it made was refused and
+  // recorded as not stopped, so it held every update waiting for a bridge.
+  // Its report, as recorded on 2026-11-11.
+  const old = { ...CURRENT_COMPATIBILITY, apiProtocols: [1], capabilities: ['worker.protocol4', 'durable-journals.v1', 'compatibility.v1', 'safe-update-pause.v1'], requiredCapabilities: ['worker.protocol4'] };
+  beforeEach(() => recordWorkerCompatibility('laptop', mocks.key, { release: { version: '0.1.0', build: 'old', source: 'packaged' }, compatibility: old }, undefined, false, 4));
+
+  it("doesn't hold an update that keeps everything the running release accepts", () => {
+    expect(homeCompatibilityReasons(CURRENT_COMPATIBILITY, CURRENT_COMPATIBILITY)).toEqual([]);
+  });
+
+  it('still waits when work from this Home is out on it', () => {
+    mocks.commands = [{}];
+    expect(homeCompatibilityReasons(CURRENT_COMPATIBILITY, CURRENT_COMPATIBILITY)[0]).toMatch(/MacBook/);
+    mocks.commands = []; mocks.runs = [{}];
+    expect(homeCompatibilityReasons(CURRENT_COMPATIBILITY, CURRENT_COMPATIBILITY)[0]).toMatch(/MacBook/);
+  });
+
+  it('still waits when the update drops a protocol or journal format the running release accepts', () => {
+    expect(homeCompatibilityReasons(breaking, CURRENT_COMPATIBILITY)[0]).toMatch(/MacBook/);
+    const newerEvents = { ...CURRENT_COMPATIBILITY, journal: { ...CURRENT_COMPATIBILITY.journal, events: { read: [2], write: 2 } } };
+    expect(homeCompatibilityReasons(newerEvents, CURRENT_COMPATIBILITY)[0]).toMatch(/MacBook/);
+  });
 });

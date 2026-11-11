@@ -22,7 +22,13 @@ function readReport(deviceId: string, keyId: string) {
     return report.keyId === keyId ? report : null;
   } catch { return null; } // Missing/corrupt/old-enrollment evidence is unknown, never idle.
 }
-export function homeCompatibilityReasons(candidate: RuntimeCompatibility | null): string[] {
+/** Every protocol and journal format the running release accepts, the candidate accepts too. */
+function keepsEverything(candidate: RuntimeCompatibility, running: RuntimeCompatibility) {
+  const covers = (next: number[], now: number[]) => now.every(value => next.includes(value));
+  return covers(candidate.workerProtocols, running.workerProtocols) && covers(candidate.apiProtocols, running.apiProtocols)
+    && covers(candidate.journal.commands.read, running.journal.commands.read) && covers(candidate.journal.events.read, running.journal.events.read);
+}
+export function homeCompatibilityReasons(candidate: RuntimeCompatibility | null, running: RuntimeCompatibility = runtimePeerRelease().compatibility): string[] {
   const enrolled = listEnrolledDeviceIds();
   if (!enrolled.size) return [];
   if (!candidate) return ['This release has no worker compatibility metadata. Install a bridge release before updating Ri while devices are enrolled.'];
@@ -33,6 +39,14 @@ export function homeCompatibilityReasons(candidate: RuntimeCompatibility | null)
     const compatibility = report?.peer?.compatibility ?? legacyCompatibility(report?.protocol ?? device.workerProtocol ?? 0);
     if (negotiateWorker(candidate, compatibility).compatible) continue;
     const unresolved = listWorkerCommands(device.id, { states: ['sent', 'uncertain'] }).length + deliveredSendsWithOpenRuns(device.id).length;
+    // The running release already refuses this computer (route-auth answers
+    // 426), so it delivers nothing now and this update strands nothing it
+    // could deliver: the computer needs its own update either way. Found
+    // live: an old desktop app on another Mac, refused for weeks, kept every
+    // update waiting, since each refusal records it as not stopped. Work
+    // already sent there, or a candidate that drops something the running
+    // release accepts, still waits for a bridge.
+    if (!unresolved && !negotiateWorker(running, compatibility).compatible && keepsEverything(candidate, running)) continue;
     // A last stopped report with no undelivered work is the only proof an
     // incompatible offline device cannot still be producing old-format events.
     const journal = report?.journal;
