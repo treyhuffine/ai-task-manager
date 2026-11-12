@@ -1086,6 +1086,7 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
         inputDigest: digest,
         inputPreview,
         caller,
+        ...(action.openWorld !== undefined ? { openWorld: action.openWorld } : {}),
       });
       if (decision === 'deny') {
         finish('denied', { connectionId: connection.id, status: 'denied', errorCode: 'denied' });

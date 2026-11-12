@@ -280,6 +280,12 @@ export interface Action<I = unknown, O = unknown> {
   replacedBy?: string;
   /** App-only MCP tools remain callable through the gated app path. */
   modelVisible?: boolean;
+  /**
+   * Whether a call reaches people or systems beyond the person's own accounts (MCP's
+   * `openWorldHint`), when the provider says so. Undefined when nobody said. The host's approval
+   * policy may use it to tell a write that reaches outside from one to the person's own data.
+   */
+  openWorld?: boolean;
   /** Trusted local validation after account resolution and before approval. No side effects. */
   validateForConnection?(connection: ConnectionMetadata, input: I, audience?: 'model' | 'app'): void;
   execute(ctx: ActionContext, input: I): Promise<O>;
@@ -611,6 +617,8 @@ export interface ApprovalCheckInput {
   inputDigest: string;
   inputPreview: unknown;
   caller: Caller;
+  /** The action's `openWorld`, when its provider said. */
+  openWorld?: boolean;
 }
 
 export interface ApprovalPolicy {

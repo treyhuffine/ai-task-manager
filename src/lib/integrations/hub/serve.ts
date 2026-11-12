@@ -12,6 +12,7 @@ import { accountDisplay, modelSafeOutcome, toToolName, type AccountChoice, type 
 import type { RiMcpServer, RiMcpToolResult } from '@/lib/mcp/http-server';
 import { insertHubCall, type HubAppRecord } from '@/lib/db/queries';
 import { isAppToolkitId } from '../app-ids';
+import { reachesOutside } from '../write-policy';
 import { callRiService, RI_SERVICE_DESCRIPTIONS, riServiceInputs, RiServiceError, type RiServiceName } from './ri-services';
 import { startedByFor, type StartedBy } from './origin';
 import { riServiceTool } from './grant';
@@ -68,7 +69,7 @@ export async function serveHub(server: RiMcpServer, runtime: IntegrationRuntime,
     const several = choices.length > 1;
     const shape = (action.input as unknown as z.ZodObject<z.ZodRawShape>).shape;
     server.registerTool(name, {
-      description: action.description + (action.mutating ? ' This changes something outside Ri, so Ri asks the person every time.' : ''),
+      description: action.description + (reachesOutside({ actionId: action.id, mutating: action.mutating === true, openWorld: action.openWorld }) ? ' This reaches outside the person\'s own data, so Ri asks the person every time.' : ''),
       inputSchema: {
         ...shape,
         ...(several ? { account: z.string().optional().describe(`Which account. Allowed: ${choices.map((c) => `"${accountDisplay(c)}"`).join(', ')}.`) } : {}),

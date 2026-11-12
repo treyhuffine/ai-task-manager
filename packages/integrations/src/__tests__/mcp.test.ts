@@ -462,6 +462,29 @@ describe('ingestMcpServer (§12) — external MCP as a gated provider', () => {
     }
   });
 
+  it('carries whether a tool reaches the open world to the approval policy, only tightening for an arbitrary server', async () => {
+    const world: McpClientLike = {
+      async listTools() {
+        return { tools: [
+          { name: 'post-update', annotations: { openWorldHint: true } },
+          { name: 'save-note', annotations: { openWorldHint: false } },
+          { name: 'plain' },
+        ] };
+      },
+      async callTool() { return { content: [{ type: 'text', text: 'ok' }] }; },
+    };
+    const official = ingestSetup();
+    await ingestMcpServer(official.registry, official.store, official.secretBox, { name: 'official', client: world, trustToolAnnotations: true });
+    expect(official.registry.getAction('mcp.official.post-update')?.action.openWorld).toBe(true);
+    expect(official.registry.getAction('mcp.official.save-note')?.action.openWorld).toBe(false);
+    expect(official.registry.getAction('mcp.official.plain')?.action.openWorld).toBeUndefined();
+    const untrusted = ingestSetup();
+    await ingestMcpServer(untrusted.registry, untrusted.store, untrusted.secretBox, { name: 'untrusted', client: world });
+    // Saying it reaches the world makes a call stricter, so it counts. Saying it doesn't is ignored.
+    expect(untrusted.registry.getAction('mcp.untrusted.post-update')?.action.openWorld).toBe(true);
+    expect(untrusted.registry.getAction('mcp.untrusted.save-note')?.action.openWorld).toBeUndefined();
+  });
+
   it('gives per-tool policies precedence over trusted annotations', async () => {
     const s = ingestSetup();
     await ingestMcpServer(s.registry, s.store, s.secretBox, {

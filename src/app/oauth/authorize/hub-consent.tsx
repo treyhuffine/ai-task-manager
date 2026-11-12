@@ -41,7 +41,7 @@ export async function HubConsent({ request, params, issuer }: { request: Authori
 
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium text-foreground">What {name} can reach</legend>
-        <p className="text-[11px] text-muted-foreground">Only the accounts and tools you tick. Anything that changes something outside {APP_NAME}, like sending an email, asks you every time.</p>
+        <p className="text-[11px] text-muted-foreground">Only the accounts and tools you tick. Anything that reaches other people, like sending an email, posting, sharing, inviting or paying, asks you every time. Other changes follow your usual settings.</p>
         {options.accounts.length === 0 && <p className="text-xs text-muted-foreground">You haven&apos;t connected any accounts to {APP_NAME} yet.</p>}
         {options.accounts.map((account) => {
           const asked = account.tools.filter((tool) => tool.requested);
@@ -56,7 +56,7 @@ export async function HubConsent({ request, params, issuer }: { request: Authori
                   <li key={tool.name}>
                     <label className="flex items-start gap-2 text-xs">
                       <input type="checkbox" name={`tool:${account.connectionId}`} value={tool.name} defaultChecked={tool.requested} className="mt-0.5" />
-                      <span><span className="font-mono text-[11px] text-foreground">{tool.name}</span>{tool.write && <span className="text-muted-foreground"> · asks you each time</span>}
+                      <span><span className="font-mono text-[11px] text-foreground">{tool.name}</span>{tool.outside && <span className="text-muted-foreground"> · reaches outside, so it asks you each time</span>}
                         <span className="block text-muted-foreground">{tool.description}</span></span>
                     </label>
                   </li>

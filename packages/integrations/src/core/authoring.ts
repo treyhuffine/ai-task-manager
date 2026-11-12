@@ -36,6 +36,8 @@ export interface ActionSpec<S extends z.ZodTypeAny, O> {
   deprecated?: boolean;
   /** The replacement action id, surfaced in the projected description when `deprecated`. */
   replacedBy?: string;
+  /** It reaches people or systems beyond the person's own accounts (see `Action.openWorld`). */
+  openWorld?: boolean;
   execute(ctx: ActionContext, input: z.output<S>): Promise<O>;
 }
 
@@ -51,6 +53,7 @@ export function action<S extends z.ZodTypeAny, O>(spec: ActionSpec<S, O>): Actio
     ...(spec.risk ? { risk: spec.risk } : {}),
     ...(spec.deprecated !== undefined ? { deprecated: spec.deprecated } : {}),
     ...(spec.replacedBy ? { replacedBy: spec.replacedBy } : {}),
+    ...(spec.openWorld !== undefined ? { openWorld: spec.openWorld } : {}),
     execute: spec.execute,
   };
 }
