@@ -12,8 +12,10 @@
  * rolling back build and data together if the switch fails. Ri never starts an app itself, never
  * runs the folder being edited, and never opens an app's data directory.
  *
- * The kit's name isn't settled, so Ri never assumes it: `create` is a setting, and inside an app Ri
- * runs the kit's command the way the app's own `start` script names it.
+ * The kit's name isn't settled, so Ri never assumes it: New app runs the copy of the kit Ri carries
+ * (toolchain.ts) by the command its package names, and inside an app Ri runs the kit's command the
+ * way the app's own `start` script names it. Every command runs with Ri's own Node and pnpm, so the
+ * person needs no developer tools (docs/personal-apps.md "What Ri brings").
  */
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -26,6 +28,7 @@ import { createAppSource, getAppSource, listAppSources, updateAppSource, type Ap
 import { processState } from '@/lib/process-state';
 import { untraced } from '@/lib/utils/untraced';
 import { toSlug } from '@/lib/integrations/mcp-servers';
+import { appToolchain, gitHelp, type AppToolchain } from './toolchain';
 
 const run = promisify(execFile);
 
@@ -43,14 +46,36 @@ export interface AppBuildSettings {
   appsDir: string;
   /** The default, when the person hasn't chosen one. */
   defaultAppsDir: string;
-  /** The command that runs the kit's `create`, or null until the person sets it. */
+  /**
+   * A developer override: a command that runs a kit checkout's `create`, used instead of the kit Ri
+   * carries. Null to use the carried kit.
+   */
   appKitCommand: string | null;
+  /** What Ri brings for apps on this computer (toolchain.ts). */
+  tools: {
+    node: string;
+    pnpm: string | null;
+    kit: { version: string; commit: string | null } | null;
+    git: boolean;
+    /** How to get git, when there's none. */
+    gitHelp: string | null;
+  };
 }
 
 export function appBuildSettings(): AppBuildSettings {
   const config = readAuthConfig();
   const defaultAppsDir = path.join(/* turbopackIgnore: true */ getAppRoot(), 'apps');
-  return { appsDir: config?.appsDir || defaultAppsDir, defaultAppsDir, appKitCommand: config?.appKitCommand || null };
+  const tools = appToolchain();
+  return {
+    appsDir: config?.appsDir || defaultAppsDir, defaultAppsDir, appKitCommand: config?.appKitCommand || null,
+    tools: {
+      node: process.version,
+      pnpm: tools.pnpm?.version ?? null,
+      kit: tools.kit ? { version: tools.kit.version, commit: tools.kit.commit } : null,
+      git: !!tools.git,
+      gitHelp: tools.git ? null : gitHelp(),
+    },
+  };
 }
 
 export function setAppBuildSettings(input: { appsDir?: string | null; appKitCommand?: string | null }): AppBuildSettings {
@@ -151,10 +176,13 @@ async function freePort(): Promise<number> {
   });
 }
 
-/** Run a command in an app's folder, feeding each output line to `onLine`. Resolves with its exit code. */
-function runIn(folder: string, command: string, args: readonly string[], env: Record<string, string>, onLine: (line: string) => void): Promise<{ code: number; tail: string }> {
+/**
+ * Run a command in an app's folder with Ri's toolchain first on its PATH, feeding each output line to
+ * `onLine`. Resolves with its exit code.
+ */
+function runIn(tools: AppToolchain, folder: string, command: string, args: readonly string[], env: Record<string, string>, onLine: (line: string) => void): Promise<{ code: number; tail: string }> {
   return new Promise((resolve) => {
-    const child = spawn(untraced(command), args, { cwd: folder, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(untraced(command), args, { cwd: folder, env: { ...process.env, ...tools.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let buffer = '', tail = '';
     const take = (chunk: Buffer, lines: boolean) => {
       const text = chunk.toString('utf8');
@@ -177,18 +205,40 @@ const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
  * The app's own dependencies, so its kit command can run. Only installs from its lockfile, and
  * runs nothing of the app. The kit installs a release's dependencies again in its own copy.
  */
-async function prepare(job: AppJob, folder: string): Promise<boolean> {
+async function prepare(tools: AppToolchain, job: AppJob, folder: string): Promise<boolean> {
   if (fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ folder, 'node_modules', '.bin'))) return true;
   const step: KitStep = { step: 'prepare', status: 'started' };
   job.steps.push(step);
-  const { code, tail } = await runIn(folder, untraced('pnpm'), ['install', '--frozen-lockfile', '--prefer-offline'], {}, () => {});
+  const { code, tail } = await runIn(tools, folder, pnpmCommand(tools), ['install', '--frozen-lockfile', '--prefer-offline'], {}, () => {});
   Object.assign(step, code === 0 ? { status: 'passed' } : { status: 'failed', detail: tail.slice(-500) });
   if (code !== 0) finish(job, 'failed', `Installing the app’s dependencies failed: ${tail.trim().split('\n').pop() ?? ''}`);
   return code === 0;
 }
 
-async function git(folder: string, args: string[]) {
-  return run(untraced('git'), args, { cwd: folder, maxBuffer: 4 * 1024 * 1024 });
+/** The carried pnpm, or the computer's when this copy of Ri carries none. */
+function pnpmCommand(tools: AppToolchain): string {
+  return tools.pnpm?.command ?? 'pnpm';
+}
+
+/** Ri's toolchain, refusing up front when there's no git, which every app needs. */
+function toolsWithGit(): AppToolchain & { git: string } {
+  const tools = appToolchain();
+  if (!tools.git) throw new AppBuildError('setup', gitHelp());
+  return tools as AppToolchain & { git: string };
+}
+
+async function git(folder: string, args: string[], tools: AppToolchain & { git: string } = toolsWithGit()) {
+  return run(untraced(tools.git), args, { cwd: folder, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, ...tools.env } });
+}
+
+/**
+ * Commits need a name. When the computer has none set for git (someone without developer tools), the
+ * app's repository gets its own, so the builder's commits work there.
+ */
+async function ensureCommitIdentity(folder: string, tools: AppToolchain & { git: string }) {
+  const set = async (key: string) => { try { return !!(await git(folder, ['config', '--get', key], tools)).stdout.trim(); } catch { return false; } };
+  if (!await set('user.name')) await git(folder, ['config', 'user.name', 'Ri'], tools);
+  if (!await set('user.email')) await git(folder, ['config', 'user.email', 'ri@localhost'], tools);
 }
 
 // ─── New app ────────────────────────────────────────────────────────────────
@@ -199,7 +249,8 @@ export async function createApp(input: { name: string }): Promise<AppSourceRecor
   const slug = toSlug(name).replace(/_/g, '-');
   if (!name || !slug) throw new AppBuildError('invalid', 'Name the app with letters or numbers.');
   const settings = appBuildSettings();
-  if (!settings.appKitCommand) throw new AppBuildError('setup', 'Set the app kit command first, so Ri knows how to run the kit’s create.');
+  const tools = toolsWithGit();
+  if (!settings.appKitCommand && !tools.kit) throw new AppBuildError('setup', 'This copy of Ri carries no app kit. Set the app kit command to a kit checkout’s create.');
   const folder = path.join(/* turbopackIgnore: true */ settings.appsDir, slug);
   if (fs.existsSync(/* turbopackIgnore: true */ folder)) throw new AppBuildError('conflict', `${folder} already exists. Choose another name.`);
   if (listAppSources().some((source) => source.folder === folder)) throw new AppBuildError('conflict', 'Ri already has an app there.');
@@ -207,7 +258,10 @@ export async function createApp(input: { name: string }): Promise<AppSourceRecor
   const source = createAppSource({ name, folder, createdByRi: true });
   const job = newJob(source.id, 'create');
   job.steps.push({ step: 'create', status: 'started' });
-  const created = await runIn(settings.appsDir, '/bin/sh', ['-lc', `${settings.appKitCommand} ${quote(folder)}`], {}, () => {});
+  // The developer override runs a kit checkout through the shell. Otherwise Ri's Node runs the kit Ri carries.
+  const created = settings.appKitCommand
+    ? await runIn(tools, settings.appsDir, '/bin/sh', ['-c', `${settings.appKitCommand} ${quote(folder)}`], {}, () => {})
+    : await runIn(tools, settings.appsDir, tools.node, [tools.kit!.bin, 'create', folder], {}, () => {});
   const step = job.steps[0]!;
   if (created.code !== 0 || !fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ folder, 'package.json'))) {
     Object.assign(step, { status: 'failed', detail: created.tail.slice(-500) });
@@ -216,10 +270,11 @@ export async function createApp(input: { name: string }): Promise<AppSourceRecor
   }
   Object.assign(step, { status: 'passed' });
   // The kit's create makes a repository. Make sure, and commit what it wrote as the starting point.
-  if (!fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ folder, '.git'))) await git(folder, ['init', '-q', '-b', 'main']);
-  await git(folder, ['add', '-A']);
-  const { stdout } = await git(folder, ['status', '--porcelain']);
-  if (stdout.trim()) await git(folder, ['-c', 'user.name=Ri', '-c', 'user.email=ri@localhost', 'commit', '-q', '-m', `Create ${name} from the app kit`]);
+  if (!fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ folder, '.git'))) await git(folder, ['init', '-q', '-b', 'main'], tools);
+  await ensureCommitIdentity(folder, tools);
+  await git(folder, ['add', '-A'], tools);
+  const { stdout } = await git(folder, ['status', '--porcelain'], tools);
+  if (stdout.trim()) await git(folder, ['-c', 'user.name=Ri', '-c', 'user.email=ri@localhost', 'commit', '-q', '-m', `Create ${name} from the app kit`], tools);
   finish(job, 'done');
   return source;
 }
@@ -243,12 +298,13 @@ type RequestLike = Pick<Request, 'headers' | 'url'>;
 export async function installApp(sourceId: string, request?: RequestLike, returnTo?: string): Promise<AppJob> {
   const source = requireFolder(sourceId);
   const cli = kitCliFor(source.folder!);
+  const tools = toolsWithGit();
   const job = newJob(source.id, 'install');
   void (async () => {
     try {
-      if (!await prepare(job, source.folder!)) return;
+      if (!await prepare(tools, job, source.folder!)) return;
       const port = await freePort();
-      const { code, tail } = await runIn(source.folder!, untraced('pnpm'), ['exec', cli, 'serve', '--install', 'HEAD', '--json'], { PORT: String(port), APP_HOST: '127.0.0.1' }, (line) => foldKitLine(job, line));
+      const { code, tail } = await runIn(tools, source.folder!, pnpmCommand(tools), ['exec', cli, 'serve', '--install', 'HEAD', '--json'], { PORT: String(port), APP_HOST: '127.0.0.1' }, (line) => foldKitLine(job, line));
       if (code !== 0 || job.result?.outcome !== 'switched' && job.result?.outcome !== 'unchanged') {
         return finish(job, 'failed', job.result?.message || `The app kit’s install failed: ${tail.trim().split('\n').pop() ?? ''}`);
       }
@@ -294,11 +350,12 @@ export async function applyChange(sourceId: string): Promise<AppJob> {
   const { stdout: head } = await git(source.folder!, ['rev-parse', source.changeBranch]);
   const commit = head.trim();
   const cli = kitCliFor(source.folder!);
+  const tools = toolsWithGit();
   const job = newJob(source.id, 'change');
   void (async () => {
     try {
-      if (!await prepare(job, source.folder!)) return;
-      const { code, tail } = await runIn(source.folder!, untraced('pnpm'), ['exec', cli, 'change', commit, '--json'], {}, (line) => foldKitLine(job, line));
+      if (!await prepare(tools, job, source.folder!)) return;
+      const { code, tail } = await runIn(tools, source.folder!, pnpmCommand(tools), ['exec', cli, 'change', commit, '--json'], {}, (line) => foldKitLine(job, line));
       const outcome = job.result?.outcome;
       if (code === 0 && (outcome === 'switched' || outcome === 'unchanged')) {
         await settleChange(source, commit);

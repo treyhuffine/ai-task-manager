@@ -10,6 +10,7 @@ Ri's side of the [shared app kit spec](shared-app-kit-spec.md). A personal app i
 | Showing an app's screens | `packages/mcp-apps-host`, `src/lib/mcp-apps/`, `src/components/mcp-apps/` |
 | The hub: apps borrowing the person's accounts and Ri's own services | `src/lib/integrations/hub/` |
 | New app and Change app, running the kit's commands | `src/lib/apps/` |
+| What Ri brings for apps: the pinned kit and pnpm, run with Ri's Node | `packages/app-toolchain`, `src/lib/apps/toolchain.ts` |
 
 ## Connecting an app
 
@@ -68,9 +69,9 @@ An app borrows the person's accounts, and Ri's own services, through Ri's integr
 
 ## Building and changing apps
 
-Ri builds and changes apps with the kit's own commands (shared spec §2, and the kit's `docs/safe-change.md`), so a person or any agent can do the same by hand. The kit's name isn't settled, so Ri never assumes it: the command for `create` is a setting, and inside an app Ri runs the kit's command the way the app's own `start` script names it (`<cli> serve`), with `pnpm exec`.
+Ri builds and changes apps with the kit's own commands (shared spec §2, and the kit's `docs/safe-change.md`), so a person or any agent can do the same by hand. The kit's name isn't settled, so Ri never assumes it: New app runs the kit Ri carries by the one command its package names, and inside an app Ri runs the kit's command the way the app's own `start` script names it (`<cli> serve`), with `pnpm exec`. Every one of these runs with what Ri brings (below).
 
-**Settings** (`config.json`): `appsDir`, where New app makes apps, `<app-root>/apps` by default (on the owner's Mac it points at `~/dynamism/apps`), and `appKitCommand`, the command that runs the kit's `create` with the new folder added at the end, such as `pnpm --dir /path/to/app-kit create:app`. New app asks for it until it's set.
+**Settings** (`config.json`): `appsDir`, where New app makes apps, `<app-root>/apps` by default (on the owner's Mac it points at `~/dynamism/apps`), and `appKitCommand`, a developer override: a command that runs a kit checkout's `create` with the new folder added at the end, such as `pnpm --dir /path/to/app-kit create:app`, used instead of the kit Ri carries. It runs with `/bin/sh -c`, not a login shell, so Ri's Node and pnpm stay first.
 
 **Where each app's source lives** (table `app_sources`): its folder (a git repository), or a git URL, and for an app Ri didn't make, how it's built and deployed in the person's words, recorded from the app's page. A change in progress has its own working copy and branch.
 
@@ -81,6 +82,19 @@ Ri builds and changes apps with the kit's own commands (shared spec §2, and the
 **The builder brief** (`src/lib/apps/builder-brief.ts`) keeps only host facts: where the folder or working copy is, that checks use their own data directory and fixture connectors, how to build and check, to commit, and never to install or run the service, open its data, connect it, grant it access, read Ri's credentials or edit Ri's source. How to build an app is the kit's build skill in the folder. The builder chat also has no reach into the person's accounts. It's guidance, not isolation (shared spec, Trust).
 
 Checked on November 12, 2026 with the kit's `claude/single-path-kit-jobs` branch, on the isolated Ri with the kit's plain-process service: New app created and committed Tide Log, Install and connect passed every kit step and connected Ri over OAuth, a change in its own working copy switched the running app to its commit and fast-forwarded the folder, and a change with a failing test stopped at `test` with nothing changed and the working copy kept.
+
+## What Ri brings
+
+Someone who downloads Ri needs no Node, pnpm or kit checkout for apps (shared spec §2, "What Ri brings"). `src/lib/apps/toolchain.ts` puts these first on the PATH of every kit command Ri runs and of the builder chat, through a bin folder it writes at `<work dir>/app-tools/bin`, the way it hands sessions its own `ri` (`src/lib/executor/session-cli.ts`):
+
+- **Node is Ri's own**, the one running Ri (in a release, the Node it ships). Its folder comes right after the bin folder, so a kit script's `node` is Ri's. The kit's `serve --install` writes the Node that ran it into the app's background service, so each app runs on Ri's Node too, and moves to a newer one with its next change. Ri never removes old releases today. If it ever does, it must keep a release whose Node an app's service still names.
+- **pnpm is carried** in the workspace package `@ri/app-toolchain`, at the exact version the carried kit writes into every app's `packageManager` (10.30.1), so pnpm never has to fetch another one. A test fails if the two drift. It lives in that package, not Ri's own dependencies, so `node_modules/.bin` doesn't get it and Ri's own scripts keep the developer's pnpm. The bin folder's `pnpm` runs it with Ri's Node. When an app pins a different pnpm, pnpm fetches that one itself, as it would anywhere.
+- **The kit is carried** as a pinned tarball in `packages/app-toolchain/kit/`, installed with Ri under the alias `kit` and shipped in a release like any dependency. It runs `create` for New app. Inside an app, Ri runs the app's own copy of the kit (from its `vendor/`), the version the app was built with, so a newer Ri never changes how an existing app installs. `pnpm tsx scripts/pin-app-kit.ts <kit checkout> [<ref>]` builds the kit's core from one commit, in a copy, packs it, pins pnpm to the version that kit uses and refreshes the lockfile. `kit/source.json` records the version and commit. The tarball and lockfile carry the kit's working name as package metadata, regenerated on every pin. Ri's code never names it.
+- **git is the computer's.** Ri takes the first git on the PATH that can run. On a Mac, `/usr/bin/git` is a placeholder until Apple's command line tools are installed, and running it opens their installer, so Ri asks `xcode-select -p` instead of running it, and skips it when the tools aren't there. With no git, New app, Install and connect and Change app say how to get it (on a Mac, `xcode-select --install`) and do nothing. A new repository gets its own commit name (Ri) when the computer has none, so the builder's commits work for someone who never set git up.
+  - Not carried: a portable git (GitHub Desktop's `dugite` package, which downloads a git build at install time) would remove that step, and needs the owner's approval to add.
+  - A Codex builder chat runs its commands in a login shell, which rebuilds the PATH with the system folders first. Ri's Node and pnpm still win there (macOS has neither in its system folders), but on a Mac without the command line tools, `git` in that shell is Apple's placeholder.
+
+**In a release.** `pnpm deploy` copies `@ri/app-toolchain` and its dependencies (pnpm and the kit with its own dependencies) like any other. The kit's `create` loads no native module, so the release's skipped install scripts don't matter to it. Each app installs its own dependencies with Ri's Node and pnpm. Its SQLite module comes prebuilt for Ri's Node (better-sqlite3 12.11.1 publishes builds for Node 26's ABI 147), so no compiler is needed.
 
 ## What was removed
 

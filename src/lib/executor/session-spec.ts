@@ -550,6 +550,16 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     } catch (err) {
       console.error('[executor] session CLI launcher failed:', err);
     }
+    // A personal app's builder works with what Ri brings for apps: Ri's Node, the pnpm Ri carries
+    // and the computer's git (src/lib/apps/toolchain.ts), so the person needs no developer tools.
+    if (args.sessionType === 'content' && args.surfaceKind === 'app-builder') {
+      try {
+        const { appBuilderSessionPath } = await import('@/lib/apps/toolchain');
+        spec.env.PATH = appBuilderSessionPath(spec.env.PATH ?? process.env.PATH ?? '');
+      } catch (err) {
+        console.error('[executor] app toolchain for the builder chat failed:', err);
+      }
+    }
   }
   const conversation = (await import('@/lib/db/queries')).conversationThreadForSession(args.chatSessionId);
   if (conversation) {
