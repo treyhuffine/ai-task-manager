@@ -35,6 +35,7 @@ vi.mock('@/components/ui/switch', () => ({ Switch: () => null }));
 vi.mock('@/components/shared/emoji-picker', () => ({ EmojiPicker: ({ children }: { children: ReactNode }) => children }));
 vi.mock('@/components/chat-ui/handoffs/reviewer-selection', () => ({ ReviewerSelection: () => null }));
 vi.mock('@/components/workspaces/workspace-integrations-section', () => ({ WorkspaceIntegrationsSection: () => null }));
+vi.mock('@/components/workspaces/workspace-apps-section', () => ({ WorkspaceAppsSection: () => null }));
 vi.mock('./agent-folders', () => ({ AgentFoldersSection: () => null }));
 vi.mock('./agent-skills-section', () => ({ AgentSkillsSection: () => null }));
 vi.mock('@/components/workspaces/worktree-scripts-section', () => ({ WorktreeScriptsSection: () => null }));

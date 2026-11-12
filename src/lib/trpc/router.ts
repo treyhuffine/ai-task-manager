@@ -4,6 +4,7 @@ import { emailRouter } from '@/lib/email/router';
 import { conversationIntegrationsRouter } from '@/lib/integrations/conversations/router';
 import { chatSourcesRouter } from '@/lib/chat-sources/router';
 import { connectedAppsRouter } from '@/lib/mcp-apps/router';
+import { personalAppsRouter } from '@/lib/integrations/apps-router';
 import { mcpSettingsRouter } from '@/lib/mcp-apps/settings-router';
 import { appMentionsRouter } from '@/lib/mcp-apps/mentions-router';
 import { integrationSourcesRouter } from '@/lib/integrations/sources/router';
@@ -88,6 +89,7 @@ export const appRouter = router({
   externalAi: externalAiRouter,
   chatSources: chatSourcesRouter,
   connectedApps: connectedAppsRouter,
+  personalApps: personalAppsRouter,
   mcpSettings: mcpSettingsRouter,
   appMentions: appMentionsRouter,
   // Managed connection sources (Composio) and their accounts (docs/connector-service-spec.md).

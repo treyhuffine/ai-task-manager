@@ -7,6 +7,7 @@ import type { AccountChoice, IntegrationRuntime } from '@integrations/engine';
 import { pinMatchesConnection, scopePins } from './scope-pins';
 import { parseManagedToolkitId } from './sources/applications';
 import type { WorkspaceIntegrationScope } from '@/db/types';
+import { appPlaceAccountId, isAppToolkitId, type McpAppPlace } from './mcp-servers';
 
 /** A workspace's integration allowlist, resolved into the engine projection filters. */
 export interface WorkspaceIntegrationFilter {
@@ -29,6 +30,8 @@ export async function resolveIntegrationFilter(
   scopes: WorkspaceIntegrationScope[],
   runtime: Pick<IntegrationRuntime, 'listConnections' | 'listAccountChoices' | 'getToolkits'>,
   ownerId: string,
+  /** The agent these scopes belong to. A personal app is used only through that agent's own connection. */
+  workspaceId?: string,
 ): Promise<WorkspaceIntegrationFilter> {
   const filter: WorkspaceIntegrationFilter = { toolkits: [], connectionPins: {}, allowedAccounts: {} };
   if (scopes.length === 0) return filter;
@@ -42,6 +45,16 @@ export async function resolveIntegrationFilter(
     const toolkit = toolkitsById.get(scope.toolkitId);
     if (!toolkit) continue; // unknown / dormant (e.g. an MCP server not currently ingested)
     if (!connectedProviders.has(toolkit.providerId)) continue; // provider disconnected → dormant
+    // A personal app: only this agent's own connection, whatever the scope's pins say, so one
+    // agent never uses the access the app's consent screen gave another (docs/personal-apps.md).
+    if (isAppToolkitId(scope.toolkitId)) {
+      if (!workspaceId) continue;
+      const own = placeConnection(connections, toolkit.providerId, { kind: 'agent', workspaceId });
+      if (!own) continue;
+      filter.connectionPins[scope.toolkitId] = own;
+      filter.toolkits.push(scope.toolkitId);
+      continue;
+    }
     const pins = scopePins(scope);
     // A managed source's toolkit is only ever granted on named accounts. A stored scope without
     // any (written before that rule, or by hand) grants nothing rather than every account.
@@ -67,4 +80,35 @@ export async function resolveIntegrationFilter(
     filter.toolkits.push(scope.toolkitId);
   }
   return filter;
+}
+
+/** The live connection an app has for a place, if it has one. */
+function placeConnection(connections: readonly { id: string; providerId: string; accountId: string; status?: string }[], providerId: string, place: McpAppPlace): string | undefined {
+  const accountId = appPlaceAccountId(place);
+  return connections.find((c) => c.providerId === providerId && c.accountId === accountId)?.id;
+}
+
+/**
+ * Ri's own chats (its main chat, task and note chats, background work): every connected toolkit,
+ * with each personal app pinned to its connection for Ri itself. An app with no such connection is
+ * left out, never reached through an agent's.
+ */
+export async function resolveRiIntegrationFilter(
+  runtime: Pick<IntegrationRuntime, 'listConnections' | 'getToolkits'>,
+  ownerId: string,
+): Promise<{ toolkits: string[]; connectionPins: Record<string, string> }> {
+  const connections = await runtime.listConnections({ ownerId });
+  const connected = new Set(connections.map((c) => c.providerId));
+  const toolkits: string[] = [];
+  const connectionPins: Record<string, string> = {};
+  for (const toolkit of runtime.getToolkits()) {
+    if (!connected.has(toolkit.providerId)) continue;
+    if (isAppToolkitId(toolkit.id)) {
+      const own = placeConnection(connections, toolkit.providerId, { kind: 'ri' });
+      if (!own) continue;
+      connectionPins[toolkit.id] = own;
+    }
+    toolkits.push(toolkit.id);
+  }
+  return { toolkits, connectionPins };
 }

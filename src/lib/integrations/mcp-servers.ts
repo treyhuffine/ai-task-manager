@@ -29,6 +29,8 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { snapshotMcpCapabilities, diffMcpCapabilities, type McpCapabilityTool, type McpCapabilitySnapshot, type McpCapabilityChanges } from './mcp-capabilities';
 import { clearMcpToolApprovals, patchMcpToolOverrides, DEFAULT_MCP_APPROVAL_POLICY, MCP_APPROVAL_POLICIES, type McpApprovalPolicy, type McpToolApprovalMode, type McpToolApprovalPatch } from './mcp-approval-policy';
 import { safeMcpIcons, type McpIcon } from './mcp-icons';
+import { appToolkitId, type McpAppPlace } from './app-ids';
+export { APP_TOOLKIT_PREFIX, appPlaceAccountId, appToolkitId, isAppToolkitId, samePlace, type McpAppPlace } from './app-ids';
 
 export type McpServerAuth =
   | { kind: 'none' }
@@ -51,8 +53,29 @@ export interface McpToolOverride {
   mutating?: boolean;
 }
 
+/**
+ * A personal app's connection for one place (docs/personal-apps.md). An app is one connector
+ * (`app_<slug>`) with one account per place, each its own server entry, so each place has its own
+ * OAuth client registration and token, and the app's consent screen sets what that place sees.
+ */
+export interface McpAppBinding {
+  /** Stable across the app's places. */
+  id: string;
+  /** Immutable; sanitized [a-z0-9_]; drives the connector id `app_<slug>`, shared by every place. */
+  slug: string;
+  /** The app's name, shared by every place. */
+  name: string;
+  place: McpAppPlace;
+}
+/** The connector a server's tools belong to. An app's places share one; anything else has its own or its provider's. */
+export function mcpToolkitId(entry: Pick<McpServerEntry, 'providerId' | 'slug' | 'app'>): string {
+  return entry.providerId ?? (entry.app ? appToolkitId(entry.app.slug) : `mcp_${entry.slug}`);
+}
+
 export interface McpServerEntry {
   id: string;
+  /** Set when this server is a personal app's connection for one place. Immutable. */
+  app?: McpAppBinding;
   /** Set only by the host's built-in integration flow, never by a custom server request. */
   providerId?: string;
   /** Preserve the existing integration identity when replacing a native provider. */
@@ -156,6 +179,7 @@ export function mcpKnownLegacy(entry: Pick<McpServerEntry, 'protocol'>, now = Da
 
 export interface McpServerCreate {
   providerId?: string;
+  app?: McpAppBinding;
   connectionId?: string;
   accountId?: string;
   authConfigId?: string;
@@ -422,6 +446,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         const entry: McpServerEntry = {
           id: uuidv7(),
           ...(input.providerId ? { providerId: input.providerId } : {}),
+          ...(input.app ? { app: structuredClone(input.app) } : {}),
           ...(input.connectionId ? { connectionId: input.connectionId } : {}),
           ...(input.accountId ? { accountId: input.accountId } : {}),
           ...(input.authConfigId ? { authConfigId: input.authConfigId } : {}),

@@ -70,7 +70,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
   if (store.getBySlug(slug)) {
     return reply({ error: `A server named "${slug}" already exists.` }, { status: 409 });
   }
-  if (store.list().length >= MCP_LIMITS.maxServers) {
+  // Personal apps' connections have their own limit (src/lib/integrations/apps.ts).
+  if (store.list().filter((server) => !server.app).length >= MCP_LIMITS.maxServers) {
     return reply({ error: `You can add at most ${MCP_LIMITS.maxServers} MCP servers.` }, { status: 409 });
   }
 

@@ -8,6 +8,7 @@ const connected = (over: Partial<NonNullable<Parameters<typeof appPlaces>[0]>[nu
   available: over.available ?? true,
   standalone: over.standalone ?? true,
   entrypoints: over.entrypoints ?? (over.standalone === false ? [] : [{ name: 'home' }]),
+  ...(over.app ? { app: over.app } : {}),
 });
 
 describe('appPlaces', () => {
@@ -96,5 +97,14 @@ describe('routes', () => {
     expect(isLibraryRoute('drafts/abc')).toBe(false);
     expect(isLibraryRoute('finances')).toBe(false);
     expect(isLibraryRoute('~connected/a')).toBe(false);
+  });
+
+  it('lists a personal app once, opening Ri\'s own connection, never an agent\'s', () => {
+    const app = (id: string, place: { kind: 'ri' } | { kind: 'agent'; workspaceId: string }) =>
+      connected({ id, toolkitName: 'Reading Log', app: { id: 'reading-log', place } });
+    const places = appPlaces([app('rl-family', { kind: 'agent', workspaceId: 'family' }), app('rl-ri', { kind: 'ri' }), app('rl-work', { kind: 'agent', workspaceId: 'work' })]);
+    expect(places.map((p) => [p.displayName, p.route, p.roots])).toEqual([['Reading Log', '~connected/rl-ri', ['~connected/rl-ri']]]);
+    // With only agents' connections, there is nothing for Ri to open.
+    expect(appPlaces([app('rl-family', { kind: 'agent', workspaceId: 'family' })])).toEqual([]);
   });
 });

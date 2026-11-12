@@ -17,6 +17,7 @@ import { appToolVisible, entrypointIcons, mentionsSearchTool, modelToolVisible, 
 import { declaredCsp, type DeclaredNetwork, type ViewCsp } from '@ri/mcp-apps-host/csp';
 import { McpViewStore, MAX_DELIVERED_RESULT, MAX_RESULT, type Capture, type CaptureKind, type ModelContext, type View } from './store';
 import { prepareResource } from './resource';
+import { appPlaceAccountId, isAppToolkitId, mcpToolkitId, type McpAppPlace } from '@/lib/integrations/mcp-servers';
 
 export const mcpAppsEnabled = () => process.env.RI_MCP_APPS !== '0';
 export const mcpViews = () => processState('mcp-app-views', () => new McpViewStore(view => {
@@ -59,10 +60,12 @@ export async function connectedAppsCatalog(viewerId?: string) {
     // Settings and @ search alone are not an interface: they live on the connection's page and in the composer.
     if (!views.length && !entrypoints.length && !threads.length && !files.length) return [];
     const connection = metadata.connections.find(c => c.id === hostedMcpConnectionId(entry));
-    const toolkitId = entry.providerId ?? `mcp_${entry.slug}`;
+    const toolkitId = mcpToolkitId(entry);
     // `name` is this server's own label, often its account ("Todoist 2"). The toolkit's name is the product, shared by every account.
     const toolkitName = metadata.toolkits.find(t => t.id === toolkitId)?.displayName ?? entry.displayName;
     return [{id: entry.id, name: entry.displayName, toolkitName, providerId: entry.providerId, connectionId: connection?.id,
+      // A personal app's connection for one place: Ri's own (its page in Apps) or an agent's (chats in that agent).
+      app: entry.app ? {id: entry.app.id, name: entry.app.name, place: entry.app.place} : undefined,
       account: connection?.label || connection?.email || connection?.accountId || entry.displayName,
       available: !!connection && connection.status === 'active' && entry.enabled,
       sourceRef: connection ? encodeSource({v: 1, kind: 'integration', toolkitId, account: {accountId: connection.accountId, authConfigId: connection.authConfigId ?? null}}) : null,
@@ -86,7 +89,13 @@ export class ChatAccessError extends Error {}
  */
 function chatAccess(chatId: string, toolkitId: string, connection: Parameters<typeof pinMatchesConnection>[1]) {
   const chat = getChatSessionWithExecution(chatId);
-  if (!chat || chat.status === 'archived' || isImportMirror(chat) || ['result_review', 'app-builder', 'app-try'].includes(chat.surfaceKind ?? '')) throw new ChatAccessError('This chat cannot use connected apps');
+  if (!chat || chat.status === 'archived' || isImportMirror(chat) || chat.surfaceKind === 'result_review') throw new ChatAccessError('This chat cannot use connected apps');
+  // A personal app: each place uses its own connection only, whatever an agent's pins say.
+  if (isAppToolkitId(toolkitId)) {
+    const place: McpAppPlace = chat.workspaceId ? { kind: 'agent', workspaceId: chat.workspaceId } : { kind: 'ri' };
+    if (connection.accountId !== appPlaceAccountId(place)) throw new ChatAccessError('This app connection belongs to another place');
+    if (place.kind === 'ri') return;
+  }
   if (!chat.workspaceId) return;
   const scopes = normalizeIntegrationScopes(getWorkspace(chat.workspaceId)?.integrationScopes);
   const scope = scopes.find(s => s.toolkitId === toolkitId);
@@ -105,7 +114,7 @@ export async function connectedChatTabs(chatId: string, viewerId?: string) {
     const entry = metadata.servers.find(server => server.entry.id === app.id)?.entry;
     const connection = metadata.connections.find(c => c.id === app.connectionId);
     if (!entry || !connection) return [];
-    try { chatAccess(chatId, entry.providerId ?? `mcp_${entry.slug}`, connection); }
+    try { chatAccess(chatId, mcpToolkitId(entry), connection); }
     catch { return []; }
     return app.threads.map(thread => ({serverId: app.id, app: app.toolkitName, account: app.account, ...thread}));
   });
@@ -138,7 +147,7 @@ export async function authority(serverId: string, chatId?: string, options: {sta
   if (!remote.entry.enabled) throw new Error(`${app} is turned off. Turn it on in Settings to open this.`);
   const connection = connections.find(c => c.id === hostedMcpConnectionId(remote.entry));
   if (!connection || connection.status !== 'active') throw new Error(`Reconnect your ${app} account to open this.`);
-  const toolkitId = remote.entry.providerId ?? `mcp_${remote.entry.slug}`;
+  const toolkitId = mcpToolkitId(remote.entry);
   if (chatId) chatAccess(chatId, toolkitId, connection);
   const sourceRef = encodeSource({v: 1, kind: 'integration', toolkitId, account: {accountId: connection.accountId, authConfigId: connection.authConfigId ?? null}});
   // The build's transport, still matching the entry just read.

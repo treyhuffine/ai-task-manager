@@ -5,6 +5,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Switch } from '@/components/ui/switch';
 import { FilesToCopySection } from '@/components/workspaces/files-to-copy-section';
 import { WorkspaceIntegrationsSection } from '@/components/workspaces/workspace-integrations-section';
+import { WorkspaceAppsSection } from '@/components/workspaces/workspace-apps-section';
 import { WorktreeScriptsSection } from '@/components/workspaces/worktree-scripts-section';
 import { useWorkNavigation } from '@/contexts/work-context';
 import type { Attachment, UpdateWorkspaceInput, WorkspaceRecord } from '@/db/types';
@@ -419,6 +420,8 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
           </Section>
 
           {personalTools && <WorkspaceIntegrationsSection workspaceId={workspace.id} />}
+
+          {personalTools && <WorkspaceAppsSection workspaceId={workspace.id} workspaceName={workspace.name} />}
 
           {personalTools && <Section title="Browser">
             <label className="flex items-start justify-between gap-3 cursor-pointer">

@@ -16,6 +16,7 @@ import { connectedAppsQuery } from './catalog';
 import { ConnectedView } from './view';
 import { EntrypointIcon } from './entrypoint-icon';
 import { Tip } from '@/components/ui/tip';
+import { PersonalAppAccess } from '@/components/apps/personal-app-access';
 
 type App = RouterOutputs['connectedApps']['catalog'][number];
 type Entrypoint = App['entrypoints'][number];
@@ -101,7 +102,7 @@ export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch
           <div>
             <h1 className="text-lg font-semibold leading-tight">{app.toolkitName}</h1>
             {/* A custom server's account is the server itself, so say what it is rather than repeat its slug. */}
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">{app.providerId ? app.account : 'MCP server you added'}</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{app.providerId ? app.account : app.app ? 'Your app' : 'MCP server you added'}</p>
           </div>
           {description && <p className="max-w-prose text-sm text-muted-foreground">{description}</p>}
           {!app.available && <p role="alert" className="text-sm text-amber-700 dark:text-amber-400">Reconnect or turn on this account to use it.</p>}
@@ -119,6 +120,7 @@ export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch
           </p>
         </div>
       </section>
+      {app.app && <PersonalAppAccess appId={app.app.id} onRemoved={() => navigate('')}/>}
       {opened && <section aria-label="Open result">
         <ConnectedView key={opened.id} captureId={opened.id} chatId={opened.chatId} onClose={() => setOpen(null)}/>
       </section>}

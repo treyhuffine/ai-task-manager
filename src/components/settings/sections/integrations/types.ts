@@ -142,7 +142,7 @@ export const EMPTY_BYO_FORM: ByoForm = { label: '', clientId: '', clientSecret: 
 
 export type McpToolOverride = StoredMcpToolOverride;
 export type McpServerEntry = Pick<StoredMcpServerEntry,
-  'id' | 'providerId' | 'slug' | 'displayName' | 'url' | 'enabled' | 'auth' | 'tools' | 'toolOverrides' |
+  'id' | 'providerId' | 'app' | 'slug' | 'displayName' | 'url' | 'enabled' | 'auth' | 'tools' | 'toolOverrides' |
   'approvalPolicy' | 'lastStatus' | 'lastError' | 'lastToolCount' | 'lastCheckedAt' | 'capabilityRevision' | 'capabilityChanges' | 'protocol'>;
 
 export interface McpForm {

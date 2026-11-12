@@ -43,7 +43,7 @@ import { appApprovalPolicy } from './approval';
 import { getIntegrationsDir, getOrCreateKey } from './storage';
 import { getRemoteBaseUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { settingsCapability } from '@/lib/mcp-apps/metadata';
-import { mcpKnownLegacy, mcpServerProtocol, mcpServerStore, mcpToolInfo, readMcpMetadata, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
+import { appPlaceAccountId, mcpKnownLegacy, mcpServerProtocol, mcpServerStore, mcpToolInfo, mcpToolkitId, readMcpMetadata, type McpAppPlace, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
 import { mcpIngestOverrides, mcpToolApprovalOverride, resolveMcpToolApproval } from './mcp-approval-policy';
 import { getActionOverride, resolveApprovalMode, type ApprovalMode } from './write-policy';
 import { drainMcpClient } from './mcp-client-lifetime';
@@ -51,7 +51,7 @@ import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
 import { registerMcpSecrets } from './mcp-secrets';
 import { APP_NAME } from '@/constants/app';
 import { getWorkspace } from '@/lib/db/queries';
-import { resolveIntegrationFilter, type WorkspaceIntegrationFilter } from './workspace-filter';
+import { resolveIntegrationFilter, resolveRiIntegrationFilter, type WorkspaceIntegrationFilter } from './workspace-filter';
 import { withLiveCallback } from './live-callback';
 import { hostedMcpConnectionId, hostedMcpDefinition, hostedMcpRequiresAuth, markHostedMcpReconnectRequired, hostedMcpEndpointSetup, mcpOAuthTransportOptions, trustHostedMcpAnnotations } from './hosted-mcp';
 import { finalizeMcpServer, finalizeMcpServers, isCurrentMcpTransport } from './mcp-lifecycle';
@@ -291,6 +291,17 @@ let mcpStoreCached: { dir: string; store: McpServerStore } | null = null;
  * whole integration runtime. A separate `SecretBox`/`fileLock` instance over the same key
  * and dir is interchangeable with the runtime's (key-derived seal, file-based lock).
  */
+/** How a place reads as an account of its app: Ri's own chats, or the agent's name. */
+export function appPlaceLabel(place: McpAppPlace): string {
+  if (place.kind === 'ri') return APP_NAME;
+  return getWorkspace(place.workspaceId)?.name ?? 'Removed agent';
+}
+
+/** The OAuth client name an app shows for a place's connection: `Ri`, or `Ri · Family`. */
+export function appClientName(place: McpAppPlace): string {
+  return place.kind === 'ri' ? APP_NAME : `${APP_NAME} · ${appPlaceLabel(place)}`;
+}
+
 export function getMcpServerStore(): McpServerStore {
   const dir = getIntegrationsDir();
   if (mcpStoreCached?.dir === dir) return mcpStoreCached.store;
@@ -365,7 +376,8 @@ export function mcpOAuthProviderFor(entry: { id: string }, onRedirect?: (url: UR
   const registered = usesRegisteredOAuth(hosted);
   return makeMcpOAuthProvider({
     redirectUrl: registered ? getRegisteredMcpRedirectUrl(hosted!.id) : options?.redirectUri ?? getMcpOAuthRedirectUrl(entry.id),
-    clientName: APP_NAME,
+    // Each place registers its own client, named so the app's consent screen and settings say which place it is.
+    clientName: server?.app ? appClientName(server.app.place) : APP_NAME,
     grantTypes: profile?.grantTypes,
     tokenEndpointAuthMethod: profile?.tokenEndpointAuthMethod,
     scopes: profile?.scopes,
@@ -784,7 +796,8 @@ async function build(): Promise<Built> {
 
   const groups = new Map<string, PreparedAccount[]>();
   for (const candidate of prepared) {
-    const key = candidate.entry.providerId ?? `custom:${candidate.entry.id}`;
+    // An app's places are accounts of one connector, as a provider's accounts are.
+    const key = candidate.entry.providerId ?? (candidate.entry.app ? `app:${candidate.entry.app.id}` : `custom:${candidate.entry.id}`);
     groups.set(key, [...(groups.get(key) ?? []), candidate]);
   }
   for (const accounts of groups.values()) {
@@ -849,6 +862,9 @@ async function build(): Promise<Built> {
               identity: { providerId: hosted.id, displayName: hosted.displayName, label: snapshot.displayName, accountId: snapshot.accountId, authConfigId: snapshot.authConfigId },
               trustToolAnnotations: trustHostedMcpAnnotations(hosted, snapshot.url),
               ...(hosted.defaultMutationRisk ? { defaultRisk: hosted.defaultMutationRisk } : {}),
+            } : snapshot.app ? {
+              identity: { providerId: mcpToolkitId(snapshot), displayName: snapshot.app.name, label: appPlaceLabel(snapshot.app.place), accountId: appPlaceAccountId(snapshot.app.place) },
+              trustToolAnnotations: true,
             } : { trustToolAnnotations: true }),
             ...(snapshot.toolOverrides ? { toolOverrides: mcpIngestOverrides(snapshot.toolOverrides) } : {}),
           });
@@ -1035,20 +1051,22 @@ export async function getIntegrationTools(
   opts: Partial<WorkspaceIntegrationFilter> = {},
 ): Promise<ToolSet> {
   const runtime = await getIntegrationRuntime();
-  const connections = await runtime.listConnections({ ownerId });
-  if (connections.length === 0) return {};
-  const connectedProviders = new Set(connections.map((c) => c.providerId));
-  let toolkitIds = runtime
-    .getToolkits()
-    .filter((t) => connectedProviders.has(t.providerId))
-    .map((t) => t.id);
-  // Optional workspace allowlist intersection (SDK parity with the harness path, §6d).
-  if (opts.toolkits) toolkitIds = toolkitIds.filter((id) => opts.toolkits!.includes(id));
+  let toolkitIds: string[];
+  let connectionPins: Record<string, string>;
+  if (opts.toolkits) {
+    // A workspace allowlist (SDK parity with the harness path, §6d), already resolved with its pins.
+    const connected = new Set((await runtime.listConnections({ ownerId })).map((c) => c.providerId));
+    toolkitIds = runtime.getToolkits().filter((t) => connected.has(t.providerId) && opts.toolkits!.includes(t.id)).map((t) => t.id);
+    connectionPins = { ...opts.connectionPins };
+  } else {
+    // Ri's own reach: every connected toolkit, with personal apps on Ri's own connection to them.
+    ({ toolkits: toolkitIds, connectionPins } = await resolveRiIntegrationFilter(runtime, ownerId));
+  }
   if (toolkitIds.length === 0) return {};
   return toToolSet(runtime, {
     ownerId,
     toolkits: toolkitIds,
-    ...(opts.connectionPins ? { connectionPins: opts.connectionPins } : {}),
+    ...(Object.keys(connectionPins).length ? { connectionPins } : {}),
     ...(opts.allowedAccounts ? { allowedAccounts: opts.allowedAccounts } : {}),
     caller: { type: 'agent' },
     onPause: (actionId, outcome) => {
@@ -1070,5 +1088,5 @@ export async function resolveWorkspaceIntegrationFilter(
 ): Promise<WorkspaceIntegrationFilter> {
   const scopes = getWorkspace(workspaceId)?.integrationScopes ?? [];
   if (scopes.length === 0) return { toolkits: [], connectionPins: {}, allowedAccounts: {} };
-  return resolveIntegrationFilter(scopes, await getIntegrationRuntime(), ownerId);
+  return resolveIntegrationFilter(scopes, await getIntegrationRuntime(), ownerId, workspaceId);
 }

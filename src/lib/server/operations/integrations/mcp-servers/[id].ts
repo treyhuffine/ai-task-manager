@@ -105,6 +105,13 @@ export async function DELETE(rpcInput: rpcZ.infer<typeof DELETEInput>, _request:
   const store = getMcpServerStore();
   const entry = store.get(id);
   if (!entry) return reply({ error: 'not_found' }, { status: 404 });
+  // A personal app's connection goes with its scope: removing Ri's removes the app, an agent's removes that agent's access.
+  if (entry.app) {
+    const apps = await import('@/lib/integrations/apps');
+    if (entry.app.place.kind === 'ri') await apps.removePersonalApp(entry.app.id);
+    else await apps.removePersonalAppFromAgent({ appId: entry.app.id, workspaceId: entry.app.place.workspaceId });
+    return reply({ ok: true });
+  }
 
   if (!await removeMcpServer(entry, store, getIntegrationConnectionStore(), getIntegrationOwnerId())) {
     return reply({ error: 'not_found' }, { status: 404 });

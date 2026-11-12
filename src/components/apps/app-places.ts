@@ -40,6 +40,8 @@ interface ListedConnectedApp {
   standalone: boolean;
   /** Those screens, the global entrypoints, with their titles and icons. Each is a row. */
   entrypoints?: readonly { name: string; title?: string; icons?: readonly McpIcon[] }[];
+  /** A personal app's connection for one place. Only Ri's own opens in Apps; an agent's is for that agent's chats. */
+  app?: { id: string; place: { kind: 'ri' } | { kind: 'agent'; workspaceId: string } };
 }
 
 /** A connected app's page, for one account. */
@@ -60,8 +62,8 @@ export const connectedRoute = (serverId: string) => `~connected/${serverId}`;
  */
 export function appPlaces(connected: readonly ListedConnectedApp[] = []): AppPlace[] {
   const products = new Map<string, ListedConnectedApp[]>();
-  for (const app of connected.filter((item) => item.standalone)) {
-    const product = app.providerId ? `provider:${app.providerId}` : `server:${app.id}`;
+  for (const app of connected.filter((item) => item.standalone && item.app?.place.kind !== 'agent')) {
+    const product = app.providerId ? `provider:${app.providerId}` : app.app ? `app:${app.app.id}` : `server:${app.id}`;
     products.set(product, [...(products.get(product) ?? []), app]);
   }
   const linked = [...products].flatMap(([product, accounts]): AppPlace[] => {

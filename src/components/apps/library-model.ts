@@ -1,4 +1,5 @@
 import type { RouterOutputs } from '@/lib/trpc/router';
+import { isAppToolkitId } from '@/lib/integrations/app-ids';
 import type { SkillSummary } from '@/lib/api/skills';
 import { integrationMeta } from '@/components/integrations/integration-meta';
 
@@ -45,7 +46,7 @@ export function libraryItems({ providers = [], connections = [], servers = [], s
   // Retired providers still need a route to manage their existing accounts.
   const known = new Set(providers.map(provider => provider.id));
   const retired = [...new Set(connections.map(connection => connection.providerId))]
-    .filter(id => !known.has(id) && !servers.some(server => !server.providerId && id === `mcp_${server.slug.replace(/[^a-zA-Z0-9_]/g, '_')}`))
+    .filter(id => !known.has(id) && !isAppToolkitId(id) && !servers.some(server => !server.providerId && id === `mcp_${server.slug.replace(/[^a-zA-Z0-9_]/g, '_')}`))
     .map(id => ({ id, displayName: id }));
   for (const provider of [...providers, ...retired].filter(provider => !servers.some(server => !server.providerId && provider.id === `mcp_${server.slug.replace(/[^a-zA-Z0-9_]/g, '_')}`))) {
     const accounts = connections.filter(connection => connection.providerId === provider.id);
@@ -60,7 +61,12 @@ export function libraryItems({ providers = [], connections = [], servers = [], s
       status: attention ? 'Needs attention' : accounts.length > 1 ? `${accounts.length} accounts` : accounts.length === 1 ? accountNames : added ? 'Finish setup' : 'Connect account',
       attention, added });
   }
-  for (const server of servers.filter(server => !server.providerId)) items.push({ key: `mcp:${server.id}`, name: server.displayName,
+  // A personal app is one row, for Ri's own connection. Its agents' connections are listed on its page.
+  for (const server of servers.filter(server => server.app?.place.kind === 'ri')) items.push({ key: `app:${server.app!.id}`, name: server.app!.name,
+    description: server.url, keywords: `${server.slug} personal app`, kind: 'apps', target: { kind: 'mcp', id: server.id }, chat: true, view: false,
+    status: !server.enabled ? 'Disabled' : server.lastStatus === 'ok' ? 'Connected' : server.lastAuthorizationId ? 'Needs attention' : 'Finish signing in',
+    attention: server.enabled && server.lastStatus !== 'ok', added: true, usable: server.enabled && server.lastStatus === 'ok' });
+  for (const server of servers.filter(server => !server.providerId && !server.app)) items.push({ key: `mcp:${server.id}`, name: server.displayName,
     description: server.url, keywords: `${server.slug} custom MCP`, kind: 'connectors', target: { kind: 'mcp', id: server.id }, chat: true, view: false,
     status: !server.enabled ? 'Disabled' : server.lastStatus === 'ok' ? 'Connected' : 'Needs attention',
     attention: server.enabled && server.lastStatus !== 'ok', added: true, usable: server.enabled && server.lastStatus === 'ok' });

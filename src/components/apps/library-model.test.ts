@@ -59,4 +59,17 @@ it('keeps catalog location and search while opening and returning from setup', (
   expect(libraryLocation(location)).toMatchObject({ mode: 'discover', filter: 'connectors', search: 'work mail', provider: 'google' });
   expect(libraryRoute(location, { provider: undefined })).toBe('?browse=discover&filter=connectors&q=work+mail');
   expect(libraryLocation({ filter: 'something-unknown' }).filter).toBe('all');
+
+});
+
+describe('personal apps in the library', () => {
+  it('lists a personal app once, as an app, with its agents\' connections left to its page', () => {
+    const app = (id: string, place: { kind: 'ri' } | { kind: 'agent'; workspaceId: string }) => ({ ...timestamps, id, slug: `reading_log_at_${id}`, displayName: `Reading Log · ${id}`,
+      url: 'http://127.0.0.1:4391/mcp', enabled: true, auth: { kind: 'oauth' as const }, lastStatus: 'ok' as const, lastAuthorizationId: 'done',
+      app: { id: 'reading-log', slug: 'reading_log', name: 'Reading Log', place } });
+    const rows = libraryItems({ servers: [app('ri', { kind: 'ri' }), app('family', { kind: 'agent', workspaceId: 'family' })],
+      connections: [{ ...timestamps, ownerId: 'local', id: 'c-ri', providerId: 'app_reading_log', accountId: 'place:ri', status: 'active', scopes: [] }] });
+    expect(rows.map(row => [row.key, row.name, row.kind, row.target])).toEqual([['app:reading-log', 'Reading Log', 'apps', { kind: 'mcp', id: 'ri' }]]);
+    expect(rows[0].status).toBe('Connected');
+  });
 });

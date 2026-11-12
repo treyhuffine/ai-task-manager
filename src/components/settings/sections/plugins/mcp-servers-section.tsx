@@ -174,7 +174,8 @@ export function McpServersSection({ active, navigation }: {
   const stale = !loading && view.kind === 'server' && !server;
   useEffect(() => { if (active && stale) back(); }, [active, stale, back]);
   const q = query.trim().toLowerCase();
-  const visible = servers.filter(server => !q || `${server.displayName} ${server.url}`.toLowerCase().includes(q)).sort((a, b) => a.displayName.localeCompare(b.displayName));
+  // Personal apps are listed in Apps, one row each. Their connections still open here from there.
+  const visible = servers.filter(server => !server.app && (!q || `${server.displayName} ${server.url}`.toLowerCase().includes(q))).sort((a, b) => a.displayName.localeCompare(b.displayName));
 
   return <div ref={rootRef} className="@container space-y-5">
     {pendingOAuth && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-xs"><span>Finish connecting in your browser.</span>

@@ -5,6 +5,7 @@ import { integrationSourceMetadata } from '@/lib/integrations/source-metadata';
 import { getIntegrationRuntime, getIntegrationOwnerId } from '@/lib/integrations/runtime';
 import { pinMatchesConnection, scopePins, normalizeIntegrationScopes } from '@/lib/integrations/scope-pins';
 import { hostedMcpConnectionId } from '@/lib/integrations/hosted-mcp';
+import { appPlaceAccountId, isAppToolkitId } from '@/lib/integrations/mcp-servers';
 import { sessionCaller } from '@/lib/integrations/approval';
 import { recordPausedConnection } from '@/lib/integrations/connection-requests';
 import { runSourceInvocation } from '@/lib/integrations/source-invocations';
@@ -27,6 +28,8 @@ async function exact(reference: SourceReference, context: SourceContext) {
   return { runtime, connection: live[0], toolkit: runtime.getToolkits().find(t => t.id === reference.toolkitId), remote, authorityKey: inputDigest([live[0].scopes.slice().sort(), remote?.entry.credentialRevision, remote?.entry.capabilityRevision, remote?.entry.enabled, remote?.entry.toolOverrides, remote?.entry.url, context.workspaceId ? normalizeIntegrationScopes(getWorkspace(context.workspaceId)?.integrationScopes) : null]) };
 }
 function allowed(toolkitId: string, connection: { accountId: string; authConfigId?: string }, context: SourceContext) {
+  // A personal app: each place mentions and calls through its own connection only.
+  if (isAppToolkitId(toolkitId) && connection.accountId !== appPlaceAccountId(context.workspaceId ? { kind: 'agent', workspaceId: context.workspaceId } : { kind: 'ri' })) return false;
   if (!context.workspaceId) return true;
   const scope = normalizeIntegrationScopes(getWorkspace(context.workspaceId)?.integrationScopes).find(s => s.toolkitId === toolkitId);
   if (!scope) return false;

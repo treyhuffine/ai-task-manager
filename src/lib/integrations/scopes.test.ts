@@ -255,3 +255,20 @@ describe('managed source toolkits', () => {
     });
   });
 });
+
+describe('personal app scopes', () => {
+  // Allowing an app connects the agent's own account first (src/lib/integrations/apps.ts), so the
+  // generic scope list never adds, changes or drops one.
+  const stored: WorkspaceIntegrationScope[] = [{ toolkitId: 'app_reading_log', accounts: [{ accountId: 'place:agent:ws-1' }] }];
+
+  it('keeps a stored app scope when the list leaves it out', async () => {
+    const result = await validateIntegrationScopes([{ toolkitId: 'slack' }], { stored });
+    expect(result).toEqual({ ok: true, scopes: [{ toolkitId: 'slack' }, ...stored] });
+  });
+
+  it('ignores an app scope the list tries to add or widen', async () => {
+    expect(await validateIntegrationScopes([{ toolkitId: 'app_bloom' }], { stored: [] })).toEqual({ ok: true, scopes: [] });
+    expect(await validateIntegrationScopes([{ toolkitId: 'app_reading_log', accounts: ['place:agent:ws-2'] }], { stored }))
+      .toEqual({ ok: true, scopes: stored });
+  });
+});

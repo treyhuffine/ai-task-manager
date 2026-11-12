@@ -14,6 +14,7 @@ import { accountDisplay } from '@integrations/engine';
 import { getIntegrationOwnerId, getIntegrationRuntime } from './runtime';
 import { dedupePins, pinKey, pinMatchesConnection, pinOfConnection, scopePins } from './scope-pins';
 import { parseManagedToolkitId } from './sources/applications';
+import { isAppToolkitId } from './mcp-servers';
 import type { WorkspaceIntegrationScope, WorkspaceIntegrationScopeAccount } from '@/db/types';
 
 /** One account in a scope write: an exact pin, or an identifier resolved against live connections. */
@@ -120,6 +121,10 @@ export async function validateIntegrationScopes(
   const runtime = await getIntegrationRuntime();
   const toolkitsById = new Map(runtime.getToolkits().map((t) => [t.id, t]));
   const storedScopes = opts.stored ?? [];
+  // Personal apps are allowed and removed only through their own flow (`src/lib/integrations/apps.ts`),
+  // which connects the agent's own account first. A scope list never adds, changes or drops one.
+  const appScopes = storedScopes.filter((s) => isAppToolkitId(s.toolkitId));
+  incoming = incoming.filter((s) => !isAppToolkitId(s.toolkitId));
   const storedToolkits = new Set(storedScopes.map((s) => s.toolkitId));
 
   const unknown = incoming
@@ -217,5 +222,5 @@ export async function validateIntegrationScopes(
   }
 
   // Dedupe by toolkitId (last wins).
-  return { ok: true, scopes: [...new Map(out.map((s) => [s.toolkitId, s])).values()] };
+  return { ok: true, scopes: [...new Map([...out, ...appScopes].map((s) => [s.toolkitId, s])).values()] };
 }

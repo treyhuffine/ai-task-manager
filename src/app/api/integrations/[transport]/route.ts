@@ -36,6 +36,7 @@ import {
   resolveWorkspaceIntegrationFilter,
 } from '@/lib/integrations/runtime';
 import { sessionCaller } from '@/lib/integrations/approval';
+import { resolveRiIntegrationFilter } from '@/lib/integrations/workspace-filter';
 import { actorFromSessionCredential, sessionCredentialFromHeaders } from '@/lib/orchestrator/session-credential';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { connectedButUnavailable, recordPausedConnection, requestConnection } from '@/lib/integrations/connection-requests';
@@ -80,15 +81,13 @@ function buildHandler(workspaceId: string | null, sessionId: string | null, sign
         connectionPins = filter.connectionPins;
         allowedAccounts = filter.allowedAccounts;
       } else {
-        // Broad surface (orchestrator/content): every connected provider's toolkits. mcp-handler
-        // handler builds a fresh server per POST, so newly-connected accounts / MCP servers appear without
-        // a restart — the only lag is an already-running session caching its tool list.
-        const connections = await runtime.listConnections({ ownerId });
-        const connected = new Set(connections.map((c) => c.providerId));
-        toolkits = runtime
-          .getToolkits()
-          .filter((t) => connected.has(t.providerId))
-          .map((t) => t.id);
+        // Broad surface (orchestrator/content): every connected provider's toolkits, with each
+        // personal app pinned to its connection for Ri itself. mcp-handler builds a fresh server per
+        // POST, so newly-connected accounts / MCP servers appear without a restart — the only lag is
+        // an already-running session caching its tool list.
+        const ri = await resolveRiIntegrationFilter(runtime, ownerId);
+        toolkits = ri.toolkits;
+        connectionPins = ri.connectionPins;
       }
 
       serveMcp(server, runtime, {

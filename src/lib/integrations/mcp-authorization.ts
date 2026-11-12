@@ -7,7 +7,7 @@ import { desktopOAuth, desktopRelayFor, isDesktopRequest, type DesktopOAuthFlow 
 import { usesRegisteredOAuth } from './hosted-oauth-config';
 import { finalizeMcpServer } from './mcp-lifecycle';
 import { registerMcpSecrets } from './mcp-secrets';
-import type { McpServerEntry } from './mcp-servers';
+import { mcpToolkitId, type McpServerEntry } from './mcp-servers';
 import { rememberOAuthReturn } from './oauth-return';
 import { slackMcpAccessIssue } from './slack-account-setup';
 import { getIntegrationRuntime, getMcpServerStore, invalidateIntegrationRuntime, MCP_TIMEOUT_MS, mcpOAuthProviderFor, withTimeout } from './runtime';
@@ -25,7 +25,7 @@ export async function completeMcpAuthorization(entry: McpServerEntry, code: stri
   invalidateIntegrationRuntime();
   const runtime = await getIntegrationRuntime();
   const saved = getMcpServerStore().get(entry.id);
-  const toolkitId = entry.providerId ?? `mcp_${entry.slug}`;
+  const toolkitId = mcpToolkitId(entry);
   if (!saved || (saved.enabled && (saved.lastStatus !== 'ok' || !runtime.getToolkits().some((toolkit) => toolkit.id === toolkitId)))) {
     if (saved?.providerId === 'slack' && slackMcpAccessIssue(saved.lastError)) throw new Error(saved.lastError);
     throw new Error(`Authorization succeeded, but the ${INTEGRATION_LABELS.singular.toLowerCase()} could not load its tools. Try testing the connection again.`);

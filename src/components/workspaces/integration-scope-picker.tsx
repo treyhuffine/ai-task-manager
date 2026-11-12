@@ -1,5 +1,6 @@
 'use client';
 
+import { isAppToolkitId } from '@/lib/integrations/app-ids';
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { trpcClient } from '@/lib/trpc/client';
 /**
@@ -261,7 +262,8 @@ export function IntegrationScopePicker({ scopes, onChange, disabled }: Integrati
       trpcClient.integrations.connectionsGet.query({}),
     ])
       .then(([tk, st, cn]) => {
-        setToolkits(tk.toolkits);
+        // Personal apps are allowed from their own section, which connects this agent's own account first.
+        setToolkits(tk.toolkits.filter((t) => !isAppToolkitId(t.id)));
         setProviders(st.providers);
         setConnections(cn.connections);
       })

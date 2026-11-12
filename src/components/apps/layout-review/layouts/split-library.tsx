@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, LayoutGrid, MoreHorizontal, Plug, Plus, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -7,6 +7,7 @@ import { Tip } from '@/components/ui/tip';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { AppLibrary } from '../../app-library';
+import { AddAppDialog } from '../../add-app-dialog';
 import type { LibraryFilter } from '../../library-model';
 import { useReview } from '../context';
 import { ItemDetails } from '../details';
@@ -68,6 +69,7 @@ export function SplitLibrary() {
 function LibraryHeader() {
   const review = useReview();
   const skillInput = useRef<HTMLInputElement>(null);
+  const [addingApp, setAddingApp] = useState(false);
   const newServer = () => {
     review.setTrySkill(null);
     review.patch({ mcp: 'new', provider: undefined, item: undefined, panel: undefined });
@@ -76,6 +78,7 @@ function LibraryHeader() {
     <div className={s.libraryHeading}><span className={s.mark}><LayoutGrid size={18} /></span><div><h1>Apps</h1><p>Apps, {INTEGRATION_LABELS.plural.toLowerCase()}, and skills for your work.</p></div></div>
     <div className={s.creationActions} aria-label="Create and connect">
       {/* New app goes here, first: it runs the app kit's create to make a personal app, an MCP server Ri connects to. */}
+      <Button size="sm" variant="outline" onClick={() => setAddingApp(true)}><Plus size={13} />Add app</Button>
       <Button size="sm" variant="outline" disabled={review.busy} onClick={review.buildSkill}><Plus size={13} />New skill</Button>
       <Button size="sm" variant="outline" onClick={newServer}><Plus size={13} />Add MCP server</Button>
       <DropdownMenu><DropdownMenuTrigger asChild><Tip label="Import a skill"><Button className={s.importButton} size="icon-sm" variant="ghost" aria-label="Import options"><MoreHorizontal size={16} /></Button></Tip></DropdownMenuTrigger>
@@ -86,6 +89,7 @@ function LibraryHeader() {
     </div>
     <div className={s.librarySearch}><SearchBox placeholder="Search your library or find something new" /></div>
     <input type="file" ref={skillInput} className="sr-only" accept=".md" aria-label="Import SKILL.md" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) review.importSkill(file); }} />
+    <AddAppDialog open={addingApp} onOpenChange={setAddingApp} />
   </header>;
 }
 

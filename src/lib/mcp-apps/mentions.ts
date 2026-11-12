@@ -10,6 +10,7 @@ import type { MentionedResourceContext } from '@/lib/chat-sources/types';
 import { MENTION_CONTENT_BYTES } from '@/lib/chat-sources/service';
 import { appToolVisible, mentionsSearchTool } from './metadata';
 import { authority, mcpAppsEnabled } from './service';
+import { mcpToolkitId } from '@/lib/integrations/mcp-servers';
 
 /**
  * Server-provided @ search, OpenAI's "Composer At-Mentions"
@@ -127,7 +128,7 @@ export async function searchAppMentions(chatId: string, query: string, signal?: 
     const tools = capabilities?.tools ?? [];
     const searchTool = mentionsSearchTool(entry.protocol?.extensions, tools);
     if (!searchTool || !entry.enabled) return [];
-    const toolkitId = entry.providerId ?? `mcp_${entry.slug}`;
+    const toolkitId = mcpToolkitId(entry);
     const app = metadata.toolkits.find(t => t.id === toolkitId)?.displayName ?? entry.displayName;
     return [{ entry, tools, searchTool, toolkitId, app }];
   });
@@ -157,7 +158,7 @@ export async function searchAppMentions(chatId: string, query: string, signal?: 
           const mention = mentionItem(raw, account);
           if (mention && !seen.has(mention.sourceRef)) { seen.add(mention.sourceRef); mentions.push(mention); }
         }
-        const several = metadata.servers.filter(s => (s.entry.providerId ?? `mcp_${s.entry.slug}`) === toolkitId).length > 1;
+        const several = metadata.servers.filter(s => mcpToolkitId(s.entry) === toolkitId).length > 1;
         const connection = metadata.connections.find(c => c.id === current.connection.id);
         const accountLabel = connection?.label || connection?.email || connection?.accountId;
         return { group: { serverId: entry.id, app, ...(several && accountLabel ? { account: accountLabel } : {}), icons: entry.protocol?.info?.icons ?? [], items: mentions } };
@@ -177,7 +178,7 @@ async function serverFor(reference: SourceReference) {
   if (reference.kind !== 'integration') return null;
   const metadata = await integrationSourceMetadata();
   const pin = { accountId: reference.account.accountId, authConfigId: reference.account.authConfigId ?? undefined };
-  const found = metadata.servers.find(({ entry }) => (entry.providerId ?? `mcp_${entry.slug}`) === reference.toolkitId
+  const found = metadata.servers.find(({ entry }) => mcpToolkitId(entry) === reference.toolkitId
     && metadata.connections.some(c => c.id === hostedMcpConnectionId(entry) && pinMatchesConnection(pin, c)));
   if (!found) return null;
   const app = metadata.toolkits.find(t => t.id === reference.toolkitId)?.displayName ?? found.entry.displayName;

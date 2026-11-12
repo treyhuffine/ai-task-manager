@@ -6,9 +6,30 @@ Ri's side of the [shared app kit spec](shared-app-kit-spec.md). A personal app i
 
 | Piece | Where |
 | --- | --- |
-| Connecting to an app, with OAuth like any MCP server | `src/lib/integrations/mcp-servers.ts` |
+| Connecting to an app, one OAuth connection per place | `src/lib/integrations/apps.ts`, `mcp-servers.ts` |
 | Showing an app's screens | `packages/mcp-apps-host`, `src/lib/mcp-apps/`, `src/components/mcp-apps/` |
 | Ri's own services offered to apps (tasks, notes, model, text extraction, web pages) | `src/lib/integrations/hub/ri-services.ts` |
+
+## Connecting an app
+
+An app is connected once per **place**: Ri's own chats (its main chat, task and note chats, background work), and each agent the person allows. Each place is its own server entry in the MCP store, so it has its own dynamic client registration, PKCE run and tokens, and the app's consent screen asks what that place may see and whether it may also make changes. The app stores that choice per client and enforces it on every call.
+
+- **Add app** (Apps → Add app) takes the app's name and the MCP address it prints, such as `http://127.0.0.1:4310/mcp`, and connects Ri's own chats. That connection also opens the app's screens in Ri. `http://` is accepted for loopback only, and loopback aliases of an address already added are refused as the same app.
+- **Allowing an agent** (the agent's settings → Apps, or the app's page → Who uses it) first says what it means: the agent sees whatever the app shows it, including what the app read from the person's accounts (`allowConsequence` in `src/lib/integrations/app-access-copy.ts`, spec Decision 3). Then the app's consent screen opens for that agent's own connection.
+- **OAuth client names** say which place a connection is: `Ri` for Ri's own chats, `Ri · <agent>` for an agent, so the app's consent screen and its connection list name them.
+- **Removing** an agent's access drops its scope and Ri forgets its token. Removing the app does that for every place. The app keeps its data, and the person can also disconnect each client in the app's own settings.
+
+How the places stay apart:
+
+| Where | Rule |
+| --- | --- |
+| The engine | An app is one connector, `app_<slug>`, with one account per place (`place:ri`, `place:agent:<id>`), so tool names are the same in every place (`app_reading_log__list_books`). |
+| An agent's chats | `resolveIntegrationFilter` pins the app to the agent's own account, whatever the stored scope says. An agent with no connection of its own gets no app tools. |
+| Ri's own chats | `resolveRiIntegrationFilter` pins each app to Ri's own account and leaves out an app Ri isn't connected to. |
+| Screens, tabs and @-mentions | `chatAccess` (`src/lib/mcp-apps/service.ts`) and the mentions adapter refuse another place's connection. |
+| The scope editor | Never adds, changes or drops an app's scope (`validateIntegrationScopes`). Only allowing or removing the app does. |
+
+Checked on November 12, 2026 against Reading Log built from the kit's branch and run with `serve` in local-owner mode, from an isolated Ri: adding it registered client `Ri`, allowing the Family agent registered a second client named `Ri · Family`, Ri's connection (allowed read-only) was refused `save_book` with the app's own message while Family's (allowed changes) saved a book, and an agent that wasn't allowed had no app tools and couldn't add the app through its scopes.
 
 ## What was removed
 
