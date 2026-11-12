@@ -1077,7 +1077,7 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
       }
 
       // 5. Approval gate — enforced here, before any side effect or token fetch (§8).
-      const decision = await approval.check({
+      const verdict = await approval.check({
         actionId,
         actionVersion: version,
         risk,
@@ -1088,13 +1088,18 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
         caller,
         ...(action.openWorld !== undefined ? { openWorld: action.openWorld } : {}),
       });
+      const decision = typeof verdict === 'string' ? verdict : verdict.decision;
       if (decision === 'deny') {
         finish('denied', { connectionId: connection.id, status: 'denied', errorCode: 'denied' });
+        if (typeof verdict === 'object') {
+          return { ...fail('denied', 'The person declined this exact call. Don\'t make it again unless they ask.'), approvalId: verdict.approvalId } as ActionOutcome<O>;
+        }
         return fail('denied', 'action denied by policy');
       }
       if (decision === 'ask') {
         finish('approval_required', { connectionId: connection.id });
-        return { ok: false, reason: 'approval_required', actionId, risk, preview: inputPreview };
+        return { ok: false, reason: 'approval_required', actionId, risk, preview: inputPreview,
+          ...(typeof verdict === 'object' ? { approvalId: verdict.approvalId } : {}) };
       }
 
       // Build a bound re-auth (add_scopes) URL for the minting client — the reconnect path (§6).

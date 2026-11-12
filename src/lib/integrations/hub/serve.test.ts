@@ -73,7 +73,7 @@ describe('the hub surface an app sees', () => {
     await serveHub(server, runtime(vi.fn(async () => ({ ok: false, reason: 'approval_required', approvalId: 'a-1' }))) as never, app, { ownerId: 'local', redirectUris: [] });
     const answer = await tools.get('gmail__send_email')!.handler({}, context());
     expect(answer.isError).toBeFalsy();
-    expect(JSON.parse((answer.content[0] as { text: string }).text)).toMatchObject({ status: 'approval_required' });
+    expect(JSON.parse((answer.content[0] as { text: string }).text)).toMatchObject({ status: 'approval_required', approvalId: 'a-1' });
     expect(q.listHubCalls(app.id)[0]).toMatchObject({ status: 'approval_required', startedByKind: 'app' });
   });
 });

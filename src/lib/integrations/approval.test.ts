@@ -17,6 +17,9 @@ import {
   cancelConnectedAppApprovals,
   _resetApprovals,
   GRANT_TTL_MS,
+  revokeHubApprovals,
+  type HubApprovalStore,
+  type StoredHubApproval,
   type PendingApproval,
 } from './approval';
 import { setActionOverride } from './write-policy';
@@ -27,7 +30,7 @@ const events = {
   recordApprovalRequested: vi.fn<(pending: PendingApproval) => Promise<void>>(async () => {}),
   recordApprovalsSettled: vi.fn<(settled: PendingApproval[]) => Promise<void>>(async () => {}),
 };
-const policy = (opts: { autoApprove?: boolean } = {}) =>
+const policy = (opts: { autoApprove?: boolean; hubStore?: HubApprovalStore } = {}) =>
   appApprovalPolicy({
     ...opts,
     onRequested: events.recordApprovalRequested,
@@ -109,13 +112,18 @@ describe('appApprovalPolicy', () => {
     const hub = (appId: string, startedBy: NonNullable<Caller['hubApp']>['startedBy']): Caller => ({ type: 'app', id: `hub:${appId}`, hubApp: { appId, startedBy } });
     const job = hub('bloom', { kind: 'job', label: 'import' });
     const send = (overrides: Partial<ApprovalCheckInput> = {}) => check({ actionId: 'gmail.send_email', risk: 'medium', ...overrides });
+    /** The gate's decision without the approval ID an app's ask carries. */
+    const plain = (opts: { autoApprove?: boolean; hubStore?: HubApprovalStore } = {}) => {
+      const gate = policy(opts);
+      return { check: async (input: ApprovalCheckInput) => { const verdict = await gate.check(input); return typeof verdict === 'string' ? verdict : verdict.decision; } };
+    };
 
     it('asks for a write that reaches outside every time, even when the action runs without asking and in development', async () => {
-      const gate = policy();
+      const gate = plain();
       setActionOverride('gmail.send_email', 'auto');
       try {
         expect(await gate.check(send({ caller: hub('bloom', { kind: 'chat', id: CHAT }) }))).toBe('ask');
-        expect(await policy({ autoApprove: true }).check(send({ caller: job }))).toBe('ask');
+        expect(await plain({ autoApprove: true }).check(send({ caller: job }))).toBe('ask');
         // The same write from the person's own agent follows their setting.
         expect(await gate.check(send())).toBe('allow');
       } finally { setActionOverride('gmail.send_email', null); }
@@ -135,7 +143,7 @@ describe('appApprovalPolicy', () => {
     });
 
     it('lets a write to the person\'s own data follow their usual setting, from a chat or a job', async () => {
-      const gate = policy();
+      const gate = plain();
       const createEvent = check({ actionId: 'google_calendar.create_event', risk: 'medium', caller: job });
       // A reversible write to their own calendar runs without asking by default, as for any caller.
       expect(await gate.check(createEvent)).toBe('allow');
@@ -147,13 +155,13 @@ describe('appApprovalPolicy', () => {
       expect(await gate.check(remove)).toBe('ask');
       setActionOverride('google_calendar.delete_event', 'auto');
       try { expect(await gate.check(remove)).toBe('allow'); } finally { setActionOverride('google_calendar.delete_event', null); }
-      expect(await policy({ autoApprove: true }).check(check({ caller: job }))).toBe('allow');
+      expect(await plain({ autoApprove: true }).check(check({ caller: job }))).toBe('allow');
       // Reads never ask.
       expect(await gate.check(check({ mutating: false, caller: hub('bloom', { kind: 'app' }) }))).toBe('allow');
     });
 
     it('takes the provider\'s word on whether a write reaches outside, where it gave one', async () => {
-      const gate = policy();
+      const gate = plain();
       // A tool that posts but says it stays within the person's own data follows their setting, here
       // to run without asking. Without that word, its verb says it reaches outside, and it asks.
       setActionOverride('mcp.notes.post_entry', 'auto');
@@ -166,7 +174,95 @@ describe('appApprovalPolicy', () => {
       try { expect(await gate.check(check({ actionId: 'mcp.docs.create_doc', risk: 'medium', openWorld: true, caller: job }))).toBe('ask'); }
       finally { setActionOverride('mcp.docs.create_doc', null); }
     });
+  
+    /** An in-memory stand-in for `hub_approvals`, as the database would keep it across a restart. */
+    function memoryStore() {
+      const rows = new Map<string, StoredHubApproval & { status: string; expiresAt: number | null }>();
+      const store: HubApprovalStore = {
+        insertPending: (request) => { rows.set(request.id, { ...request, status: 'pending', expiresAt: null }); },
+        listPending: () => [...rows.values()].filter((row) => row.status === 'pending'),
+        decide: (id, decision, expiresAt) => { const row = rows.get(id)!; row.status = decision; row.expiresAt = expiresAt; },
+        takeGrant: (appId, callKey, now) => {
+          const row = [...rows.values()].find((item) => item.appId === appId && item.callKey === callKey && item.status === 'approved' && (item.expiresAt ?? 0) > now);
+          if (!row) return null;
+          row.status = 'used';
+          return row.id;
+        },
+        deniedSince: (appId, callKey) => [...rows.values()].find((item) => item.appId === appId && item.callKey === callKey && item.status === 'denied')?.id ?? null,
+        drop: (appId) => { for (const row of rows.values()) if (row.appId === appId && ['pending', 'approved'].includes(row.status)) row.status = 'dropped'; },
+      };
+      return { store, rows };
+    }
+
+    it('names the waiting request, the same ID each time the app asks again, and lets that call through once within a day', async () => {
+      vi.useFakeTimers();
+      try {
+        const { store, rows } = memoryStore();
+        const gate = policy({ hubStore: store });
+        const first = await gate.check(send({ caller: job }));
+        expect(first).toEqual({ decision: 'ask', approvalId: expect.any(String) });
+        const id = (first as { approvalId: string }).approvalId;
+        expect(await gate.check(send({ caller: job }))).toEqual({ decision: 'ask', approvalId: id });
+        expect(rows.get(id)).toMatchObject({ status: 'pending', appId: 'bloom', actionId: 'gmail.send_email' });
+        // A different call is a different request.
+        const other = await gate.check(send({ caller: job, inputDigest: 'digest-b' })) as { approvalId: string };
+        expect(other.approvalId).not.toBe(id);
+        resolvePendingApprovals([id], 'approve');
+        expect(rows.get(id)).toMatchObject({ status: 'approved' });
+        // Twenty-three hours later the job's retry still goes through, once.
+        vi.advanceTimersByTime(23 * 60 * 60_000);
+        expect(await gate.check(send({ caller: job }))).toBe('allow');
+        expect(rows.get(id)!.status).toBe('used');
+        expect(await gate.check(send({ caller: job }))).toMatchObject({ decision: 'ask' });
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('refuses a declined call, naming the request, instead of asking again on every retry', async () => {
+      const { store } = memoryStore();
+      const gate = policy({ hubStore: store });
+      const asked = await gate.check(send({ caller: job })) as { approvalId: string };
+      resolvePendingApprovals([asked.approvalId], 'deny');
+      expect(await gate.check(send({ caller: job }))).toEqual({ decision: 'deny', approvalId: asked.approvalId });
+      expect(listPendingApprovals()).toEqual([]);
+    });
+
+    it('keeps an app\'s waiting request and its approval across a restart, and drops them when its access goes', async () => {
+      vi.useFakeTimers();
+      try {
+        const { store } = memoryStore();
+        const asked = await policy({ hubStore: store }).check(send({ caller: hub('bloom', { kind: 'chat', id: CHAT }) })) as { approvalId: string };
+        // Ri restarts: memory is gone, the store isn't.
+        _resetApprovals();
+        const gate = policy({ hubStore: store });
+        expect(listPendingApprovals()).toEqual([expect.objectContaining({ id: asked.approvalId, sessionId: CHAT, hubApp: { appId: 'bloom', startedBy: { kind: 'chat', id: CHAT } } })]);
+        expect(await gate.check(send({ caller: job }))).toEqual({ decision: 'ask', approvalId: asked.approvalId });
+        resolvePendingApprovals([asked.approvalId], 'approve');
+        _resetApprovals();
+        // A day and a minute later, the approval has lapsed: the call asks again with a new ID.
+        vi.advanceTimersByTime(24 * 60 * 60_000 + 60_000);
+        const later = await policy({ hubStore: store }).check(send({ caller: job })) as { approvalId: string };
+        expect(later.approvalId).not.toBe(asked.approvalId);
+        revokeHubApprovals('bloom');
+        expect(listPendingApprovals()).toEqual([]);
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('never lets the apps\' store stand between a chat and its approvals', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const listPending = vi.fn(() => { throw new Error('no such table: hub_approvals'); });
+        const gate = policy({ hubStore: { ...memoryStore().store, listPending } });
+        // A chat's call never reads the apps' store at all.
+        expect(await gate.check(send({}))).toBe('ask');
+        expect(listPending).not.toHaveBeenCalled();
+        // Listing still works when the store fails, with what's in memory.
+        expect(listPendingApprovals()).toHaveLength(1);
+        expect(warn).toHaveBeenCalled();
+      } finally { warn.mockRestore(); }
+    });
   });
+
+
   it('lets reads, dev auto-approve, and the notifier delivery through without a pending', async () => {
     const gate = policy();
     expect(await gate.check(check({ mutating: false }))).toBe('allow');

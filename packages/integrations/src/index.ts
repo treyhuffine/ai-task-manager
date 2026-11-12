@@ -87,6 +87,7 @@ export type {
   AuthConfigStore,
   ApprovalPolicy,
   ApprovalDecision,
+  ApprovalAsk,
   ApprovalCheckInput,
   Lock,
   Redactor,

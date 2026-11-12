@@ -76,6 +76,65 @@ interface ApprovalState {
   pending: Map<string, InternalPending>;
   /** grant slot (grant key + session) → expiry (ms epoch), single-use */
   grants: Map<string, number>;
+  /** Where apps' requests are kept, so they and their 24-hour approvals survive a restart. */
+  hubStore?: HubApprovalStore;
+  /** Waiting app requests were read back from the store into `pending`. */
+  hubHydrated?: boolean;
+}
+
+/**
+ * How long an approved app request stays usable: the app's identical call goes through once within
+ * it. Long enough that a job retrying on its own clock never races it (docs/personal-apps.md).
+ */
+export const HUB_GRANT_TTL_MS = 24 * 60 * 60_000;
+
+/** A personal app's request as kept between restarts (`hub_approvals`). Synchronous, like the gate's state. */
+export interface StoredHubApproval {
+  id: string;
+  appId: string;
+  callKey: string;
+  actionId: string;
+  connectionId: string;
+  ownerId: string;
+  providerId: string;
+  risk: string;
+  preview: unknown;
+  account: string | null;
+  sessionId: string | null;
+  startedBy: NonNullable<Caller['hubApp']>['startedBy'];
+  createdAt: number;
+}
+export interface HubApprovalStore {
+  insertPending(request: StoredHubApproval): void;
+  listPending(): StoredHubApproval[];
+  decide(id: string, decision: 'approved' | 'denied', expiresAt: number | null): void;
+  /** Spend an approved, unexpired approval of this exact call, once. Its ID, or null. */
+  takeGrant(appId: string, callKey: string, now: number): string | null;
+  /** The person declined this exact call since then. Its ID, or null. */
+  deniedSince(appId: string, callKey: string, since: number): string | null;
+  drop(appId: string, connectionId?: string): void;
+}
+
+/** Read apps' waiting requests back after a restart, once, so their cards and IDs carry on. */
+function hydrateHub(): void {
+  if (state.hubHydrated || !state.hubStore) return;
+  let stored: StoredHubApproval[];
+  try {
+    stored = state.hubStore.listPending();
+  } catch (err) {
+    // Apps' requests then live in memory until the store answers. The gate itself still works.
+    console.warn('[approvals] reading apps\' waiting requests failed:', err instanceof Error ? err.message : err);
+    return;
+  }
+  state.hubHydrated = true;
+  for (const request of stored) {
+    if (state.pending.has(request.id)) continue;
+    state.pending.set(request.id, {
+      id: request.id, key: request.callKey, ownerId: request.ownerId, actionId: request.actionId, connectionId: request.connectionId,
+      providerId: request.providerId, account: request.account, risk: request.risk, preview: request.preview, sessionId: request.sessionId,
+      hubApp: { appId: request.appId, startedBy: request.startedBy }, createdAt: request.createdAt,
+    });
+  }
 }
 
 const STATE_KEY = Symbol.for('@ri/integration-approvals');
@@ -142,6 +201,8 @@ export interface AppApprovalOptions {
   onRequested?: (pending: PendingApproval) => Promise<void>;
   /** Pendings that went moot (see `settleMoot`). Defaults to approval-events. */
   onSettled?: (settled: PendingApproval[]) => Promise<void>;
+  /** Where apps' requests are kept between restarts. Without one they live in memory only. */
+  hubStore?: HubApprovalStore;
 }
 
 // Dynamic imports break the static approval→events→integration-runtime→approval cycle and keep this
@@ -154,6 +215,7 @@ const recordSettled = async (settled: PendingApproval[]) =>
 export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy {
   const onRequested = opts.onRequested ?? recordRequested;
   const onSettled = opts.onSettled ?? recordSettled;
+  if (opts.hubStore && state.hubStore !== opts.hubStore) { state.hubStore = opts.hubStore; state.hubHydrated = false; }
 
   /**
    * The same chat just ran the exact call it had been waiting on (the user flipped the action to
@@ -203,44 +265,59 @@ export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy
       }
       const now = Date.now();
       pruneExpiredGrants(now);
+      if (hub) hydrateHub();
+      // An app's approved request: its exact call goes through once within 24 hours, kept across restarts.
+      if (hub && state.hubStore?.takeGrant(hub.appId, key, now)) return 'allow';
+      // Declined: the same call is refused for a day rather than asking again on every retry.
+      const declined = hub ? state.hubStore?.deniedSince(hub.appId, key, now - HUB_GRANT_TTL_MS) : null;
+      if (declined) return { decision: 'deny', approvalId: declined };
       const slot = grantSlot(key, slotSession);
       const exp = state.grants.get(slot);
       if (exp && exp > now) {
         state.grants.delete(slot); // single-use
         return 'allow';
       }
-      // Register a pending approval for the human to resolve (one per call per chat).
-      if (![...state.pending.values()].some((p) => p.key === key && (hub || p.sessionId === sessionId))) {
-        const pending: InternalPending = {
-          id: randomUUID(),
-          key,
-          ownerId: input.connection.ownerId,
-          actionId: input.actionId,
-          connectionId: input.connection.id,
-          providerId: input.connection.providerId,
-          account: input.connection.email ?? input.connection.label ?? null,
-          risk: input.risk,
-          preview: input.inputPreview,
-          sessionId,
-          ...(hub ? { hubApp: hub } : {}),
-          ...(input.caller?.chatSource ? { chatSource: input.caller.chatSource } : {}),
-          ...(input.caller?.connectedApp ? { connectedApp: input.caller.connectedApp } : {}),
-          createdAt: now,
-        };
-        state.pending.set(pending.id, pending);
-        publishSessionApprovals(sessionId);
-        // Durable transcript card + notification (best-effort).
-        void (pending.connectedApp ? Promise.resolve() : onRequested(toPublic(pending))).catch((err) =>
-          console.warn(`[integrations] recording approval request failed:`, err),
-        );
-      }
-      return 'ask';
+      // Register a pending approval for the human to resolve (one per call per chat). The same call
+      // asking again while it waits gets the same ID.
+      const waiting = [...state.pending.values()].find((p) => p.key === key && (hub || p.sessionId === sessionId));
+      // An app is told which request is waiting, so it can wait on that and retry the same call.
+      const ask = (id: string) => (hub ? { decision: 'ask' as const, approvalId: id } : 'ask' as const);
+      if (waiting) return ask(waiting.id);
+      const pending: InternalPending = {
+        id: randomUUID(),
+        key,
+        ownerId: input.connection.ownerId,
+        actionId: input.actionId,
+        connectionId: input.connection.id,
+        providerId: input.connection.providerId,
+        account: input.connection.email ?? input.connection.label ?? null,
+        risk: input.risk,
+        preview: input.inputPreview,
+        sessionId,
+        ...(hub ? { hubApp: hub } : {}),
+        ...(input.caller?.chatSource ? { chatSource: input.caller.chatSource } : {}),
+        ...(input.caller?.connectedApp ? { connectedApp: input.caller.connectedApp } : {}),
+        createdAt: now,
+      };
+      state.pending.set(pending.id, pending);
+      if (hub) state.hubStore?.insertPending({
+        id: pending.id, appId: hub.appId, callKey: key, actionId: pending.actionId, connectionId: pending.connectionId,
+        ownerId: pending.ownerId, providerId: pending.providerId, risk: pending.risk, preview: pending.preview, account: pending.account,
+        sessionId, startedBy: hub.startedBy, createdAt: now,
+      });
+      publishSessionApprovals(sessionId);
+      // Durable transcript card + notification (best-effort).
+      void (pending.connectedApp ? Promise.resolve() : onRequested(toPublic(pending))).catch((err) =>
+        console.warn(`[integrations] recording approval request failed:`, err),
+      );
+      return ask(pending.id);
     },
   };
 }
 
 /** Pending approvals awaiting a human decision, oldest first (UI / route consumes this). */
 export function listPendingApprovals(filter: { ownerId?: string; sessionId?: string } = {}): PendingApproval[] {
+  hydrateHub();
   return [...state.pending.values()]
     .filter((p) => !filter.ownerId || p.ownerId === filter.ownerId)
     .filter((p) => !filter.sessionId || p.sessionId === filter.sessionId)
@@ -265,6 +342,7 @@ export function resolvePendingApprovals(
   const resolved: ResolvedApproval[] = [];
   const missing: string[] = [];
   const now = Date.now();
+  hydrateHub();
   for (const id of new Set(ids)) {
     const p = state.pending.get(id);
     if (!p) {
@@ -272,7 +350,12 @@ export function resolvePendingApprovals(
       continue;
     }
     state.pending.delete(id);
-    if (decision !== 'deny') state.grants.set(grantSlot(p.key, p.hubApp ? null : p.sessionId), now + GRANT_TTL_MS);
+    if (p.hubApp && state.hubStore) {
+      // An app's answer is kept, and an approval lasts a day, so a job's retry never races it.
+      state.hubStore.decide(id, decision === 'deny' ? 'denied' : 'approved', decision === 'deny' ? null : now + HUB_GRANT_TTL_MS);
+    } else if (decision !== 'deny') {
+      state.grants.set(grantSlot(p.key, p.hubApp ? null : p.sessionId), now + (p.hubApp ? HUB_GRANT_TTL_MS : GRANT_TTL_MS));
+    }
     resolved.push({ ...toPublic(p), decision });
   }
   return { resolved, missing };
@@ -297,8 +380,10 @@ export function revokeHubApprovals(
   connectionId?: string,
   onSettled: (settled: PendingApproval[]) => Promise<void> = recordSettled,
 ): PendingApproval[] {
+  hydrateHub();
   const removed = [...state.pending.values()].filter((p) => p.hubApp?.appId === appId && (!connectionId || p.connectionId === connectionId));
   for (const p of removed) state.pending.delete(p.id);
+  state.hubStore?.drop(appId, connectionId);
   for (const slot of [...state.grants.keys()]) {
     if (slot.includes(`|hub:${appId}|`) && (!connectionId || slot.split('|')[2] === connectionId)) state.grants.delete(slot);
   }
@@ -339,4 +424,6 @@ export function revokeApprovalsForConnections(
 export function _resetApprovals(): void {
   state.pending.clear();
   state.grants.clear();
+  state.hubStore = undefined;
+  state.hubHydrated = false;
 }

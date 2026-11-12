@@ -398,13 +398,13 @@ export type ActionOutcome<O = unknown> =
       missingScopes: string[];
       authorizationUrl: string;
     }
-  | { ok: false; reason: 'approval_required'; actionId: string; risk: RiskLevel; preview: unknown }
+  | { ok: false; reason: 'approval_required'; actionId: string; risk: RiskLevel; preview: unknown; /** The pending approval, when the policy names one. */ approvalId?: string }
   // Multi-client layer (authconfig spec §6a): the analog of `auth_required` when a connect is
   // needed but >1 auth client is visible and none is the default. `runAction` returns it;
   // `beginAuth` throws `auth_config_required` instead (the host resolves the config via
   // `listForProvider` first). Never emitted while a provider has a single config.
   | { ok: false; reason: 'auth_config_required'; providerId: string; choices: AuthConfigChoice[] }
-  | { ok: false; reason: 'error'; code: IntegrationErrorCode; message: string; indeterminate?: boolean;status?:number };
+  | { ok: false; reason: 'error'; code: IntegrationErrorCode; message: string; indeterminate?: boolean;status?:number; /** The request the person declined, for `denied`. */ approvalId?: string };
 
 // ───────────────────────────── Auth requests ────────────────────────────────
 
@@ -605,6 +605,11 @@ export interface AuthConfigStore {
 }
 
 export type ApprovalDecision = 'allow' | 'deny' | 'ask';
+/**
+ * A decision that names the request it's about: `ask` for one waiting on the person, `deny` for one
+ * they declined. The caller can tell which call it's waiting on, or was refused.
+ */
+export interface ApprovalAsk { decision: 'ask' | 'deny'; approvalId: string }
 
 export interface ApprovalCheckInput {
   actionId: string;
@@ -622,7 +627,7 @@ export interface ApprovalCheckInput {
 }
 
 export interface ApprovalPolicy {
-  check(input: ApprovalCheckInput): Promise<ApprovalDecision>;
+  check(input: ApprovalCheckInput): Promise<ApprovalDecision | ApprovalAsk>;
 }
 
 export interface Lock {
