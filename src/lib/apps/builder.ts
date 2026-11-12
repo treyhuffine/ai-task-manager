@@ -99,13 +99,15 @@ export function setAppBuildSettings(input: { appsDir?: string | null; appKitComm
 
 export type KitStepStatus = 'started' | 'passed' | 'failed' | 'skipped';
 export interface KitStep { step: string; status: KitStepStatus; detail?: string }
-export type KitOutcome = 'switched' | 'unchanged' | 'checks_failed' | 'rolled_back' | 'rollback_failed' | 'refused';
+export type KitOutcome = 'switched' | 'unchanged' | 'checks_failed' | 'rolled_back' | 'rollback_failed' | 'refused'
+  // start, stop and restart (status.ts)
+  | 'started' | 'running' | 'stopped' | 'restarted' | 'failed';
 export interface KitResult { outcome: KitOutcome; message: string; release?: string; previous?: string; log?: string }
 
 export interface AppJob {
   id: string;
   sourceId: string;
-  kind: 'create' | 'install' | 'change';
+  kind: 'create' | 'install' | 'change' | 'restart';
   state: 'running' | 'done' | 'failed';
   steps: KitStep[];
   result?: KitResult;
@@ -127,7 +129,7 @@ export function latestAppJob(sourceId: string): AppJob | null {
   return [...jobs().values()].filter((job) => job.sourceId === sourceId).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null;
 }
 
-function newJob(sourceId: string, kind: AppJob['kind']): AppJob {
+export function newJob(sourceId: string, kind: AppJob['kind']): AppJob {
   if ([...jobs().values()].some((job) => job.sourceId === sourceId && job.state === 'running')) {
     throw new AppBuildError('conflict', 'Something is already running for this app. Wait for it to finish.');
   }
@@ -181,7 +183,7 @@ async function freePort(): Promise<number> {
  * Run a command in an app's folder with Ri's toolchain first on its PATH, feeding each output line to
  * `onLine`. Resolves with its exit code.
  */
-function runIn(tools: AppToolchain, folder: string, command: string, args: readonly string[], env: Record<string, string>, onLine: (line: string) => void): Promise<{ code: number; tail: string }> {
+export function runIn(tools: AppToolchain, folder: string, command: string, args: readonly string[], env: Record<string, string>, onLine: (line: string) => void): Promise<{ code: number; tail: string }> {
   return new Promise((resolve) => {
     const child = spawn(untraced(command), args, { cwd: folder, env: { ...process.env, ...tools.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let buffer = '', tail = '';
@@ -217,7 +219,7 @@ async function prepare(tools: AppToolchain, job: AppJob, folder: string): Promis
 }
 
 /** The carried pnpm, or the computer's when this copy of Ri carries none. */
-function pnpmCommand(tools: AppToolchain): string {
+export function pnpmCommand(tools: AppToolchain): string {
   return tools.pnpm?.command ?? 'pnpm';
 }
 
@@ -423,7 +425,7 @@ export function requireFolder(sourceId: string): AppSourceRecord {
   return source;
 }
 
-function finish(job: AppJob, state: 'done' | 'failed', error?: string) {
+export function finish(job: AppJob, state: 'done' | 'failed', error?: string) {
   job.state = state;
   job.finishedAt = new Date().toISOString();
   if (error) job.error = error.slice(0, 1000);
