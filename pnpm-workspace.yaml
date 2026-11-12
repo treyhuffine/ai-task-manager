@@ -5,6 +5,7 @@
 packages:
   - "packages/integrations"
   - "packages/mcp-apps-host"
+  - "packages/app-toolchain"
 # Dependency install scripts run only where listed true. The packages listed
 # false work from what they publish (prebuilt binaries, platform packages), so
 # their scripts are skipped. node-pty must stay true: its postinstall makes
