@@ -824,6 +824,32 @@ export interface CalendarBlock {
 // Callers always say which: there is no default.
 export const API_KEY_ROLES = ['sign_in', 'worker', 'ai_client', 'app_client'] as const;
 
+// ─── Personal app sources (docs/personal-apps.md "Building and changing apps") ───
+//
+// Where each personal app's source lives, so Ri can build it, change it and fix it. An app Ri made
+// with New app is a git repository in the apps folder. An app Ri didn't make is recorded by its
+// folder or git URL, with how to build and deploy it. A change in progress has its own working
+// copy and branch, so the folder the running app came from is never edited.
+export const appSources = sqliteTable('app_sources', {
+  id: text().primaryKey(),
+  ...timestamps,
+  name: text().notNull(),
+  /** The app's git repository on this computer. Null for an app known only by its git URL. */
+  folder: text(),
+  gitUrl: text(),
+  /** How to build and deploy an app Ri didn't make, in the person's words. */
+  notes: text(),
+  /** Ri made it with New app, so Ri installs and changes it with the kit's commands. */
+  createdByRi: integer({ mode: 'boolean' }).notNull(),
+  /** The personal app (its connections' shared app id) once Ri connects to it. */
+  personalAppId: text(),
+  /** The address Ri installed it at. */
+  url: text(),
+  /** A change in progress: its working copy and branch. */
+  changeFolder: text(),
+  changeBranch: text(),
+});
+
 // ─── App hub (docs/personal-apps.md "The hub") ─────────────────────────────
 //
 // A personal app connects to Ri's integrations endpoint with OAuth to borrow the person's

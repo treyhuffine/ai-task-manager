@@ -92,6 +92,8 @@ describe('readAuthConfig', () => {
       browserDefaultProfile: null,
       handoffsEnabled: null,
       aiReviewEnabled: null,
+      appsDir: null,
+      appKitCommand: null,
     });
   });
 
@@ -115,6 +117,8 @@ describe('readAuthConfig', () => {
       browserDefaultProfile: null,
       handoffsEnabled: null,
       aiReviewEnabled: null,
+      appsDir: null,
+      appKitCommand: null,
     });
   });
 });
@@ -166,6 +170,8 @@ describe('writeAuthConfig', () => {
       browserDefaultProfile: null,
       handoffsEnabled: null,
       aiReviewEnabled: null,
+      appsDir: null,
+      appKitCommand: null,
     });
   });
 
@@ -189,6 +195,8 @@ describe('writeAuthConfig', () => {
       browserDefaultProfile: null,
       handoffsEnabled: null,
       aiReviewEnabled: null,
+      appsDir: null,
+      appKitCommand: null,
     });
   });
 

@@ -1,4 +1,5 @@
 export { hasUnconfirmedClose, unconfirmedCloseProblem } from './live-state';
+import { builderFolder } from '@/lib/apps/folder';
 import { assertPersonalCapability } from '@/lib/home/authority';
 /**
  * The home's executor API (docs/homes-build.md, "P2.1 The runner split").
@@ -1115,6 +1116,8 @@ export function resolveCwd(session: {
     if (repository) return existsSync(repository) ? repository : null;
     return assigned?.scope.requested.codeRevision ? null : getAppRoot();
   }
+  // A personal app's builder works in the app's folder, or a change's own working copy.
+  if (session.surfaceKind === 'app-builder') return session.surfaceRef ? builderFolder(session.surfaceRef) : null;
   if (session.worktreePath && existsSync(session.worktreePath)) return session.worktreePath;
   if (!session.workspaceId) {
     // No workspace → the session runs in the app data root. This is the

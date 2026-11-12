@@ -30,6 +30,7 @@ import { APP_NAME } from '@/constants/app';
 import type { ExecutionEnvironment, ExpectedAgentFolders } from '@/lib/runner/environment';
 import {
   BROWSER_MCP_SERVER_NAME,
+  INTEGRATIONS_MCP_SERVER_NAME,
   browserMcpServer,
   integrationsMcpServer,
   installOrchestratorSurface,
@@ -51,6 +52,7 @@ import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd } from './agent-main-c
 import { SESSION_CLI_ENV, ensureSessionCli, sessionPath } from './session-cli';
 import { planSessionInstructions } from './session-instructions';
 import { renderSkillBuilderBrief } from '@/lib/skills/builder-brief';
+import { renderAppBuilderBrief } from '@/lib/apps/builder-brief';
 import { renderScheduleBuilderBrief } from '@/lib/triggers/builder-brief';
 import { SCHEDULE_CHAT_SURFACE } from '@/lib/triggers/schedule-chat';
 import { sessionSkillPlan } from '@/lib/skills/exclusions';
@@ -388,6 +390,15 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
         const plan = planSessionInstructions(providerType, [{ name: 'schedule builder brief', text: brief }]);
         if (plan.text) spec.instructions = [spec.instructions, plan.text].filter(Boolean).join('\n\n');
         if (plan.undelivered.length > 0) spec.messagePreamble = [spec.messagePreamble, brief].filter(Boolean).join('\n\n');
+      }
+      // A personal app's builder chat: the slim host brief, and no reach into the person's
+      // accounts, which building an app never needs (src/lib/apps/builder-brief.ts).
+      if (args.sessionType === 'content' && args.surfaceKind === 'app-builder' && args.surfaceRef) {
+        const brief = renderAppBuilderBrief(args.surfaceRef);
+        const plan = planSessionInstructions(providerType, [{ name: 'app builder brief', text: brief }]);
+        if (plan.text) spec.instructions = [spec.instructions, plan.text].filter(Boolean).join('\n\n');
+        if (plan.undelivered.length > 0) spec.messagePreamble = [spec.messagePreamble, brief].filter(Boolean).join('\n\n');
+        spec.mcpServers = spec.mcpServers.filter((server) => server.name !== INTEGRATIONS_MCP_SERVER_NAME);
       }
       if (providerType !== 'claude') {
         console.warn(

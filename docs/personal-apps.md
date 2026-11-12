@@ -9,6 +9,7 @@ Ri's side of the [shared app kit spec](shared-app-kit-spec.md). A personal app i
 | Connecting to an app, one OAuth connection per place | `src/lib/integrations/apps.ts`, `mcp-servers.ts` |
 | Showing an app's screens | `packages/mcp-apps-host`, `src/lib/mcp-apps/`, `src/components/mcp-apps/` |
 | The hub: apps borrowing the person's accounts and Ri's own services | `src/lib/integrations/hub/` |
+| New app and Change app, running the kit's commands | `src/lib/apps/` |
 
 ## Connecting an app
 
@@ -64,6 +65,22 @@ An app borrows the person's accounts, and Ri's own services, through Ri's integr
 **Audit and controls** (table `hub_calls`, `hub/manage.ts`): every call is logged with the tool, account, outcome and what started it. Apps → What your apps can reach lists every app with its grant, and each app's panel (also on its page when Ri connects to it) shows its grant with Remove for an account or a tool, the writes waiting for the person, its recent calls, and one switch that turns it off. Removing or turning off stops the next call and drops its waiting writes.
 
 **Trust.** Hub tokens limit what goes through the hub. They don't stop an app's code reading files its user can read (shared spec, Trust).
+
+## Building and changing apps
+
+Ri builds and changes apps with the kit's own commands (shared spec §2, and the kit's `docs/safe-change.md`), so a person or any agent can do the same by hand. The kit's name isn't settled, so Ri never assumes it: the command for `create` is a setting, and inside an app Ri runs the kit's command the way the app's own `start` script names it (`<cli> serve`), with `pnpm exec`.
+
+**Settings** (`config.json`): `appsDir`, where New app makes apps, `<app-root>/apps` by default (on the owner's Mac it points at `~/dynamism/apps`), and `appKitCommand`, the command that runs the kit's `create` with the new folder added at the end, such as `pnpm --dir /path/to/app-kit create:app`. New app asks for it until it's set.
+
+**Where each app's source lives** (table `app_sources`): its folder (a git repository), or a git URL, and for an app Ri didn't make, how it's built and deployed in the person's words, recorded from the app's page. A change in progress has its own working copy and branch.
+
+- **New app** (Apps → New app): runs `create` into `<appsDir>/<name>`, makes sure it's a repository and commits what it wrote. The builder chat (`app-builder` focused chat) starts in that folder with what the person asked for. **Install and connect** installs the app's dependencies from its lockfile, runs `serve --install HEAD --json` on a port Ri picks, then adds the app at `http://127.0.0.1:<port>/mcp`, which opens its consent screen for Ri's own connection.
+- **Change app** (the app's page): a separate git worktree on a new branch under `.work/app-changes`, where the builder works. **Apply change** runs `change <commit> --json` in the app's folder. Its steps show as they run. When it switched, the app's folder is fast-forwarded to that commit and the working copy goes. When its checks failed, nothing changed, the working copy stays, and Ask the builder to fix it sends the failing step, message and log path to the builder chat.
+- Ri never starts an app itself, never runs the folder being edited, and never opens an app's data directory.
+
+**The builder brief** (`src/lib/apps/builder-brief.ts`) keeps only host facts: where the folder or working copy is, that checks use their own data directory and fixture connectors, how to build and check, to commit, and never to install or run the service, open its data, connect it, grant it access, read Ri's credentials or edit Ri's source. How to build an app is the kit's build skill in the folder. The builder chat also has no reach into the person's accounts. It's guidance, not isolation (shared spec, Trust).
+
+Checked on November 12, 2026 with the kit's `claude/single-path-kit-jobs` branch, on the isolated Ri with the kit's plain-process service: New app created and committed Tide Log, Install and connect passed every kit step and connected Ri over OAuth, a change in its own working copy switched the running app to its commit and fast-forwarded the folder, and a change with a failing test stopped at `test` with nothing changed and the working copy kept.
 
 ## What was removed
 

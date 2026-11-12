@@ -25,7 +25,7 @@ export { listPersonalAreaDefaults, setPersonalAreaDefault } from './private-area
 import { emailDraftFieldsSchema, emailDraftPatchSchema, parseEmailDraft, EmailDraftError, type EmailDraftFields } from '@/lib/email/validation';
 import type { EmailDraft } from '@/db/types';
 import { teamContentChanged } from '@/lib/spaces/generation';
-import { tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, scratchpad, harnessSettings, harnessModelUsage, harnessOperations, apiKeys, home, devices, deviceGrants, members, teamActivity, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks, workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults, triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState, notificationChannels, webPushSubscriptions, notificationDeliveries, triagePasses, triageDecisions, streamLinks, skillUsage, hubApps, hubTokens, hubCalls, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent, NOTE_KINDS } from '@/lib/db/schema';
+import { tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, scratchpad, harnessSettings, harnessModelUsage, harnessOperations, apiKeys, home, devices, deviceGrants, members, teamActivity, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks, workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults, triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState, notificationChannels, webPushSubscriptions, notificationDeliveries, triagePasses, triageDecisions, streamLinks, skillUsage, hubApps, hubTokens, hubCalls, appSources, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent, NOTE_KINDS } from '@/lib/db/schema';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { normalizeNoteRow } from '@/lib/notes/kind';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, notInArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
@@ -13376,5 +13376,35 @@ export function insertHubCall(input: Omit<HubCallRecord, 'id' | 'createdAt' | 'u
 /** An app's newest calls, bounded by the (app, created) index. */
 export function listHubCalls(appId: string, limit = 50): HubCallRecord[] {
   return getDb().select().from(hubCalls).where(eq(hubCalls.appId, appId)).orderBy(desc(hubCalls.createdAt), desc(hubCalls.id)).limit(Math.min(Math.max(limit, 1), 200)).all();
+}
+
+// ─── Personal app sources (docs/personal-apps.md "Building and changing apps") ───
+
+type AppSourceRecord = typeof appSources.$inferSelect;
+export type { AppSourceRecord };
+
+export function createAppSource(input: Pick<AppSourceRecord, 'name' | 'createdByRi'> & Partial<Pick<AppSourceRecord, 'folder' | 'gitUrl' | 'notes' | 'personalAppId' | 'url'>>): AppSourceRecord {
+  const now = new Date().toISOString();
+  return getDb().insert(appSources).values({ id: uuidv7(), createdAt: now, updatedAt: now, ...input }).returning().get();
+}
+
+export function getAppSource(id: string): AppSourceRecord | undefined {
+  return getDb().select().from(appSources).where(eq(appSources.id, id)).get();
+}
+
+export function getAppSourceForApp(personalAppId: string): AppSourceRecord | undefined {
+  return getDb().select().from(appSources).where(eq(appSources.personalAppId, personalAppId)).get();
+}
+
+export function listAppSources(): AppSourceRecord[] {
+  return getDb().select().from(appSources).orderBy(asc(appSources.name)).all();
+}
+
+export function updateAppSource(id: string, patch: Partial<Pick<AppSourceRecord, 'name' | 'folder' | 'gitUrl' | 'notes' | 'personalAppId' | 'url' | 'changeFolder' | 'changeBranch'>>): AppSourceRecord | undefined {
+  return getDb().update(appSources).set({ ...patch, updatedAt: new Date().toISOString() }).where(eq(appSources.id, id)).returning().get();
+}
+
+export function deleteAppSource(id: string): void {
+  getDb().delete(appSources).where(eq(appSources.id, id)).run();
 }
 

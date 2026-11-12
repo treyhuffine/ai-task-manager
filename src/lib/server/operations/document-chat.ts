@@ -1,4 +1,5 @@
 import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '@/db/types';
+import { getAppSource } from '@/lib/db/queries';
 import {
   archiveChatSession,
   createChatSession,
@@ -73,7 +74,7 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
  * chat ('trigger') is keyed by the schedule's id, or 'new' for the one that
  * sets up a new schedule (src/lib/triggers/builder-brief.ts).
  */
-const SURFACE_KINDS = ['task', 'note', 'skill', 'skill-try', 'trigger'] as const;
+const SURFACE_KINDS = ['task', 'note', 'skill', 'skill-try', 'trigger', 'app-builder'] as const;
 type SurfaceKind = (typeof SURFACE_KINDS)[number];
 
 interface EntityRef {
@@ -99,12 +100,14 @@ function missingSkill(ref: EntityRef) {
     if (ref.entityId === NEW_SCHEDULE_REF || getTrigger(ref.entityId)) return null;
     return reply({ error: "There's no such schedule." }, { status: 404 });
   }
+  // A personal app's builder chat, keyed by its source (src/lib/apps/builder.ts).
+  if (ref.entityType === 'app-builder') return getAppSource(ref.entityId) ? null : reply({ error: "There's no such app." }, { status: 404 });
   if (ref.entityType !== 'skill' && ref.entityType !== 'skill-try') return null;
   if (findSkill(ref.entityId)) return null;
   return reply({ error: "There's no such skill." }, { status: 404 });
 }
 
-const BAD_ENTITY = 'entityType (task|note|skill|skill-try|trigger) and entityId are required';
+const BAD_ENTITY = 'entityType (task|note|skill|skill-try|trigger|app-builder) and entityId are required';
 
 /** The active, user-opened content session for an entity (excludes scheduled/run-created chats). */
 function findCurrent(ref: EntityRef): ChatSessionWithExecution | null {

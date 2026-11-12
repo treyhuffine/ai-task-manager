@@ -11,11 +11,13 @@ const mocks = vi.hoisted(() => ({
   activeView: { kind: 'apps', route: '~connected/canvas' } as { kind: string; route?: string; query?: Record<string, string> },
   opened: [] as { serverId: string; launch?: string; screenId?: string }[],
   library: [] as Record<string, string>[],
+  builds: [] as string[],
 }));
 
 // The address still shows the old search, as it does for a render after a location change.
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams('open=gallery') }));
 vi.mock('@/contexts/dashboard-context', () => ({ useDashboard: () => ({ activeView: mocks.activeView, setActiveView: () => {}, goHome: () => {} }) }));
+vi.mock('./app-build-page', () => ({ AppBuildPage: (props: { sourceId: string }) => { mocks.builds.push(props.sourceId); return null; } }));
 vi.mock('./layout-review', () => ({ AppsLibraryScreen: (props: { query: Record<string, string> }) => { mocks.library.push(props.query); return null; } }));
 vi.mock('@/components/mcp-apps/page', () => ({
   ConnectedAppPage: (props: { serverId: string; launch?: string; screenId?: string }) => {
@@ -55,4 +57,11 @@ it('says an app at any other route is gone, without opening anything', async () 
   expect(html).toContain('Open Apps');
   expect(mocks.opened).toEqual([]);
   expect(mocks.library).toEqual([]);
+});
+
+it('opens an app being built at its build route', async () => {
+  mocks.activeView = { kind: 'apps', route: 'build/source-1' };
+  const { AppsShell } = await import('./apps-shell');
+  renderToStaticMarkup(<AppsShell route="build/source-1" />);
+  expect(mocks.builds).toEqual(['source-1']);
 });

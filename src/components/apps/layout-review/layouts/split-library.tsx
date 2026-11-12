@@ -9,6 +9,8 @@ import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { AppLibrary } from '../../app-library';
 import { AddAppDialog } from '../../add-app-dialog';
 import { HubAccessList } from '../../hub-access';
+import { NewAppDialog } from '../../new-app-dialog';
+import { AppBuildsList } from '../../app-builds-list';
 import type { LibraryFilter } from '../../library-model';
 import { useReview } from '../context';
 import { ItemDetails } from '../details';
@@ -71,6 +73,7 @@ function LibraryHeader() {
   const review = useReview();
   const skillInput = useRef<HTMLInputElement>(null);
   const [addingApp, setAddingApp] = useState(false);
+  const [newApp, setNewApp] = useState(false);
   const newServer = () => {
     review.setTrySkill(null);
     review.patch({ mcp: 'new', provider: undefined, item: undefined, panel: undefined });
@@ -78,7 +81,7 @@ function LibraryHeader() {
   return <header className={s.libraryHeader}>
     <div className={s.libraryHeading}><span className={s.mark}><LayoutGrid size={18} /></span><div><h1>Apps</h1><p>Apps, {INTEGRATION_LABELS.plural.toLowerCase()}, and skills for your work.</p></div></div>
     <div className={s.creationActions} aria-label="Create and connect">
-      {/* New app goes here, first: it runs the app kit's create to make a personal app, an MCP server Ri connects to. */}
+      <Button size="sm" variant="outline" onClick={() => setNewApp(true)}><Plus size={13} />New app</Button>
       <Button size="sm" variant="outline" onClick={() => setAddingApp(true)}><Plus size={13} />Add app</Button>
       <Button size="sm" variant="outline" disabled={review.busy} onClick={review.buildSkill}><Plus size={13} />New skill</Button>
       <Button size="sm" variant="outline" onClick={newServer}><Plus size={13} />Add MCP server</Button>
@@ -91,6 +94,7 @@ function LibraryHeader() {
     <div className={s.librarySearch}><SearchBox placeholder="Search your library or find something new" /></div>
     <input type="file" ref={skillInput} className="sr-only" accept=".md" aria-label="Import SKILL.md" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) review.importSkill(file); }} />
     <AddAppDialog open={addingApp} onOpenChange={setAddingApp} />
+    <NewAppDialog open={newApp} onOpenChange={setNewApp} onCreated={(id) => review.navigate(`build/${id}`)} />
   </header>;
 }
 
@@ -110,6 +114,7 @@ function GroupedLibrary({ filter }: { filter: LibraryFilter }) {
           : <p className={s.groupEmpty}>{review.search ? 'No matches.' : `No ${label.toLowerCase()} yet.`}</p>}
       </section>;
     })}
+    {(filter === 'all' || filter === 'apps') && <div className={s.libraryGroup}><AppBuildsList onOpen={(id) => review.navigate(`build/${id}`)} /></div>}
     {(filter === 'all' || filter === 'apps') && <div className={s.libraryGroup}><HubAccessList /></div>}
     {!!drafts.length && <section className={s.libraryGroup} aria-label="In progress"><div className={s.groupHeading}><h3>In progress</h3><span>{drafts.length}</span></div>
       {drafts.map(item => <LibraryEntry key={item.key} item={item} />)}

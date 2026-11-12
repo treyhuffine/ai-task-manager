@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { AppsLibraryScreen } from './layout-review';
 import { ConnectedAppPage } from '@/components/mcp-apps/page';
+import { AppBuildPage } from './app-build-page';
 
 /**
  * What `/apps/<route>` shows: the library, or a connected app's page. The URL
@@ -26,6 +27,8 @@ export function AppsShell({ route }: { route: string }) {
   const parts = route.split('/').filter(Boolean);
   // One page per connection, so a deep link to a screen that is open reaches its live view instead of a new one.
   if (parts[0] === '~connected' && parts[1]) return <ConnectedAppPage key={parts[1]} serverId={parts[1]} navigate={navigate} resultId={appQuery.result} screenId={appQuery.screen} launch={appQuery.open} deepLink={appQuery.path}/>;
+  // An app being built or changed: its builder chat and the kit's steps.
+  if (parts[0] === 'build' && parts[1]) return <AppBuildPage key={parts[1]} sourceId={parts[1]} navigate={navigate} />;
   if (parts.length === 0 || parts[0] === 'new') return <AppsLibraryScreen query={appQuery} navigate={navigate} />;
 
   return (

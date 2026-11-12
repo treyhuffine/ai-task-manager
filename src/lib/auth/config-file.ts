@@ -56,6 +56,12 @@ export interface AuthConfig {
   /** Durable handoffs and independent review require an explicit opt-in. */
   handoffsEnabled: boolean | null;
   aiReviewEnabled: boolean | null;
+  /** Where New app makes each personal app, as its own git repository. Null = `<app-root>/apps`
+   *  (docs/personal-apps.md "Building and changing apps"). */
+  appsDir: string | null;
+  /** The command that runs the app kit's `create`, given the new app's folder as its last
+   *  argument. Null = New app asks for it. The kit's name isn't settled, so Ri never assumes one. */
+  appKitCommand: string | null;
 }
 
 export function getAuthConfigDir(): string {
@@ -90,6 +96,8 @@ export function readAuthConfig(): AuthConfig | null {
       browserDefaultProfile: parsed.browserDefaultProfile ?? null,
       handoffsEnabled: parsed.handoffsEnabled ?? null,
       aiReviewEnabled: parsed.aiReviewEnabled ?? null,
+      appsDir: parsed.appsDir ?? null,
+      appKitCommand: parsed.appKitCommand ?? null,
     };
   } catch (err) {
     console.error('[auth] failed to read config.json:', err);
@@ -138,6 +146,8 @@ function writeLockedConfig(config: Partial<AuthConfig>): AuthConfig {
     browserDefaultProfile: pick('browserDefaultProfile'),
     handoffsEnabled: pick('handoffsEnabled'),
     aiReviewEnabled: pick('aiReviewEnabled'),
+    appsDir: pick('appsDir'),
+    appKitCommand: pick('appKitCommand'),
   };
 
   atomicWriteFile(file, JSON.stringify({ ...original, ...next }, null, 2) + '\n');

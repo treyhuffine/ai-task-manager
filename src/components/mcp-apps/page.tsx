@@ -17,6 +17,7 @@ import { ConnectedView } from './view';
 import { EntrypointIcon } from './entrypoint-icon';
 import { Tip } from '@/components/ui/tip';
 import { PersonalAppAccess } from '@/components/apps/personal-app-access';
+import { AppSourcePanel } from '@/components/apps/app-source-panel';
 
 type App = RouterOutputs['connectedApps']['catalog'][number];
 type Entrypoint = App['entrypoints'][number];
@@ -120,6 +121,7 @@ export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch
           </p>
         </div>
       </section>
+      {app.app && <AppSourcePanel appId={app.app.id} appName={app.app.name} onOpenBuild={(id) => navigate(`build/${id}`)}/>}
       {app.app && <PersonalAppAccess appId={app.app.id} onRemoved={() => navigate('')}/>}
       {opened && <section aria-label="Open result">
         <ConnectedView key={opened.id} captureId={opened.id} chatId={opened.chatId} onClose={() => setOpen(null)}/>
