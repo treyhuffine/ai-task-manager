@@ -143,16 +143,17 @@ export async function submitAgentRequest(ctx: ActionContext, input: { target: st
     if (depth >= 8) throw new ActionError('conflict', 'Resolve the existing request chain before delegating again.');
     ancestor = ancestor.parentRequestId ? q.getAgentRequest(ancestor.parentRequestId) : null;
   }
-  // A stable address is exempt only while it still names the exact requester.
-  // Delegation creates another chat, so the requester exemption never covers it.
-  if (!target && input.kind !== 'delegation' && parent?.sourceSessionId && address === parent.sourceAddress) {
+  // Look up existing main chats without creating one before authorization.
+  // Reply permission belongs to the exact sender, never a replacement or new chat.
+  let replyTarget = target;
+  if (!replyTarget && input.kind !== 'delegation') {
     const scope = address === 'orchestrator' ? null : address.startsWith('agent:') ? address.slice(6) : undefined;
-    const current = scope !== undefined ? q.listMainChats(scope, { status: 'active', limit: 1 })[0] : null;
-    if (current?.id === parent.sourceSessionId) target = personalChat(current.id, source.userId);
+    replyTarget = scope !== undefined ? q.listMainChats(scope, { status: 'active', limit: 1 })[0] ?? null : null;
   }
-  const toRequester = input.kind !== 'delegation' && !!parent?.sourceSessionId && target?.id === parent.sourceSessionId;
+  const isReply = input.kind !== 'delegation' && !!replyTarget && q.hasAgentReplyAuthorization(source.id, replyTarget.id);
+  if (isReply) target = personalChat(replyTarget!.id, source.userId);
   const authority = q.agentCoordinationPolicy(source.id);
-  const status = toRequester || authority.unrestricted || authority.policy === 'allow' ? 'queued' : 'awaiting_approval';
+  const status = isReply || authority.unrestricted || authority.policy === 'allow' ? 'queued' : 'awaiting_approval';
   const eventId = input.kind === 'delegation' ? requestScopedId('prompt', options!.workspaceId, id) : stableCoordinationId('input', id);
   const prompt = `[Ri agent ${input.kind}. Request ID: ${id}. Requesting chat: ${source.id}.]\n${content}\n\n${input.kind === 'message' ? AGENT_MESSAGE_INSTRUCTIONS : AGENT_REQUEST_REPLY_INSTRUCTIONS}`;
   const delivery = q.createInitiatingAgentDelivery({ id, source, sourceRunId, address, targetSessionId: target?.id ?? null, requestKey: input.requestId, parentRequestId: parent?.id ?? null, kind: input.kind, content, options, eventId, prompt, relatedRequestId: input.relatedRequestId, status });

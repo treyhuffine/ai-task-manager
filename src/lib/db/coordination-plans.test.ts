@@ -11,6 +11,7 @@ it.each([
   ['due deliveries', () => q.dueAgentDeliveries(), 'idx_agent_coordination_deliveries_pending'],
   ['pending inputs', () => q.pendingAgentDeliveries('chat'), 'idx_agent_coordination_deliveries_target'],
   ['pending approvals', () => q.pendingAgentApprovals('chat'), 'idx_agent_coordination_deliveries_source'],
+  ['reply authorization', () => q.hasAgentReplyAuthorization('chat', 'sender'), 'idx_agent_coordination_deliveries_source'],
   ['outstanding work', () => q.hasOutstandingAgentRequests('chat'), 'idx_agent_coordination_requests_source'],
   ['assigned work', () => q.agentRequestForRun('run'), 'idx_agent_coordination_requests_run'],
   ['continued inputs', () => q.coordinationDeliveriesForRun('run'), 'idx_agent_coordination_deliveries_continuation'],

@@ -126,6 +126,42 @@ async function setupRuntime() {
   return { workspace, main, agentMain, runAction, postMessage, messageInput, context };
 }
 
+it('returns a useful reply to an approved one-way message under Ask first through the real runner', async () => {
+  const { workspace, runAction } = await setupRuntime();
+  const source = q.createExecutionWithChat({ workspaceId: workspace.id, harness: 'claude', label: null }).session;
+  const recipient = q.createExecutionWithChat({ workspaceId: workspace.id, harness: 'claude', label: null }).session;
+  q.setAgentCoordinationPolicy('global', '1', 'ask');
+  let replyId = '';
+  harness!.onTurn(async turn => {
+    const chatId = verifySessionCredential(turn.session.ctx.env?.RI_SESSION_CREDENTIAL, home!.token)!;
+    if (chatId === recipient.id) {
+      expect(turn.message).toContain('Review this implementation.');
+      const reply = await runAction('message_agent', { target: `session:${source.id}`, request_id: 'one-way-review-reply', content: 'The implementation passes review.', response: 'none' }, { remote: true, actor: { source: 'ai', sessionId: chatId } });
+      expect(reply).toMatchObject({ ok: true, result: { status: 'queued' } });
+      if (reply.ok) replyId = (reply.result as { id: string }).id;
+      await turn.say('The findings were sent to the original chat.');
+    } else {
+      expect(chatId).toBe(source.id);
+      expect(turn.message).toContain('The implementation passes review.');
+      await turn.say('The review is ready for the user.');
+    }
+  });
+  const { startAgentCoordination, drainAgentCoordination } = await import('./service');
+  startAgentCoordination();
+  const initial = await runAction('message_agent', { target: `session:${recipient.id}`, request_id: 'one-way-review', content: 'Review this implementation.', response: 'none' }, { remote: true, actor: { source: 'ai', sessionId: source.id } });
+  expect(initial).toMatchObject({ ok: true, result: { status: 'awaiting_approval' } });
+  if (!initial.ok) throw new Error(initial.error.message);
+  q.decideAgentDelivery((initial.result as { id: string }).id, 'allow');
+  await drainAgentCoordination();
+  await vi.waitFor(() => expect(q.getLastChatEventBySource(source.id, 'agent')?.content).toBe('The review is ready for the user.'), { timeout: 10_000, interval: 25 });
+  expect(q.getAgentDelivery(replyId)).toMatchObject({ status: 'accepted', targetSessionId: source.id });
+  for (const chat of [source, recipient]) {
+    expect(q.pendingAgentApprovals(chat.id)).toEqual([]);
+    expect(q.agentCoordinationPolicy(chat.id).policy).toBe('ask');
+    expect(q.listAgentRequests(chat.id)).toEqual([]);
+  }
+}, 15_000);
+
 it('runs an orchestrator delegation through executor consultation and returns the finished work automatically', async () => {
   const { workspace, main, agentMain, runAction, postMessage, messageInput, context } = await setupRuntime();
   harness!.onTurn(async turn => {

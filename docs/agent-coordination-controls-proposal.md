@@ -139,13 +139,13 @@ Always allow in this chat permits that chat to message existing chats and create
 
 Check coordination permission when a new initiating delivery is created. Under ask, save it as `awaiting_approval` and show a card in the source chat with the destination, exact intent, and whether a returned outcome is expected.
 
-Actions are Allow once, Always allow in this chat, and Deny. The broader action updates the chat preference and approves the pending send in one operation. Allow once authorizes this send and its promised returned outcomes. It does not establish a work-wide grant.
+Actions are Allow once, Always allow in this chat, and Deny. The broader action updates the chat preference and approves the pending send in one operation. Allow once authorizes this send, its promised returned outcomes and replies from the receiving chat to this exact sending chat. It does not establish a work-wide grant.
 
 Approval and denial are human-only operations. Record the proposal and decision in `chat_events`. Do not create or start an agent destination before approval. A retry with the same intent reuses the existing delivery and decision. An agent must stand down after denial rather than manufacture another key for unchanged intent.
 
 Already approved sends remain approved if policy later changes. Policy changes govern new initiating actions. Hold and cancellation control activity already approved or queued. This distinction is visible in settings and the approval card. Permission is not silently re-requested on delivery retries.
 
-Automatic outcomes of approved requests need no new approval. Direct communication back to the requester of the current verified assignment, including a clarification, is covered by that assignment's authorization. This exemption requires an active assigned request and the verified requester address. It does not apply to an arbitrary previous requester or third chat.
+Automatic outcomes of approved requests need no new approval. Once an authorized message reaches a chat, the receiving chat may reply to the exact sender without another coordination approval, including in later turns. This applies to one-way messages and human forwards as well as required requests and returned answers. Existing delivered or accepted records from an agent or human establish reply authority, without changing policy or adding a grant table. Undelivered proposals and system notices grant nothing. Stable addresses must still resolve to the original sending chat, and exempt replies pin that exact chat. Replacement main chats, unrelated third chats and new delegated chats follow normal policy. Hold still gates incoming activity, and one-way messages create no automatic return.
 
 ### 5.3 New-chat policy
 

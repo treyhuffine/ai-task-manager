@@ -115,6 +115,15 @@ export function pendingAgentApprovals(sessionId: string): AgentDeliveryRecord[] 
   return getDb().select().from(deliveries).where(and(eq(deliveries.sourceSessionId, sessionId), eq(deliveries.status, 'awaiting_approval'))).orderBy(deliveries.createdAt, deliveries.id).limit(100).all();
 }
 
+/** Receiving an authorized message covers replies to its exact sending chat,
+ * including later turns. System notices and undelivered proposals grant nothing. */
+export function hasAgentReplyAuthorization(sessionId: string, targetSessionId: string): boolean {
+  return !!getDb().select({ id: deliveries.id }).from(deliveries).where(and(
+    eq(deliveries.targetSessionId, sessionId), eq(deliveries.sourceSessionId, targetSessionId),
+    inArray(deliveries.status, ['delivered', 'accepted']), inArray(deliveries.senderKind, ['agent', 'human']),
+  )).limit(1).get();
+}
+
 /** A scheduled turn cannot report success while its own sends need approval. */
 export function hasAgentApprovalForRun(runId: string): boolean {
   return !!getDb().select({ id: deliveries.id }).from(deliveries)

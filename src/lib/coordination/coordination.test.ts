@@ -230,6 +230,75 @@ describe('permission and Hold', () => {
     expect((await send(agentMain,{target:`session:${third.id}`})).status).toBe('awaiting_approval');
     expect(q.getAgentRequest(initial.requestId!)?.status).toBe('working');
   });
+  it.each(['none', 'required'] as const)('allows a %s reply to an approved one-way message under Ask first', async response => {
+    main = q.createExecutionWithChat({ workspaceId: agent.id, harness: 'claude', label: null }).session;
+    agentMain = q.createChatSession({ type: 'content', harness: 'claude', workspaceId: agent.id });
+    q.setAgentCoordinationPolicy('global', '1', 'ask');
+    const initial = await send(main, { response: 'none' });
+    expect(initial.status).toBe('awaiting_approval');
+    q.decideAgentDelivery(initial.id, 'allow');
+    await drainAgentCoordination();
+    expect(q.getAgentDelivery(initial.id)?.status).toBe('accepted');
+
+    const reply = await send(agentMain, { target: `session:${main.id}`, response, content: 'Here is the review.' });
+    expect(reply.status).toBe('accepted');
+    expect(q.pendingAgentApprovals(agentMain.id)).toEqual([]);
+    expect(q.agentCoordinationPolicy(agentMain.id).policy).toBe('ask');
+    const third = q.createChatSession({ type: 'content', harness: 'claude' });
+    expect((await send(agentMain, { target: `session:${third.id}`, response: 'none' })).status).toBe('awaiting_approval');
+  });
+  it('allows replies in later turns and keeps incoming Hold effective', async () => {
+    main = q.createExecutionWithChat({ workspaceId: agent.id, harness: 'claude', label: null }).session;
+    agentMain = q.createChatSession({ type: 'content', harness: 'claude', workspaceId: agent.id });
+    await send(main, { response: 'none' });
+    await complete(agentMain.id, 'The one-way work is done.');
+    q.setAgentCoordinationPolicy('global', '1', 'ask');
+    q.setAgentCoordinationHold(main.id, true);
+    recoverAgentCoordination();
+
+    const reply = await send(agentMain, { target: `session:${main.id}`, response: 'none' });
+    expect(reply.status).toBe('delivered');
+    expect(q.pendingAgentApprovals(agentMain.id)).toEqual([]);
+    expect(accepted.filter(row => row.sessionId === main.id)).toHaveLength(0);
+    q.setAgentCoordinationHold(main.id, false);
+    await drainAgentCoordination();
+    expect(q.getAgentDelivery(reply.id)?.status).toBe('accepted');
+    expect((await send(main, { response: 'none', content: 'Follow up on the review.' })).status).toBe('accepted');
+  });
+  it.each(['orchestrator', 'agent'] as const)('pins a one-way reply to the current %s chat without approving a replacement', async address => {
+    q.archiveChatSession(agentMain.id);
+    agentMain = q.createChatSession({ type: 'content', harness: 'claude', workspaceId: agent.id });
+    const sender = address === 'orchestrator' ? main : q.createChatSession({ type: 'orchestration', harness: 'claude', workspaceId: agent.id });
+    q.setAgentCoordinationPolicy('chat', agentMain.id, 'ask');
+    await send(sender, { response: 'none' });
+    const reply = await send(agentMain, { target: address, response: 'none' });
+    expect(reply).toMatchObject({ status: 'accepted', targetSessionId: sender.id });
+
+    q.archiveChatSession(sender.id);
+    const replacement = q.createChatSession({ type: 'orchestration', harness: 'claude', ...(address === 'agent' ? { workspaceId: agent.id } : {}) });
+    expect((await send(agentMain, { target: address, response: 'none' })).status).toBe('awaiting_approval');
+    expect(q.listChatEvents(replacement.id)).toEqual([]);
+    expect(await act(agentMain, 'delegate_work', { workspace_id: agent.id, request_id: 'reply-is-not-delegation', prompt: 'Start another review.' })).toMatchObject({ ok: true, result: { status: 'awaiting_approval' } });
+  });
+  it.each(['pending', 'denied'] as const)('requires approval to contact the sender of a %s one-way proposal', async decision => {
+    main = q.createExecutionWithChat({ workspaceId: agent.id, harness: 'claude', label: null }).session;
+    agentMain = q.createChatSession({ type: 'content', harness: 'claude', workspaceId: agent.id });
+    q.setAgentCoordinationPolicy('global', '1', 'ask');
+    const initial = await send(main, { response: 'none' });
+    if (decision === 'denied') q.decideAgentDelivery(initial.id, 'deny');
+    expect((await send(agentMain, { target: `session:${main.id}`, response: 'none' })).status).toBe('awaiting_approval');
+    expect(accepted).toHaveLength(0);
+  });
+  it('allows a reply to a message the person forwarded from another chat', async () => {
+    main = q.createExecutionWithChat({ workspaceId: agent.id, harness: 'claude', label: null }).session;
+    agentMain = q.createChatSession({ type: 'content', harness: 'claude', workspaceId: agent.id });
+    q.setAgentCoordinationPolicy('global', '1', 'ask');
+    const material = q.insertChatEvent({ sessionId: main.id, role: 'assistant', source: 'agent', content: 'Review this implementation.' })!;
+    await forwardToChat({ sendId: 'reply-to-forward', sourceEventId: material.id, directions: 'Send your findings here.', target: agentMain.id });
+    await drainAgentCoordination();
+    expect((await send(agentMain, { target: `session:${main.id}`, response: 'none' })).status).toBe('accepted');
+    expect(q.pendingAgentApprovals(agentMain.id)).toEqual([]);
+  });
   it('keeps held messages visible and batches them into one human-authorized forward without releasing Hold', async () => {
     q.setAgentCoordinationHold(agentMain.id,true);
     const messages = [];

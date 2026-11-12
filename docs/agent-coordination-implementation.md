@@ -1,6 +1,14 @@
 # Agent coordination implementation and evidence
 
-Source: [final specification](agent-coordination-controls-proposal.md). Updated 2026-10-27.
+Source: [final specification](agent-coordination-controls-proposal.md). Updated 2026-11-12.
+
+## Replies to authorized messages
+
+An authorized message now covers replies to its exact sending chat, including one-way messages, human forwards and replies in later turns. Reply authority comes from existing delivered or accepted agent/human deliveries. Standing preferences stay unchanged, system notices grant nothing, and pending or denied sends cannot authorize a reply. Stable addresses qualify only while their current chat is the actual sender, and an exempt reply pins that chat. New delegated chats and third chats still follow normal policy, while incoming Hold continues to gate acceptance. One-way messages still return no output automatically.
+
+Regression coverage includes Ask-first approval followed by either reply mode, later turns and recovery, human forwards, stable addresses and replacement main chats, unrelated destinations, delegation, Pause incoming, delivery states and sender provenance. The actual query builder plan is pinned to an existing coordination index, with no transcript reads or schema changes.
+
+Verification: 174 tests pass across 19 suites, with one skipped test. The runtime regression uses Ri's actual dispatcher and runner with a stand-in harness, with both chats governed by Ask first. Typecheck, scoped ESLint and diff whitespace checks pass.
 
 ## Manager chat authority and delegation readiness
 
@@ -167,7 +175,7 @@ Final typecheck, scoped lint, CLI build with plain-Node boot verification and pr
 | 13 | Stop returns failure instead of partial success. Cancellation fences descendants and late outcomes. A cancelled producing run cannot spawn independent replacement work. Core and startup-fence regression tests |
 | 14 | Four-scope precedence includes execution siblings, explicit overrides, all-null ask and displayed provenance. Core policy tests, typed-router test and interactive gallery control |
 | 15 | Pending approval is durable. Allow once retains authorization across retries. Always allow covers arbitrary destinations. Denial starts no target work and does not strand an approved parent. Core and gallery tests |
-| 16 | Only the exact verified requester is covered. Delegation and replaced main chats require normal approval. Clarification, third-party and fresh-review regression tests |
+| 16 | Replies to the exact sender of an authorized received message are covered, including one-way messages and later turns. Delegation and replaced main chats require normal approval. Reply, clarification, third-party and fresh-review regression tests |
 | 17 | Policy changes govern new sends while approved input remains authorized. Hold continues to gate acceptance. Approval retry and Hold tests |
 | 18 | Child initialization respects destination ask and runs once, including recovery between creation and initialization. Later human overrides survive retries. Core and shared-launch permission tests |
 | 19 | Ask/plan authority caps omitted or broader modes, including harness changes. Unsupported caps refuse. Ordinary new-chat endpoints reject signed-agent bypasses, and generic session PATCH cannot raise or otherwise change permission modes for agents. `permissions.test.ts`, `session-permissions.test.ts` |
