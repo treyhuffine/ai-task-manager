@@ -13,7 +13,7 @@ function s(id: string, iso: string): RailSession {
     userId: 'local',
     createdByMemberId: null,
     agentCoordinationPolicy: null, coordinationHeldAt: null,
-    serviceTier: null,
+    serviceTier: null, appTools: null,
     harness: 'claude',
     type: 'execution',
     surfaceKind: null,

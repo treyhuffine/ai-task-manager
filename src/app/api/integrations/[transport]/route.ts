@@ -26,7 +26,7 @@
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { isMcpTransport, mcpNotFound, riMcpHandler, type RiMcpServer } from '@/lib/mcp/http-server';
 import { serveMcp } from '@integrations/engine/mcp';
-import type { AccountChoice } from '@integrations/engine';
+import type { AccountChoice, ActionOutcome } from '@integrations/engine';
 import type { NextRequest } from 'next/server';
 import { serveAccountChat } from '@/lib/server/operations/plugins/account-chat';
 import { APP_NAME } from '@/constants/app';
@@ -37,6 +37,9 @@ import {
 } from '@/lib/integrations/runtime';
 import { sessionCaller } from '@/lib/integrations/approval';
 import { resolveRiIntegrationFilter } from '@/lib/integrations/workspace-filter';
+import { planAppTools } from '@/lib/integrations/app-tools';
+import { registerAutomaticApps } from '@/lib/integrations/app-tools-mcp';
+import { getChatSession } from '@/lib/db/queries';
 import { actorFromSessionCredential, sessionCredentialFromHeaders } from '@/lib/orchestrator/session-credential';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { connectedButUnavailable, recordPausedConnection, requestConnection } from '@/lib/integrations/connection-requests';
@@ -90,24 +93,34 @@ function buildHandler(workspaceId: string | null, sessionId: string | null, sign
         connectionPins = ri.connectionPins;
       }
 
+      // Personal apps: listed directly when switched on for this chat, one line each while
+      // automatic, and not at all when off (src/lib/integrations/app-tools.ts).
+      const chat = sessionId ? getChatSession(sessionId) : undefined;
+      const apps = planAppTools(toolkits, chat?.appTools, !!chat);
+      const caller = sessionId ? sessionCaller(sessionId) : { type: 'mcp' as const };
+      const onPause = (actionId: string, outcome: ActionOutcome) => {
+        // The approval pending (if any) is registered inside the ApprovalPolicy; trace the pause.
+        if (outcome.ok) return;
+        console.log(`[integrations-mcp] ${actionId} → ${outcome.reason}`);
+        // A connection that stopped working or needs more access: a Reconnect card in this chat.
+        if (outcome.reason === 'auth_required' || outcome.reason === 'needs_consent') {
+          void recordPausedConnection({ sessionId, scopeWorkspaceId: workspaceId, outcome }).catch((err) =>
+            console.warn(`[integrations-mcp] recording the reconnect card failed:`, err),
+          );
+        }
+      };
       serveMcp(server, runtime, {
         signal,
         ownerId,
-        caller: sessionId ? sessionCaller(sessionId) : { type: 'mcp' },
-        toolkits,
+        caller,
+        toolkits: apps.direct,
         ...(connectionPins && Object.keys(connectionPins).length > 0 ? { connectionPins } : {}),
         ...(allowedAccounts && Object.keys(allowedAccounts).length > 0 ? { allowedAccounts } : {}),
-        onPause: (actionId, outcome) => {
-          // The approval pending (if any) is registered inside the ApprovalPolicy; trace the pause.
-          if (outcome.ok) return;
-          console.log(`[integrations-mcp] ${actionId} → ${outcome.reason}`);
-          // A connection that stopped working or needs more access: a Reconnect card in this chat.
-          if (outcome.reason === 'auth_required' || outcome.reason === 'needs_consent') {
-            void recordPausedConnection({ sessionId, scopeWorkspaceId: workspaceId, outcome }).catch((err) =>
-              console.warn(`[integrations-mcp] recording the reconnect card failed:`, err),
-            );
-          }
-        },
+        onPause,
+      });
+
+      if (apps.automatic.length && sessionId) registerAutomaticApps(server, runtime, {
+        chatId: sessionId, toolkits: apps.automatic, connectionPins: connectionPins ?? {}, ownerId, caller, signal, onPause,
       });
 
       if (requestsOn) {

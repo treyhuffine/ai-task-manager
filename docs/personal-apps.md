@@ -31,6 +31,20 @@ How the places stay apart:
 
 Checked on November 12, 2026 against Reading Log built from the kit's branch and run with `serve` in local-owner mode, from an isolated Ri: adding it registered client `Ri`, allowing the Family agent registered a second client named `Ri · Family`, Ri's connection (allowed read-only) was refused `save_book` with the app's own message while Family's (allowed changes) saved a book, and an agent that wasn't allowed had no app tools and couldn't add the app through its scopes.
 
+## Loading app tools in a chat
+
+Being allowed and being loaded are separate (shared spec §2). Dozens of apps' tools would swamp a model, so an allowed app costs a chat one line until it's needed. `src/lib/integrations/app-tools.ts` decides, and Ri's integrations endpoint and turn context carry it, so it works the same with every harness Ri runs.
+
+| Mode | What the chat's model sees |
+| --- | --- |
+| Automatic (the default) | `load_app_tools`, whose description has one line per app: its id, name and what it does (its server's description, else its tool names). Calling it returns the app's tools with their input schemas and marks the app loaded in that chat. `call_app_tool` (app, tool, arguments) calls one through the same gated `runAction` as any connector tool, on the chat's own connection. |
+| On | The app's tools listed directly, like any connector's. |
+| Off | Nothing. The app isn't listed and `call_app_tool` can't reach it. |
+
+An app also loads straight away when a message @-tags it or carries context from its screen beside the chat: that turn gets the app's tools in an `<ri-app-tools>` block (`messageAppToolsContext`). The switch is per chat, in the + menu under App tools, and stored on `chat_sessions.app_tools`. Changing it restarts the chat's harness when idle, since harnesses keep the tool list they started with. A call with no chat behind it (no session credential) sees apps listed directly, since there is nowhere to remember a load. All of this decides what the model sees, never what the app may reach.
+
+Checked on November 12, 2026 with Reading Log, as Ri's main chat on the isolated Ri: automatic listed no Reading Log tools, only the two dispatchers, and loading then calling `list_books` worked through Ri's own connection. On listed its five tools directly with no dispatcher. Off listed nothing and the dispatcher was gone.
+
 ## What was removed
 
 On November 12, 2026, Ri's own app package system was removed, since nobody used it and each thing is now done one way:

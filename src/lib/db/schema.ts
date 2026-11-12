@@ -2105,6 +2105,16 @@ export const previewTargets = sqliteTable(
 // through `getChatSessionWithExecution`. They may carry external_session_id
 // when bound to a CLI session.
 
+/**
+ * A chat's personal app tools, keyed by app connector (`app_<slug>`). `modes` holds the person's
+ * switch: `on` always loads the app, `off` doesn't list it. An app not in it is automatic: one line
+ * until it's needed. `loaded` lists the automatic apps already loaded in this chat.
+ */
+export interface ChatAppTools {
+  modes?: Record<string, 'on' | 'off'>;
+  loaded?: string[];
+}
+
 export const chatSessions = sqliteTable(
   'chat_sessions',
   {
@@ -2240,6 +2250,10 @@ export const chatSessions = sqliteTable(
     effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
     // Provider-native speed id. NULL preserves a legacy chat's native setting.
     serviceTier: text(),
+    // Which personal apps' tools this chat's model sees (docs/personal-apps.md "Loading app
+    // tools"): the person's switch per app, and the apps loaded so far while automatic. NULL is
+    // every app automatic and none loaded.
+    appTools: text({ mode: 'json' }).$type<ChatAppTools>(),
 
     // When entering plan mode we stash the prior permission_mode here so
     // ExitPlanMode can revert. Cleared when a non-plan mode is set directly.

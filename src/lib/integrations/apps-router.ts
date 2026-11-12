@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 import { viewerProcedure as p, router } from '@/lib/trpc/init';
 import { safeReturnPath } from './oauth-return';
+import { chatAppTools, setAppToolMode } from './app-tools';
 import {
   addPersonalApp, allowPersonalAppInAgent, getPersonalApp, listPersonalApps, PersonalAppError,
   removePersonalApp, removePersonalAppFromAgent,
@@ -31,4 +32,8 @@ export const personalAppsRouter = router({
   disallow: p.input(z.object({ appId: id, workspaceId: id }).strict())
     .mutation(({ input }) => run(() => removePersonalAppFromAgent(input))),
   remove: p.input(z.object({ appId: id }).strict()).mutation(({ input }) => run(() => removePersonalApp(input.appId))),
+  /** The apps a chat may use, each on, automatic or off for it (docs/personal-apps.md "Loading app tools"). */
+  chatTools: p.input(z.object({ chatId: id }).strict()).query(({ input }) => chatAppTools(input.chatId)),
+  setChatTool: p.input(z.object({ chatId: id, toolkitId: id, mode: z.enum(['on', 'auto', 'off']) }).strict())
+    .mutation(async ({ input }) => { await setAppToolMode(input.chatId, input.toolkitId, input.mode); return chatAppTools(input.chatId); }),
 });

@@ -15,6 +15,7 @@ import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import type { ChatInputEditorHandle } from '@/components/chat/editor/chat-input-editor';
 import { usePersonalServices } from '@/components/home/use-personal-services';
 import { AppCompanionRows } from '@/components/apps/app-companion-rows';
+import { ChatAppToolsDialog, ChatAppToolsRow } from '@/components/apps/chat-app-tools';
 import { useSettingsLink } from '@/components/settings/settings-destination';
 import { ScheduleChatDialog } from '@/components/triggers/schedule-chat-button';
 import { DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
@@ -25,7 +26,7 @@ import { trpc } from '@/lib/trpc/client';
 import { AddMenuRow, ComposerAddMenu } from './composer-add-menu';
 import { ComposerMentionRows } from './composer-mention-rows';
 
-type Opened = 'schedule' | 'folder' | null;
+type Opened = 'schedule' | 'folder' | 'apps' | null;
 
 export function ChatAddMenu({ sessionId, ...menu }: Omit<ComponentProps<typeof ComposerAddMenu>, 'children' | 'mentions'> & {
   sessionId: string;
@@ -38,6 +39,7 @@ export function ChatAddMenu({ sessionId, ...menu }: Omit<ComponentProps<typeof C
       </ComposerAddMenu>
       <ScheduleChatDialog sessionId={sessionId} open={opened === 'schedule'} onOpenChange={(open) => setOpened(open ? 'schedule' : null)} />
       {opened === 'folder' && <LinkFolderDialog sessionId={sessionId} onClose={() => setOpened(null)} />}
+      <ChatAppToolsDialog chatId={sessionId} open={opened === 'apps'} onOpenChange={(open) => setOpened(open ? 'apps' : null)} />
     </>
   );
 }
@@ -74,6 +76,7 @@ function ChatRows({ sessionId, onOpen }: {
       <DropdownMenuSeparator />
       {canScheduleChat(chat) && <AddMenuRow icon={Clock} onSelect={() => onOpen('schedule')}>Schedule this chat</AddMenuRow>}
       {folderAgentId && <AddMenuRow icon={FolderPlus} onSelect={() => onOpen('folder')}>Link a folder</AddMenuRow>}
+      <ChatAppToolsRow chatId={chat.id} onOpen={() => onOpen('apps')} />
       <AppCompanionRows chatId={chat.id} />
       {personalServices && openPlugins && (
         <>
