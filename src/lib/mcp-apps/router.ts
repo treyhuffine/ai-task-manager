@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { withStartedBy } from '@/lib/integrations/hub/origin';
 import { router } from '@/lib/trpc/init';
 import { connectedFormsRouter } from './forms-router';
 import { callConnectedView, cancelConnectedInvocation, clearConnectedContext, connectedAppNetwork, connectedAppsCatalog, connectedChatTabs, connectedContextAccess, connectedViewStatus, decideConnectedApproval, launchConnectedView, navigateConnectedScreen, prepareConnectedLaunch, openConnectedView, readConnectedResource, updateConnectedContext } from './service';
@@ -29,11 +30,12 @@ export const connectedAppsRouter = router({
     args: args.optional(), file: z.object({handle: z.string().min(1).max(200)}).strict().optional(), fresh: z.boolean().optional()}).strict())
     .mutation(({input: {serverId, name, ...options}, ctx}) => prepareConnectedLaunch(serverId, ctx.key!.apiKeyId, name, options)),
   launch: p.input(z.object({viewId: id}).strict()).mutation(async ({input, ctx}) => {
-    const result = await launchConnectedView(input.viewId, ctx.key!.apiKeyId);
+    // The person opened it: an app's hub calls meanwhile are theirs (src/lib/integrations/hub/origin.ts).
+    const result = await withStartedBy({kind: 'person'}, () => launchConnectedView(input.viewId, ctx.key!.apiKeyId));
     await ctx.authorize?.(); return result;
   }),
   invoke: p.input(z.object({viewId: id, name: z.string().min(1).max(200), args, invocationId: id}).strict()).mutation(async ({input, ctx}) => {
-    const result = await callConnectedView(input.viewId, ctx.key!.apiKeyId, input.name, input.args, input.invocationId);
+    const result = await withStartedBy({kind: 'person'}, () => callConnectedView(input.viewId, ctx.key!.apiKeyId, input.name, input.args, input.invocationId));
     await ctx.authorize?.(); return result;
   }),
   cancel: p.input(z.object({viewId: id, invocationId: id}).strict()).mutation(({input, ctx}) => cancelConnectedInvocation(input.viewId, ctx.key!.apiKeyId, input.invocationId)),

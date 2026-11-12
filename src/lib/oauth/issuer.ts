@@ -49,6 +49,32 @@ export function protectedResourceMetadataUrl(issuer: string): string {
   return `${issuer}/.well-known/oauth-protected-resource${HOME_MCP_PATH}`;
 }
 
+/**
+ * The hub (docs/personal-apps.md "The hub"): Ri's integrations endpoint, where a personal app
+ * connects with its own OAuth client to borrow the person's accounts. A second resource on the
+ * same authorization server. Its tokens expire and refresh, and reach nothing else.
+ */
+export const HUB_MCP_PATH = '/api/integrations/mcp';
+export function hubResourceFor(issuer: string): string {
+  return `${issuer}${HUB_MCP_PATH}`;
+}
+export function hubProtectedResourceMetadataUrl(issuer: string): string {
+  return `${issuer}/.well-known/oauth-protected-resource${HUB_MCP_PATH}`;
+}
+/** No scope is advertised: an app asks for what it needs, and the person's choice on Ri's screen is the grant. */
+export function hubChallenge(issuer: string, error?: 'invalid_token'): string {
+  return `Bearer resource_metadata="${hubProtectedResourceMetadataUrl(issuer)}"${error ? `, error="${error}"` : ''}`;
+}
+/** RFC 9728 for the hub. */
+export function hubProtectedResourceMetadata(issuer: string) {
+  return {
+    resource: hubResourceFor(issuer),
+    authorization_servers: [issuer],
+    bearer_methods_supported: ['header'],
+    resource_name: 'Ri: your accounts for your apps',
+  };
+}
+
 /** The challenge on a 401 from the MCP endpoint, which starts a client's sign-in. */
 export function mcpChallenge(issuer: string, error?: 'invalid_token'): string {
   return `Bearer resource_metadata="${protectedResourceMetadataUrl(issuer)}", scope="${OAUTH_SCOPE}"${error ? `, error="${error}"` : ''}`;
@@ -76,7 +102,8 @@ export function authorizationServerMetadata(issuer: string) {
     scopes_supported: [OAUTH_SCOPE],
     response_types_supported: ['code'],
     response_modes_supported: ['query'],
-    grant_types_supported: ['authorization_code'],
+    // Refresh tokens are issued for the hub only. Outside assistants' keys don't expire.
+    grant_types_supported: ['authorization_code', 'refresh_token'],
     token_endpoint_auth_methods_supported: ['none', 'client_secret_basic', 'client_secret_post'],
     revocation_endpoint_auth_methods_supported: ['none', 'client_secret_basic', 'client_secret_post'],
     code_challenge_methods_supported: ['S256'],

@@ -8,7 +8,7 @@ Ri's side of the [shared app kit spec](shared-app-kit-spec.md). A personal app i
 | --- | --- |
 | Connecting to an app, one OAuth connection per place | `src/lib/integrations/apps.ts`, `mcp-servers.ts` |
 | Showing an app's screens | `packages/mcp-apps-host`, `src/lib/mcp-apps/`, `src/components/mcp-apps/` |
-| Ri's own services offered to apps (tasks, notes, model, text extraction, web pages) | `src/lib/integrations/hub/ri-services.ts` |
+| The hub: apps borrowing the person's accounts and Ri's own services | `src/lib/integrations/hub/` |
 
 ## Connecting an app
 
@@ -44,6 +44,26 @@ Being allowed and being loaded are separate (shared spec §2). Dozens of apps' t
 An app also loads straight away when a message @-tags it or carries context from its screen beside the chat: that turn gets the app's tools in an `<ri-app-tools>` block (`messageAppToolsContext`). The switch is per chat, in the + menu under App tools, and stored on `chat_sessions.app_tools`. Changing it restarts the chat's harness when idle, since harnesses keep the tool list they started with. A call with no chat behind it (no session credential) sees apps listed directly, since there is nowhere to remember a load. All of this decides what the model sees, never what the app may reach.
 
 Checked on November 12, 2026 with Reading Log, as Ri's main chat on the isolated Ri: automatic listed no Reading Log tools, only the two dispatchers, and loading then calling `list_books` worked through Ri's own connection. On listed its five tools directly with no dispatcher. Off listed nothing and the dispatcher was gone.
+
+## The hub
+
+An app borrows the person's accounts, and Ri's own services, through Ri's integrations endpoint (`/api/integrations/mcp`) with its own OAuth token (shared spec §3). Apps are a separate kind of OAuth client on Ri's authorization server: the same registration, a different resource.
+
+**Connecting.** The app finds the hub with standard discovery: an unauthenticated request to `/api/integrations/mcp` gets a 401 whose `WWW-Authenticate` points at `/.well-known/oauth-protected-resource/api/integrations/mcp`. The hub advertises no scopes. The app registers dynamically and may send `software_id`, `client_uri` and `purpose` (`src/lib/oauth/clients.ts`), then authorizes with `resource` set to the hub. A request for the hub resource gets the hub's consent screen (`src/app/oauth/authorize/hub-consent.tsx`).
+
+**The consent screen** names the app and where it runs, shows its stated purpose as the app's own words that Ri doesn't enforce, and then, separately, what Ri does enforce: a list of the person's live accounts, each with its tools to tick, and Ri's own services. What the app asked for (its OAuth `scope`: tool names, or the kit's capabilities such as `mail.read`) is only pre-ticked. Writes are marked as asking every time. Another personal app is never offered.
+
+**Tokens** (`hub/tokens.ts`, tables `hub_apps` and `hub_tokens`): an access token lasts an hour, its refresh token 30 days. A refresh token is used once and rotates. Presenting a spent one ends every token the app holds. The proxy lets a hub token reach only `/api/integrations/mcp`, as `hub_app` scope, and a viewer key or any other key there gets the harness surface, never an app's.
+
+**What the app sees** (`hub/serve.ts`): exactly its grant, read on every request. Each granted tool is limited to the accounts it was granted on (one account is fixed, several are named with `account`), runs through the same gated `runAction` as every caller, as the app. Ri's own services are tools named `ri__<name>`: `ri__get_task`, `ri__get_note`, `ri__list_tasks`, `ri__list_notes`, `ri__create_task`, `ri__create_note`, `ri__ai_text`, `ri__extract_text`, `ri__read_web_page` (`hub/ri-services.ts`). Creates take an `operationId` so a retry returns the same record.
+
+**Approvals.** Every write an app makes asks the person, whatever the action's own setting and even in development (`approval.ts`, `hubApp` caller). The answer is `{"status":"approval_required",...}`. The approval shows on the app's page in Ri, and as a card in the chat that started the call, if a chat did. Approving licenses the app's identical retry once within five minutes, from its job or any chat.
+
+**What started a call** (`hub/origin.ts`), for the audit log and where an approval shows: a job names itself in the call's `_meta` (`app/job`, `app/jobRun`), as the kit's connector client does. Otherwise, while Ri is calling the app for a chat or for the person on its screen, the app's hub calls are attributed to that chat or person, matched by the app's address. Two callers at once, or none, is the app on its own. None of this is access.
+
+**Audit and controls** (table `hub_calls`, `hub/manage.ts`): every call is logged with the tool, account, outcome and what started it. Apps → What your apps can reach lists every app with its grant, and each app's panel (also on its page when Ri connects to it) shows its grant with Remove for an account or a tool, the writes waiting for the person, its recent calls, and one switch that turns it off. Removing or turning off stops the next call and drops its waiting writes.
+
+**Trust.** Hub tokens limit what goes through the hub. They don't stop an app's code reading files its user can read (shared spec, Trust).
 
 ## What was removed
 

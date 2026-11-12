@@ -25,7 +25,7 @@ export { listPersonalAreaDefaults, setPersonalAreaDefault } from './private-area
 import { emailDraftFieldsSchema, emailDraftPatchSchema, parseEmailDraft, EmailDraftError, type EmailDraftFields } from '@/lib/email/validation';
 import type { EmailDraft } from '@/db/types';
 import { teamContentChanged } from '@/lib/spaces/generation';
-import { tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, scratchpad, harnessSettings, harnessModelUsage, harnessOperations, apiKeys, home, devices, deviceGrants, members, teamActivity, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks, workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults, triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState, notificationChannels, webPushSubscriptions, notificationDeliveries, triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent, NOTE_KINDS } from '@/lib/db/schema';
+import { tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, scratchpad, harnessSettings, harnessModelUsage, harnessOperations, apiKeys, home, devices, deviceGrants, members, teamActivity, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks, workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults, triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState, notificationChannels, webPushSubscriptions, notificationDeliveries, triagePasses, triageDecisions, streamLinks, skillUsage, hubApps, hubTokens, hubCalls, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent, NOTE_KINDS } from '@/lib/db/schema';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { normalizeNoteRow } from '@/lib/notes/kind';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, notInArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
@@ -13258,3 +13258,123 @@ export function teamReferenceChanges(input: {
 export function preparedTeamTaskFingerprint(task: TaskRecord) {
   return createHash('sha256').update(JSON.stringify(task)).digest('hex');
 }
+
+// ─── App hub (docs/personal-apps.md "The hub") ─────────────────────────────
+
+type HubAppRecord = typeof hubApps.$inferSelect;
+type HubTokenRecord = typeof hubTokens.$inferSelect;
+type HubCallRecord = typeof hubCalls.$inferSelect;
+export type { HubAppRecord, HubTokenRecord, HubCallRecord };
+
+const hubClientKey = (clientId: string) => createHash('sha256').update(clientId).digest('hex');
+
+/**
+ * Record what the person granted an app on the consent screen. One row per OAuth client: an app
+ * that connects again gets its grant replaced, a new grant revision, and access again if it was
+ * revoked. Tokens issued for an earlier grant revision are refused (`hubTokenForAccess`).
+ */
+export function upsertHubApp(input: {
+  clientId: string; name: string; softwareId?: string | null; clientUri?: string | null; purpose?: string | null;
+  requested?: string | null; grant: HubAppRecord['grant'];
+}): HubAppRecord {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const clientKey = hubClientKey(input.clientId);
+  const existing = db.select().from(hubApps).where(eq(hubApps.clientKey, clientKey)).get();
+  const fields = {
+    name: input.name, softwareId: input.softwareId ?? null, clientUri: input.clientUri ?? null, purpose: input.purpose ?? null,
+    requested: input.requested ?? null, grant: input.grant, revokedAt: null, updatedAt: now,
+  };
+  if (existing) {
+    return db.update(hubApps).set({ ...fields, grantRevision: existing.grantRevision + 1 }).where(eq(hubApps.id, existing.id)).returning().get();
+  }
+  return db.insert(hubApps).values({ id: uuidv7(), clientId: input.clientId, clientKey, grantRevision: 1, createdAt: now, ...fields }).returning().get();
+}
+
+export function getHubApp(id: string): HubAppRecord | undefined {
+  return getDb().select().from(hubApps).where(eq(hubApps.id, id)).get();
+}
+
+export function getHubAppByClientId(clientId: string): HubAppRecord | undefined {
+  return getDb().select().from(hubApps).where(eq(hubApps.clientKey, hubClientKey(clientId))).get();
+}
+
+export function listHubApps(): HubAppRecord[] {
+  return getDb().select().from(hubApps).orderBy(asc(hubApps.name)).all();
+}
+
+/** Narrow or change an app's grant from Ri. Its next call sees it, and older tokens stop working. */
+export function setHubAppGrant(id: string, grant: HubAppRecord['grant']): HubAppRecord | undefined {
+  const db = getDb();
+  const existing = getHubApp(id);
+  if (!existing) return undefined;
+  return db.update(hubApps).set({ grant, grantRevision: existing.grantRevision + 1, updatedAt: new Date().toISOString() })
+    .where(eq(hubApps.id, id)).returning().get();
+}
+
+/** Turn an app's access off: its tokens stop at the next call. It has to be allowed again to come back. */
+export function revokeHubApp(id: string): void {
+  const now = new Date().toISOString();
+  const db = getDb();
+  db.transaction((tx) => {
+    tx.update(hubApps).set({ revokedAt: now, updatedAt: now }).where(and(eq(hubApps.id, id), isNull(hubApps.revokedAt))).run();
+    tx.update(hubTokens).set({ revokedAt: now, updatedAt: now }).where(and(eq(hubTokens.appId, id), isNull(hubTokens.revokedAt))).run();
+  });
+}
+
+export function deleteHubApp(id: string): void {
+  getDb().delete(hubApps).where(eq(hubApps.id, id)).run();
+}
+
+export function touchHubApp(id: string): void {
+  const now = new Date().toISOString();
+  getDb().update(hubApps).set({ lastUsedAt: now }).where(eq(hubApps.id, id)).run();
+}
+
+export function insertHubToken(input: Pick<HubTokenRecord, 'appId' | 'accessHash' | 'accessExpiresAt' | 'refreshHash' | 'refreshExpiresAt'>): HubTokenRecord {
+  const now = new Date().toISOString();
+  return getDb().insert(hubTokens).values({ id: uuidv7(), createdAt: now, updatedAt: now, ...input }).returning().get();
+}
+
+/** A live access token and its app: unexpired, unrevoked, for an app whose access is on. */
+export function hubTokenForAccess(accessHash: string, now = new Date().toISOString()): { token: HubTokenRecord; app: HubAppRecord } | null {
+  const row = getDb().select({ token: hubTokens, app: hubApps }).from(hubTokens).innerJoin(hubApps, eq(hubApps.id, hubTokens.appId))
+    .where(eq(hubTokens.accessHash, accessHash)).get();
+  if (!row || row.token.revokedAt || row.app.revokedAt || row.token.accessExpiresAt <= now) return null;
+  return row;
+}
+
+export function hubTokenForRefresh(refreshHash: string): { token: HubTokenRecord; app: HubAppRecord } | null {
+  return getDb().select({ token: hubTokens, app: hubApps }).from(hubTokens).innerJoin(hubApps, eq(hubApps.id, hubTokens.appId))
+    .where(eq(hubTokens.refreshHash, refreshHash)).get() ?? null;
+}
+
+/** Spend a refresh token once. False when it was already spent or revoked: a replay. */
+export function spendHubRefreshToken(id: string): boolean {
+  const now = new Date().toISOString();
+  const result = getDb().update(hubTokens).set({ refreshedAt: now, updatedAt: now })
+    .where(and(eq(hubTokens.id, id), isNull(hubTokens.refreshedAt), isNull(hubTokens.revokedAt))).run();
+  return result.changes === 1;
+}
+
+export function revokeHubToken(id: string): void {
+  const now = new Date().toISOString();
+  getDb().update(hubTokens).set({ revokedAt: now, updatedAt: now }).where(and(eq(hubTokens.id, id), isNull(hubTokens.revokedAt))).run();
+}
+
+/** Every token an app holds, after a refresh token was replayed (RFC 9700 §4.14.2) or on revocation. */
+export function revokeHubTokensForApp(appId: string): void {
+  const now = new Date().toISOString();
+  getDb().update(hubTokens).set({ revokedAt: now, updatedAt: now }).where(and(eq(hubTokens.appId, appId), isNull(hubTokens.revokedAt))).run();
+}
+
+export function insertHubCall(input: Omit<HubCallRecord, 'id' | 'createdAt' | 'updatedAt'>): HubCallRecord {
+  const now = new Date().toISOString();
+  return getDb().insert(hubCalls).values({ id: uuidv7(), createdAt: now, updatedAt: now, ...input }).returning().get();
+}
+
+/** An app's newest calls, bounded by the (app, created) index. */
+export function listHubCalls(appId: string, limit = 50): HubCallRecord[] {
+  return getDb().select().from(hubCalls).where(eq(hubCalls.appId, appId)).orderBy(desc(hubCalls.createdAt), desc(hubCalls.id)).limit(Math.min(Math.max(limit, 1), 200)).all();
+}
+

@@ -58,7 +58,7 @@ export interface PendingApproval {
   preview: unknown;
   /** The chat whose agent asked, or null when the call carried no session. */
   sessionId: string | null;
-  localApp?: Caller['localApp'];
+  hubApp?: Caller['hubApp'];
   chatSource?: Caller['chatSource'];
   connectedApp?: Caller['connectedApp'];
   createdAt: number;
@@ -92,6 +92,8 @@ export function sessionCaller(sessionId: string): Caller {
 
 /** The chat session a caller identifies, if it came through a session's integrations MCP. */
 export function sessionIdFromCaller(caller: Caller | undefined): string | null {
+  // A hub app's call started by a chat shows its approval in that chat.
+  if (caller?.hubApp) return caller.hubApp.startedBy.kind === 'chat' ? caller.hubApp.startedBy.id ?? null : null;
   if (caller?.type !== 'mcp' || !caller.id?.startsWith(SESSION_CALLER_PREFIX)) return null;
   return caller.id.slice(SESSION_CALLER_PREFIX.length) || null;
 }
@@ -101,8 +103,8 @@ function grantKey(i: ApprovalCheckInput): string {
 }
 
 /** A grant only matches a retry from the chat whose request was approved. */
-function grantSlot(key: string, sessionId: string | null, app?: Caller['localApp']): string {
-  return `${key}|${app ? JSON.stringify(app) : sessionId ?? ''}`;
+function grantSlot(key: string, sessionId: string | null): string {
+  return `${key}|${sessionId ?? ''}`;
 }
 
 function connectedAppKey(app: NonNullable<Caller['connectedApp']>) {
@@ -178,27 +180,33 @@ export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy
       if (isEmailComposerSend(input.caller, input.actionId)) return 'allow';
       // The viewer opened this server's settings, changed one, or clicked one of its settings buttons, themselves.
       if (isMcpSettingsAction(input.caller, input.actionId)) return 'allow';
-      if (opts.autoApprove) return 'allow';
-      const key = grantKey(input) + (input.caller?.localApp ? `|app:${JSON.stringify(input.caller.localApp)}` : '') + (input.caller?.chatSource ? `|source:${JSON.stringify(input.caller.chatSource)}` : '') + (input.caller?.connectedApp ? connectedAppKey(input.caller.connectedApp) : '');
+      // A personal app's writes reach outside the person's own data: they ask every time, whoever
+      // started them, even in development (docs/personal-apps.md "The hub").
+      const hub = input.caller?.hubApp;
+      if (opts.autoApprove && !hub) return 'allow';
+      const key = grantKey(input) + (hub ? `|hub:${hub.appId}` : '') + (input.caller?.chatSource ? `|source:${JSON.stringify(input.caller.chatSource)}` : '') + (input.caller?.connectedApp ? connectedAppKey(input.caller.connectedApp) : '');
       const sessionId = sessionIdFromCaller(input.caller);
+      // A hub app's approval licenses the app's identical retry, from a job or any chat: its grant
+      // slot is the app's, not the chat that happened to start it.
+      const slotSession = hub ? null : sessionId;
       // Standing intent: reversible, internal writes run on the connection the
       // user already authorized. Outward (send/post/…) and irreversible
       // (high-risk delete/cancel/pay) actions fall through to the human gate,
-      // unless the user has explicitly flipped that action to 'auto'.
-      if ((opts.resolveMode?.(input) ?? resolveApprovalMode({ actionId: input.actionId, risk: input.risk, mutating: input.mutating })) === 'auto') {
-        settleMoot(key, sessionId);
+      // unless the user has explicitly flipped that action to 'auto'. Never for an app's write.
+      if ((!hub || !input.mutating) && (opts.resolveMode?.(input) ?? resolveApprovalMode({ actionId: input.actionId, risk: input.risk, mutating: input.mutating })) === 'auto') {
+        settleMoot(key, slotSession);
         return 'allow';
       }
       const now = Date.now();
       pruneExpiredGrants(now);
-      const slot = grantSlot(key, sessionId);
+      const slot = grantSlot(key, slotSession);
       const exp = state.grants.get(slot);
       if (exp && exp > now) {
         state.grants.delete(slot); // single-use
         return 'allow';
       }
       // Register a pending approval for the human to resolve (one per call per chat).
-      if (![...state.pending.values()].some((p) => p.key === key && p.sessionId === sessionId)) {
+      if (![...state.pending.values()].some((p) => p.key === key && (hub || p.sessionId === sessionId))) {
         const pending: InternalPending = {
           id: randomUUID(),
           key,
@@ -210,7 +218,7 @@ export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy
           risk: input.risk,
           preview: input.inputPreview,
           sessionId,
-          ...(input.caller?.localApp ? { localApp: input.caller.localApp } : {}),
+          ...(hub ? { hubApp: hub } : {}),
           ...(input.caller?.chatSource ? { chatSource: input.caller.chatSource } : {}),
           ...(input.caller?.connectedApp ? { connectedApp: input.caller.connectedApp } : {}),
           createdAt: now,
@@ -218,7 +226,7 @@ export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy
         state.pending.set(pending.id, pending);
         publishSessionApprovals(sessionId);
         // Durable transcript card + notification (best-effort).
-        void (pending.localApp || pending.connectedApp ? Promise.resolve() : onRequested(toPublic(pending))).catch((err) =>
+        void (pending.connectedApp ? Promise.resolve() : onRequested(toPublic(pending))).catch((err) =>
           console.warn(`[integrations] recording approval request failed:`, err),
         );
       }
@@ -260,7 +268,7 @@ export function resolvePendingApprovals(
       continue;
     }
     state.pending.delete(id);
-    if (decision !== 'deny') state.grants.set(grantSlot(p.key, p.sessionId), now + GRANT_TTL_MS);
+    if (decision !== 'deny') state.grants.set(grantSlot(p.key, p.hubApp ? null : p.sessionId), now + GRANT_TTL_MS);
     resolved.push({ ...toPublic(p), decision });
   }
   return { resolved, missing };
@@ -273,6 +281,30 @@ export function cancelConnectedAppApprovals(app: NonNullable<Caller['connectedAp
   const {resolved} = resolvePendingApprovals(ids, 'deny');
   for (const slot of state.grants.keys()) if (slot.endsWith(`${key}|${sessionId ?? ''}`)) state.grants.delete(slot);
   return resolved;
+}
+
+/**
+ * A hub app was turned off or its grant narrowed (on one account, or all of them): its waiting
+ * writes can no longer license a call. They leave the queue, recorded as settled, and any unused
+ * grant for them is dropped. Nothing of any other caller's is touched.
+ */
+export function revokeHubApprovals(
+  appId: string,
+  connectionId?: string,
+  onSettled: (settled: PendingApproval[]) => Promise<void> = recordSettled,
+): PendingApproval[] {
+  const removed = [...state.pending.values()].filter((p) => p.hubApp?.appId === appId && (!connectionId || p.connectionId === connectionId));
+  for (const p of removed) state.pending.delete(p.id);
+  for (const slot of [...state.grants.keys()]) {
+    if (slot.includes(`|hub:${appId}|`) && (!connectionId || slot.split('|')[2] === connectionId)) state.grants.delete(slot);
+  }
+  if (removed.length > 0) {
+    const settled = removed.map(toPublic);
+    void onSettled(settled)
+      .catch((err) => console.warn(`[integrations] recording revoked app approvals failed:`, err))
+      .finally(() => { for (const sessionId of new Set(settled.map((p) => p.sessionId))) publishSessionApprovals(sessionId); });
+  }
+  return removed.map(toPublic);
 }
 
 /**

@@ -824,6 +824,89 @@ export interface CalendarBlock {
 // Callers always say which: there is no default.
 export const API_KEY_ROLES = ['sign_in', 'worker', 'ai_client', 'app_client'] as const;
 
+// ─── App hub (docs/personal-apps.md "The hub") ─────────────────────────────
+//
+// A personal app connects to Ri's integrations endpoint with OAuth to borrow the person's
+// accounts and Ri's own services. Each app is an OAuth client that registered itself
+// (`hub_apps`), with the grant the person chose for it: which accounts, which tools on each, and
+// which of Ri's services. Its tokens (`hub_tokens`) expire and refresh, and every call is in the
+// audit log (`hub_calls`) with what started it.
+
+/** One account an app may use, and the tools it may call on it. */
+export interface HubGrantAccount {
+  /** The engine connection, which is the account. */
+  connectionId: string;
+  toolkitId: string;
+  /** Tool names as the hub serves them (`gmail__search_messages`). */
+  tools: string[];
+}
+export interface HubGrant {
+  accounts: HubGrantAccount[];
+  /** Ri's own services (`src/lib/integrations/hub/ri-services.ts`). */
+  services: string[];
+}
+
+export const hubApps = sqliteTable(
+  'hub_apps',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    /** The OAuth client ID the app registered (`src/lib/oauth/clients.ts`). One row per client. */
+    clientId: text().notNull(),
+    /** sha256 of the client ID, which can be long, for the unique index. */
+    clientKey: text().notNull().unique(),
+    name: text().notNull(),
+    /** What the app says about itself at registration. Shown, never trusted for access. */
+    softwareId: text(),
+    clientUri: text(),
+    purpose: text(),
+    /** What the app asked for (its OAuth scope): capabilities and tools. Pre-selects the consent screen. */
+    requested: text(),
+    grant: text({ mode: 'json' }).$type<HubGrant>().notNull(),
+    /** Bumps on every change to the grant, so a token issued before a narrowing is rechecked. */
+    grantRevision: integer().notNull().default(0),
+    revokedAt: text(),
+    lastUsedAt: text(),
+  },
+);
+
+export const hubTokens = sqliteTable(
+  'hub_tokens',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    appId: text().notNull().references(() => hubApps.id, { onDelete: 'cascade' }),
+    accessHash: text().notNull().unique(),
+    accessExpiresAt: text().notNull(),
+    refreshHash: text().notNull().unique(),
+    refreshExpiresAt: text().notNull(),
+    /** Set when used or revoked. A used refresh token presented again revokes the app's tokens (RFC 9700 §4.14.2). */
+    refreshedAt: text(),
+    revokedAt: text(),
+  },
+  (table) => [index('idx_hub_tokens_app').on(table.appId)],
+);
+
+export const hubCalls = sqliteTable(
+  'hub_calls',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    appId: text().notNull().references(() => hubApps.id, { onDelete: 'cascade' }),
+    tool: text().notNull(),
+    connectionId: text(),
+    /** ok, approval_required, denied, error, ... */
+    status: text().notNull(),
+    /** What started the call: a chat, the person on the app's screen, one of the app's jobs, or the app on its own. */
+    startedByKind: text({ enum: ['chat', 'person', 'job', 'app'] }).notNull(),
+    startedById: text(),
+    startedByLabel: text(),
+    error: text(),
+  },
+  (table) => [index('idx_hub_calls_app_created').on(table.appId, table.createdAt)],
+);
+
+
 export const apiKeys = sqliteTable(
   'api_keys',
   {

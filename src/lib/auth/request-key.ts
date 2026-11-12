@@ -50,9 +50,10 @@ export type CallerLocation = 'home' | 'elsewhere';
  * acting for the member who asked, and the `host` key (the host's own)
  * administers the installation and is never a member. On a personal Home,
  * `ai_client` has no member and reaches only the content-scoped MCP. An
- * `app_client` key was made for a local app Ri no longer runs, and reaches nothing.
+ * `app_client` key was made for a local app Ri no longer runs, and reaches nothing. A `hub_app`
+ * token is a personal app's own OAuth token, which reaches only the hub (docs/personal-apps.md).
  */
-export type KeyScope = 'viewer' | 'worker' | 'session' | 'member' | 'ai_client' | 'app_client' | 'team_ai' | 'host';
+export type KeyScope = 'viewer' | 'worker' | 'session' | 'member' | 'ai_client' | 'app_client' | 'hub_app' | 'team_ai' | 'host';
 export type MemberRoleScope = 'owner' | 'member';
 
 export interface RequestKey {
@@ -69,14 +70,19 @@ export interface RequestKey {
   memberRole?: MemberRoleScope | null;
   /** The team AI turn a `team_ai` credential acts for. */
   teamAiTurnId?: string | null;
+  /** The personal app a `hub_app` token speaks for. */
+  hubAppId?: string | null;
 }
+
+/** The key ID a hub app's request carries: `hub:<app id>`, never an API key's. */
+export const HUB_KEY_PREFIX = 'hub:';
 
 export function getRequestKey(headers: Headers): RequestKey | null {
   const apiKeyId = headers.get(API_KEY_ID_HEADER);
   if (!apiKeyId) return null;
   const declared = headers.get(API_KEY_SCOPE_HEADER);
   const scope: KeyScope =
-    declared === 'worker' || declared === 'session' || declared === 'member' || declared === 'ai_client' || declared === 'app_client' || declared === 'team_ai' || declared === 'host' ? declared : 'viewer';
+    declared === 'worker' || declared === 'session' || declared === 'member' || declared === 'ai_client' || declared === 'app_client' || declared === 'hub_app' || declared === 'team_ai' || declared === 'host' ? declared : 'viewer';
   const declaredRole = headers.get(MEMBER_ROLE_HEADER);
   const ofMember = scope === 'member' || scope === 'ai_client' || scope === 'team_ai';
   return {
@@ -88,6 +94,7 @@ export function getRequestKey(headers: Headers): RequestKey | null {
     memberId: ofMember ? headers.get(MEMBER_ID_HEADER) : null,
     memberRole: ofMember && isTeamRole(declaredRole) ? declaredRole : null,
     teamAiTurnId: scope === 'team_ai' ? headers.get(TEAM_AI_TURN_HEADER) : null,
+    hubAppId: scope === 'hub_app' && apiKeyId.startsWith(HUB_KEY_PREFIX) ? apiKeyId.slice(HUB_KEY_PREFIX.length) : null,
   };
 }
 

@@ -13,7 +13,10 @@ import crypto from 'node:crypto';
 import { createPersonalAiClient, findPersonalAiClientByToken, revokePersonalAiClient } from '@/lib/db/queries';
 import { processState } from '@/lib/process-state';
 import type { AiClientKind } from '@/lib/external-ai/client-config';
-import { OAUTH_SCOPE, resourceFor } from './issuer';
+import { hubResourceFor, OAUTH_SCOPE, resourceFor } from './issuer';
+import { upsertHubApp, getHubApp } from '@/lib/db/queries';
+import type { HubGrant } from '@/lib/db/schema';
+import { isHubToken, issueHubTokens, refreshHubTokens, revokeHubTokenValue } from '@/lib/integrations/hub/tokens';
 import { kindFor, OAuthClientError, redirectMatches, resolveClient, secretMatches, tokenClient, type MetadataFetch, type OAuthClient } from './clients';
 
 const CODE_TTL_MS = 5 * 60_000;
@@ -29,6 +32,8 @@ export interface ApprovedGrant {
   codeChallenge: string;
   resource: string;
   issuer: string;
+  /** A personal app's authorization for the hub: the app the person allowed, and its grant. */
+  hubAppId?: string;
 }
 
 const pendingCodes = processState('oauth.codes', () => new Map<string, ApprovedGrant & { expiresAt: number }>());
@@ -69,6 +74,10 @@ export interface AuthorizeRequest {
   codeChallenge: string;
   resource: string;
   issuer: string;
+  /** `hub`: a personal app asking for the person's accounts (docs/personal-apps.md). `home`: an outside assistant. */
+  audience: 'home' | 'hub';
+  /** What the client asked for. For an app, it only pre-selects the consent screen. */
+  scope: string | null;
 }
 
 export type AuthorizeCheck =
@@ -108,10 +117,27 @@ export async function checkAuthorizeRequest(params: URLSearchParams, issuer: str
   const codeChallenge = params.get('code_challenge');
   if (!codeChallenge || !PKCE.test(codeChallenge)) return fail('invalid_request', 'Send a PKCE code_challenge.');
   if (params.get('code_challenge_method') !== 'S256') return fail('invalid_request', 'Ri accepts only the S256 code challenge method.');
-  const resource = resourceFor(issuer);
   const askedResource = params.get('resource');
+  const hub = !!askedResource && sameResource(askedResource, hubResourceFor(issuer));
+  const resource = hub ? hubResourceFor(issuer) : resourceFor(issuer);
   if (askedResource && !sameResource(askedResource, resource)) return fail('invalid_target', `This Ri’s MCP server is ${resource}.`);
-  return { kind: 'ok', request: { client, kind: kindFor(client, redirectUri), redirectUri, state, codeChallenge, resource, issuer } };
+  return { kind: 'ok', request: { client, kind: kindFor(client, redirectUri), redirectUri, state, codeChallenge, resource, issuer, audience: hub ? 'hub' : 'home', scope: params.get('scope') } };
+}
+
+/**
+ * The person allowed a personal app on the hub's consent screen, with this grant: record it for the
+ * app's client and send back a code that exchanges for the app's tokens.
+ */
+export function hubDecisionRedirect(request: AuthorizeRequest, grant: HubGrant): string {
+  const app = upsertHubApp({
+    clientId: request.client.id, name: request.client.name, softwareId: request.client.softwareId ?? null,
+    clientUri: request.client.clientUri ?? null, purpose: request.client.purpose ?? null, requested: request.scope, grant,
+  });
+  const code = issueCode({
+    clientId: request.client.id, clientName: request.client.name, kind: request.kind,
+    redirectUri: request.redirectUri, codeChallenge: request.codeChallenge, resource: request.resource, issuer: request.issuer, hubAppId: app.id,
+  });
+  return withParams(request.redirectUri, { code, state: request.state, iss: request.issuer });
 }
 
 /** Where the owner's choice sends the browser: a code for its client, or its refusal. */
@@ -167,7 +193,12 @@ function authenticateClient(form: URLSearchParams, authorization: string | null)
 export function exchangeToken(form: URLSearchParams, authorization: string | null, issuer: string): OAuthReply {
   const authenticated = authenticateClient(form, authorization);
   if ('status' in authenticated) return authenticated;
-  if (form.get('grant_type') !== 'authorization_code') return oauthError(400, 'unsupported_grant_type', 'Ri issues tokens for authorization codes only.');
+  // A personal app's hub token, refreshed and rotated (src/lib/integrations/hub/tokens.ts).
+  if (form.get('grant_type') === 'refresh_token') {
+    const refreshed = refreshHubTokens(form.get('refresh_token') ?? '', authenticated.clientId);
+    return refreshed.ok ? { status: 200, body: { ...refreshed.tokens } } : oauthError(400, refreshed.error, refreshed.description);
+  }
+  if (form.get('grant_type') !== 'authorization_code') return oauthError(400, 'unsupported_grant_type', 'Ri issues tokens for authorization codes and, for apps, refresh tokens.');
   const code = form.get('code');
   const grant = code ? redeemCode(code) : null;
   if (!grant || grant.clientId !== authenticated.clientId || grant.issuer !== issuer) return oauthError(400, 'invalid_grant', 'This code is unknown, used or expired. Connect again.');
@@ -179,6 +210,11 @@ export function exchangeToken(form: URLSearchParams, authorization: string | nul
   }
   const resource = form.get('resource');
   if (resource && !sameResource(resource, grant.resource)) return oauthError(400, 'invalid_target', `This code is for ${grant.resource}.`);
+  if (grant.hubAppId) {
+    const app = getHubApp(grant.hubAppId);
+    if (!app || app.revokedAt) return oauthError(400, 'invalid_grant', 'This app’s access was turned off before it finished connecting. Connect again.');
+    return { status: 200, body: { ...issueHubTokens(app.id) } };
+  }
   const { token } = createPersonalAiClient(grant.clientName, grant.kind, { description: `Connected by signing in, from ${grant.issuer}` });
   return { status: 200, body: { access_token: token.plaintext, token_type: 'Bearer', scope: OAUTH_SCOPE } };
 }
@@ -189,6 +225,7 @@ export function exchangeToken(form: URLSearchParams, authorization: string | nul
  */
 export function revokeToken(form: URLSearchParams): OAuthReply {
   const token = form.get('token');
+  if (token && isHubToken(token)) { revokeHubTokenValue(token); return { status: 200, body: {} }; }
   const key = token ? findPersonalAiClientByToken(token) : null;
   if (key) revokePersonalAiClient(key.keyId);
   return { status: 200, body: {} };

@@ -79,6 +79,19 @@ export const RI_SERVICE_DESCRIPTIONS: Record<RiServiceName, string> = {
   read_web_page: 'Fetch a public web page and return its readable text.',
 };
 
+/** How the hub's consent screen names each service, to the person. */
+export const RI_SERVICE_CONSENT_LABELS: Record<RiServiceName, string> = {
+  get_task: 'Open one of your tasks it already knows',
+  get_note: 'Open one of your notes it already knows',
+  list_tasks: 'List and search your tasks',
+  list_notes: 'List and search your notes',
+  create_task: 'Add tasks',
+  create_note: 'Add notes',
+  ai_text: 'Use your model for short text, with no access to anything else',
+  extract_text: 'Read the text of files it sends',
+  read_web_page: 'Read public web pages',
+};
+
 function stableKey(parts: unknown[]) {
   const hash = createHash('sha256').update(JSON.stringify(parts)).digest('hex');
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-8${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;

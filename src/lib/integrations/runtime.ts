@@ -52,6 +52,7 @@ import { registerMcpSecrets } from './mcp-secrets';
 import { APP_NAME } from '@/constants/app';
 import { getWorkspace } from '@/lib/db/queries';
 import { resolveIntegrationFilter, resolveRiIntegrationFilter, type WorkspaceIntegrationFilter } from './workspace-filter';
+import { trackAppCall } from './hub/origin';
 import { withLiveCallback } from './live-callback';
 import { hostedMcpConnectionId, hostedMcpDefinition, hostedMcpRequiresAuth, markHostedMcpReconnectRequired, hostedMcpEndpointSetup, mcpOAuthTransportOptions, trustHostedMcpAnnotations } from './hosted-mcp';
 import { finalizeMcpServer, finalizeMcpServers, isCurrentMcpTransport } from './mcp-lifecycle';
@@ -849,7 +850,11 @@ async function build(): Promise<Built> {
           };
           definitions.push({
             name: snapshot.slug,
-            client: { listTools: async () => ({ tools: account.tools }), callTool: (params: { name: string; arguments?: Record<string, unknown> }, options?: { signal?: AbortSignal }) => runTransport(() => account.client.callTool(params, ...(options ? [options] : [])), 'call') },
+            client: { listTools: async () => ({ tools: account.tools }), callTool: (params: { name: string; arguments?: Record<string, unknown> }, options?: { signal?: AbortSignal }) => {
+              const call = () => runTransport(() => account.client.callTool(params, ...(options ? [options] : [])), 'call');
+              // Ri calling a personal app: the app's hub calls meanwhile belong to whoever Ri acts for (hub/origin.ts).
+              return snapshot.app ? trackAppCall(snapshot.url, call) : call();
+            } },
             ownerId: getIntegrationOwnerId(), connectionId: hostedMcpConnectionId(snapshot), sessionToken: account.sessionToken,
             ...(account.unavailable ? { preserveConnection: true } : {}),
             isCurrentTransport: () => {

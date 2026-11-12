@@ -13,7 +13,7 @@ import { z as rpcZ } from 'zod/v4';
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   const sessionId = searchParams(rpcInput.query).get('sessionId') ?? undefined;
-  return reply({ pending: listPendingApprovals({ ownerId: getIntegrationOwnerId(), sessionId }).filter(item => !item.localApp) });
+  return reply({ pending: listPendingApprovals({ ownerId: getIntegrationOwnerId(), sessionId }) });
 }
 
 export const GETInput = rpcZ.object({ query: rpcZ.object({ "sessionId": rpcZ.string().optional() }).strict().optional() }).strict().default({});

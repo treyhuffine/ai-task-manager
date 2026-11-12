@@ -17,6 +17,7 @@ import { checkAuthorizeRequest } from '@/lib/oauth/flow';
 import { issuerFor, OAUTH_PATHS } from '@/lib/oauth/issuer';
 import { AiClientLogo } from '@/components/settings/ai-client-logo';
 import { ConsentButtons } from './consent-buttons';
+import { HubConsent } from './hub-consent';
 import { SignInToContinue } from './sign-in';
 
 export const dynamic = 'force-dynamic';
@@ -81,6 +82,8 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
   if (check.kind === 'fatal') return <Problem title="This app can’t connect" message={check.message} />;
   // Shown, never redirected unasked: anyone can register a client (docs/mcp-oauth.md, "Security").
   if (check.kind === 'redirect') return <Problem title="This app’s request can’t be used" message={check.description} back={check.location} />;
+  // A personal app asking for the person's accounts through the hub (docs/personal-apps.md).
+  if (check.request.audience === 'hub') return <Shell><HubConsent request={check.request} params={params} issuer={issuer} /></Shell>;
   const copy = consentCopy(check.request);
 
   return (

@@ -105,13 +105,31 @@ describe('appApprovalPolicy', () => {
     expect(await gate.check(request())).toBe('allow');
     expect(await gate.check(request())).toBe('ask');
   });
-  it('isolates two apps, invocations and broker calls from anonymous and chat approval slots',async()=>{
-    const gate=policy(),base={instanceId:'app-a',invocationId:'inv-a',callId:'call-a',principal:{kind:'chat' as const,id:CHAT}},caller=(localApp:typeof base)=>({type:'app' as const,id:'local-app',localApp});
-    const a=check({caller:caller(base)}),b=check({caller:caller({...base,instanceId:'app-b'})}),next=check({caller:caller({...base,invocationId:'inv-b'})}),otherCall=check({caller:caller({...base,callId:'call-b'})});
-    for(const request of [a,b,next,otherCall,check({caller:{type:'app'}})])expect(await gate.check(request)).toBe('ask');
-    const pending=listPendingApprovals();expect(pending).toHaveLength(5);expect(events.recordApprovalRequested).toHaveBeenCalledTimes(1);
-    resolvePendingApprovals([pending.find(item=>item.localApp?.instanceId==='app-a'&&item.localApp.invocationId==='inv-a'&&item.localApp.callId==='call-a')!.id],'approve');
-    for(const request of [b,next,otherCall,check({caller:{type:'app'}}),check()])expect(await gate.check(request)).toBe('ask');expect(await gate.check(a)).toBe('allow');expect(await gate.check(a)).toBe('ask');
+  it('asks for every write a hub app makes, shows it in the chat that started it, and lets only that app retry it', async () => {
+    const hub = (appId: string, startedBy: NonNullable<Caller['hubApp']>['startedBy']): Caller => ({ type: 'app', id: `hub:${appId}`, hubApp: { appId, startedBy } });
+    const gate = policy();
+    // Even an action the person set to run without asking, and even with dev auto-approve.
+    setActionOverride('google_calendar.delete_event', 'auto');
+    try {
+      expect(await gate.check(check({ caller: hub('bloom', { kind: 'chat', id: CHAT }) }))).toBe('ask');
+      expect(await policy({ autoApprove: true }).check(check({ caller: hub('bloom', { kind: 'job', label: 'import' }) }))).toBe('ask');
+    } finally { setActionOverride('google_calendar.delete_event', null); }
+    const pending = listPendingApprovals();
+    // One pending for the app's call, wherever it was started from, shown in the chat that started it.
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ sessionId: CHAT, hubApp: { appId: 'bloom', startedBy: { kind: 'chat', id: CHAT } } });
+    expect(events.recordApprovalRequested).toHaveBeenCalledTimes(1);
+    expect(sessionIdFromCaller(hub('bloom', { kind: 'job', label: 'import' }))).toBeNull();
+    resolvePendingApprovals([pending[0]!.id], 'approve');
+    // Another app, a chat's own call, and an anonymous caller can't use Bloom's approval.
+    expect(await gate.check(check({ caller: hub('finances', { kind: 'chat', id: CHAT }) }))).toBe('ask');
+    expect(await gate.check(check())).toBe('ask');
+    expect(await gate.check(check({ caller: { type: 'mcp' } }))).toBe('ask');
+    // Bloom's identical retry is allowed once, even from its job rather than the chat.
+    expect(await gate.check(check({ caller: hub('bloom', { kind: 'job', label: 'import' }) }))).toBe('allow');
+    expect(await gate.check(check({ caller: hub('bloom', { kind: 'job', label: 'import' }) }))).toBe('ask');
+    // A hub app's reads never ask.
+    expect(await gate.check(check({ mutating: false, caller: hub('bloom', { kind: 'app' }) }))).toBe('allow');
   });
   it('lets reads, dev auto-approve, and the notifier delivery through without a pending', async () => {
     const gate = policy();

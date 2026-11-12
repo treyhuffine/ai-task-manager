@@ -39,6 +39,8 @@ export interface RiMcpToolContext {
   headers: Headers | undefined;
   /** `modern` for 2026-07-28, `legacy` for 2025-era clients. */
   era: 'legacy' | 'modern';
+  /** The request's own `_meta`, as the client sent it. Never authority: optional context only. */
+  meta?: Record<string, unknown>;
 }
 
 export interface RiMcpToolConfig {
@@ -48,6 +50,11 @@ export interface RiMcpToolConfig {
   inputSchema?: z.ZodRawShape | z.ZodTypeAny;
   /** Registry dispatch validates unknown fields after destination routing. */
   preserveRawInput?: boolean;
+  /**
+   * An input schema already in JSON Schema, advertised as it is. The handler gets the raw object
+   * and validates it itself (Ri's own services validate with zod 4). Wins over `inputSchema`.
+   */
+  inputJsonSchema?: Record<string, unknown>;
   annotations?: ToolAnnotations;
   _meta?: Record<string, unknown>;
 }
@@ -102,6 +109,20 @@ const isZodType = (value: unknown): value is z.ZodTypeAny =>
  * document SDK 1.x published (`strictUnions`, input/output pipe strategy), whatever target the SDK
  * asks for, so the tool definitions clients cache do not change with the upgrade.
  */
+/** A JSON Schema advertised as given. Only an object passes here; the handler validates the rest. */
+function rawJsonSchema(schema: Record<string, unknown>): StandardSchemaWithJSON<Record<string, unknown>> {
+  return {
+    '~standard': {
+      version: 1,
+      vendor: 'ri-json',
+      validate: (value: unknown) => value && typeof value === 'object' && !Array.isArray(value)
+        ? { value: value as Record<string, unknown> }
+        : { issues: [{ message: 'Send the arguments as an object' }] },
+      jsonSchema: { input: () => schema, output: () => schema },
+    },
+  };
+}
+
 export function zodStandardSchema(schema: z.ZodRawShape | z.ZodTypeAny, preserveRawInput = false): StandardSchemaWithJSON<Record<string, unknown>> {
   const object = isZodType(schema) ? schema : z.object(schema as z.ZodRawShape);
   // SDK 1.x published a parameterless tool's empty shape as a bare object, with no
@@ -162,10 +183,12 @@ function registrar(server: McpServer, era: 'legacy' | 'modern'): RiMcpServer {
   return {
     era,
     registerTool(name, config, handler) {
-      const { inputSchema, preserveRawInput, ...rest } = config;
+      const { inputSchema, preserveRawInput, inputJsonSchema, ...rest } = config;
       const call = (args: Record<string, unknown>, ctx: ServerContext) => withProgressKeepalive(ctx, async () =>
-        await handler(args, { signal: ctx.mcpReq.signal, headers: ctx.http?.req?.headers, era }) as CallToolResult);
-      if (inputSchema) {
+        await handler(args, { signal: ctx.mcpReq.signal, headers: ctx.http?.req?.headers, era, meta: ctx.mcpReq._meta as Record<string, unknown> | undefined }) as CallToolResult);
+      if (inputJsonSchema) {
+        server.registerTool(name, { ...rest, inputSchema: rawJsonSchema(inputJsonSchema) }, (args, ctx) => call(args, ctx));
+      } else if (inputSchema) {
         server.registerTool(name, { ...rest, inputSchema: zodStandardSchema(inputSchema, preserveRawInput) }, (args, ctx) => call(args, ctx));
       } else {
         server.registerTool(name, rest, ctx => call({}, ctx));

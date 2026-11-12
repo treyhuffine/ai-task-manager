@@ -19,5 +19,5 @@ export function mcpSettingsCaller(actionId: string): Caller {
 }
 
 export function isMcpSettingsAction(caller: Caller | undefined, actionId: string): boolean {
-  return caller?.type === 'app' && caller.id === `${PREFIX}${actionId}` && !caller.connectedApp && !caller.localApp && !caller.chatSource;
+  return caller?.type === 'app' && caller.id === `${PREFIX}${actionId}` && !caller.connectedApp && !caller.hubApp && !caller.chatSource;
 }

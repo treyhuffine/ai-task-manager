@@ -6,7 +6,8 @@
  */
 import { NextResponse } from 'next/server';
 import { getRequestKey } from '@/lib/auth/request-key';
-import { checkAuthorizeRequest, decisionRedirect } from '@/lib/oauth/flow';
+import { checkAuthorizeRequest, decisionRedirect, hubDecisionRedirect } from '@/lib/oauth/flow';
+import { grantFromChoice } from '@/lib/integrations/hub/grant';
 import { issuerFor, OAUTH_PATHS } from '@/lib/oauth/issuer';
 import { teamRefusal } from '@/lib/oauth/http';
 import { AUTHORIZE_FIELDS } from '@/lib/oauth/consent';
@@ -28,5 +29,15 @@ export async function POST(request: Request) {
   // A request that no longer checks out goes back to the page, which says why.
   if (check.kind === 'fatal') return NextResponse.redirect(`${issuer}${OAUTH_PATHS.authorize}?${params}`, 303);
   if (check.kind === 'redirect') return NextResponse.redirect(check.location, 303);
-  return NextResponse.redirect(decisionRedirect(check.request, form.get('decision') === 'allow'), 303);
+  const allow = form.get('decision') === 'allow';
+  // A personal app: the person's choice of accounts, tools and Ri services is its grant. Only what
+  // the screen offered from live connections counts (src/lib/integrations/hub/grant.ts).
+  if (check.request.audience === 'hub' && allow) {
+    const { hubConsentFor } = await import('@/lib/integrations/hub/consent');
+    const options = await hubConsentFor(check.request);
+    const tools: Record<string, string[]> = {};
+    for (const [field, value] of form) if (field.startsWith('tool:')) (tools[field.slice(5)] ??= []).push(value);
+    return NextResponse.redirect(hubDecisionRedirect(check.request, grantFromChoice(options, { tools, services: form.getAll('service') })), 303);
+  }
+  return NextResponse.redirect(decisionRedirect(check.request, allow), 303);
 }

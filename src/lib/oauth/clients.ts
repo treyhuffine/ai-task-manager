@@ -34,6 +34,15 @@ export interface OAuthClient {
   /** The host its ID is served from. Null for a registered client, whose redirect says where it goes. */
   host: string | null;
   authMethod: ClientAuthMethod;
+  /**
+   * What an app said about itself when it registered (RFC 7591 `software_id`, `client_uri`, and the
+   * kit's `purpose`). Shown on the hub's consent screen as the app's own words, never trusted for access.
+   */
+  softwareId?: string;
+  clientUri?: string;
+  purpose?: string;
+  /** It registered for refresh tokens too. Only the hub issues them. */
+  refresh?: boolean;
 }
 
 /** A client the authorization page names instead of redirecting to (RFC 6749 §4.1.2.1). */
@@ -117,7 +126,28 @@ export function kindFor(client: Pick<OAuthClient, 'host'>, redirectUri: string):
 
 // ─── Dynamic registration ─────────────────────────────────────
 
-interface Registration { v: 1; r: string[]; n: string | null; a: ClientAuthMethod; s: string }
+interface Registration {
+  v: 1; r: string[]; n: string | null; a: ClientAuthMethod; s: string;
+  /** software_id, client_uri, purpose and refresh, when the client sent them. */
+  si?: string; cu?: string; p?: string; rt?: 1;
+}
+
+const PURPOSE_MAX = 500;
+const SOFTWARE_ID_MAX = 200;
+
+function cleanText(raw: unknown, max: number): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const clean = raw.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim();
+  return clean ? clean.slice(0, max) : undefined;
+}
+
+function cleanUri(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || raw.length > MAX_URI_LENGTH) return undefined;
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHost(url.hostname)) ? url.href : undefined;
+  } catch { return undefined; }
+}
 
 function homeSecret(): string {
   const token = readAuthConfig()?.localToken;
@@ -149,6 +179,8 @@ export interface RegisteredClient {
   grant_types: string[];
   response_types: string[];
   token_endpoint_auth_method: ClientAuthMethod;
+  software_id?: string;
+  client_uri?: string;
   client_secret?: string;
   client_secret_expires_at?: number;
 }
@@ -167,6 +199,7 @@ export function registerClient(body: unknown, secret?: string): RegisteredClient
   if (!AUTH_METHODS.includes(method as ClientAuthMethod)) {
     throw new RegistrationError('invalid_client_metadata', `Ri supports ${AUTH_METHODS.join(', ')} at its token endpoint.`);
   }
+  const refresh = Array.isArray(input.grant_types) && input.grant_types.includes('refresh_token');
   if (input.grant_types !== undefined && !(Array.isArray(input.grant_types) && input.grant_types.includes('authorization_code'))) {
     throw new RegistrationError('invalid_client_metadata', 'Ri issues tokens through the authorization_code grant.');
   }
@@ -174,16 +207,22 @@ export function registerClient(body: unknown, secret?: string): RegisteredClient
     throw new RegistrationError('invalid_client_metadata', 'Ri answers the code response type.');
   }
   const name = cleanName(input.client_name);
-  const registration: Registration = { v: 1, r: uris as string[], n: name, a: method as ClientAuthMethod, s: crypto.randomBytes(16).toString('base64url') };
+  const softwareId = cleanText(input.software_id, SOFTWARE_ID_MAX), clientUri = cleanUri(input.client_uri), purpose = cleanText(input.purpose, PURPOSE_MAX);
+  const registration: Registration = {
+    v: 1, r: uris as string[], n: name, a: method as ClientAuthMethod, s: crypto.randomBytes(16).toString('base64url'),
+    ...(softwareId ? { si: softwareId } : {}), ...(clientUri ? { cu: clientUri } : {}), ...(purpose ? { p: purpose } : {}), ...(refresh ? { rt: 1 as const } : {}),
+  };
   const clientId = `${REGISTERED_PREFIX}${Buffer.from(JSON.stringify(registration)).toString('base64url')}`;
   return {
     client_id: clientId,
     client_id_issued_at: Math.floor(Date.now() / 1000),
     ...(name ? { client_name: name } : {}),
     redirect_uris: registration.r,
-    grant_types: ['authorization_code'],
+    grant_types: refresh ? ['authorization_code', 'refresh_token'] : ['authorization_code'],
     response_types: ['code'],
     token_endpoint_auth_method: registration.a,
+    ...(softwareId ? { software_id: softwareId } : {}),
+    ...(clientUri ? { client_uri: clientUri } : {}),
     ...(registration.a === 'none' ? {} : { client_secret: registeredClientSecret(clientId, secret), client_secret_expires_at: 0 }),
   };
 }
@@ -195,7 +234,13 @@ function decodeRegistered(clientId: string): OAuthClient | null {
   catch { return null; }
   if (parsed?.v !== 1 || !Array.isArray(parsed.r) || !parsed.r.length || !parsed.r.every(isAllowedRedirectUri) || !AUTH_METHODS.includes(parsed.a)) return null;
   const name = cleanName(parsed.n) ?? hostOf(parsed.r[0]) ?? 'An MCP client';
-  return { id: clientId, name, redirectUris: parsed.r, source: 'registered', host: null, authMethod: parsed.a };
+  return {
+    id: clientId, name, redirectUris: parsed.r, source: 'registered', host: null, authMethod: parsed.a,
+    ...(typeof parsed.si === 'string' ? { softwareId: cleanText(parsed.si, SOFTWARE_ID_MAX) } : {}),
+    ...(typeof parsed.cu === 'string' && cleanUri(parsed.cu) ? { clientUri: cleanUri(parsed.cu) } : {}),
+    ...(typeof parsed.p === 'string' ? { purpose: cleanText(parsed.p, PURPOSE_MAX) } : {}),
+    ...(parsed.rt === 1 ? { refresh: true } : {}),
+  };
 }
 
 // ─── Client ID metadata documents ─────────────────────────────
@@ -322,6 +367,11 @@ export function clientLabel(clientId: string | null): string | null {
   const registered = decodeRegistered(clientId);
   if (registered) return registered.name;
   return isMetadataClientId(clientId) ? new URL(clientId).hostname : null;
+}
+
+/** A client that registered with Ri, from its ID alone, or null for a document client or unknown ID. */
+export function registeredClient(clientId: string): OAuthClient | null {
+  return decodeRegistered(clientId);
 }
 
 /**

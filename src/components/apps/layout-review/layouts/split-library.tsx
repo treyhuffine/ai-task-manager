@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { AppLibrary } from '../../app-library';
 import { AddAppDialog } from '../../add-app-dialog';
+import { HubAccessList } from '../../hub-access';
 import type { LibraryFilter } from '../../library-model';
 import { useReview } from '../context';
 import { ItemDetails } from '../details';
@@ -109,6 +110,7 @@ function GroupedLibrary({ filter }: { filter: LibraryFilter }) {
           : <p className={s.groupEmpty}>{review.search ? 'No matches.' : `No ${label.toLowerCase()} yet.`}</p>}
       </section>;
     })}
+    {(filter === 'all' || filter === 'apps') && <div className={s.libraryGroup}><HubAccessList /></div>}
     {!!drafts.length && <section className={s.libraryGroup} aria-label="In progress"><div className={s.groupHeading}><h3>In progress</h3><span>{drafts.length}</span></div>
       {drafts.map(item => <LibraryEntry key={item.key} item={item} />)}
     </section>}

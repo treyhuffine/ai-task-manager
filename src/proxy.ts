@@ -14,6 +14,7 @@ import {
   API_KEY_SCOPE_HEADER,
   CALLER_LOCATION_HEADER,
   FORWARDED_KEY_HEADERS,
+  HUB_KEY_PREFIX,
   MEMBER_ID_HEADER,
   MEMBER_ROLE_HEADER,
   SESSION_CHAT_HEADER,
@@ -25,7 +26,8 @@ import { aiClientMayReach, hostMayReach, isTeamPublicPath, memberMayReach, TEAM_
 import { isSessionToken, sessionMayReach, verifySessionToken } from '@/lib/auth/session-token';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { permitsCookieMutation } from '@/lib/auth/request-origin';
-import { issuerFor, mcpChallenge, OAUTH_PUBLIC_PATHS } from '@/lib/oauth/issuer';
+import { HUB_MCP_PATH, hubChallenge, issuerFor, mcpChallenge, OAUTH_PUBLIC_PATHS } from '@/lib/oauth/issuer';
+import { isHubToken, verifyHubAccessToken } from '@/lib/integrations/hub/tokens';
 
 export const config = {
   // `/space/*` is a page: the proxy only marks which team it shows (below).
@@ -45,6 +47,10 @@ function refuse(request: NextRequest, presented: boolean) {
   const response = unauthorized();
   if (request.nextUrl.pathname === HOME_MCP_PATH) {
     response.headers.set('WWW-Authenticate', mcpChallenge(issuerFor(request.headers, request.url), presented ? 'invalid_token' : undefined));
+  }
+  // The hub: a personal app finds where to connect from here (docs/personal-apps.md).
+  if (request.nextUrl.pathname === HUB_MCP_PATH) {
+    response.headers.set('WWW-Authenticate', hubChallenge(issuerFor(request.headers, request.url), presented ? 'invalid_token' : undefined));
   }
   return response;
 }
@@ -324,6 +330,20 @@ export function proxy(request: NextRequest) {
     return NextResponse.next({ request: { headers } });
   }
 
+
+  // A personal app's own hub token reaches only the hub, as that app, and never anything a key
+  // reaches (docs/personal-apps.md "The hub"). It expires in an hour and refreshes.
+  if (isHubToken(token)) {
+    const app = verifyHubAccessToken(token);
+    if (!app) return refuse(request, true);
+    if (request.nextUrl.pathname !== HUB_MCP_PATH) return forbidden('hub_app', 'An app’s token reaches only Ri’s hub for apps.');
+    const headers = new Headers(request.headers);
+    for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
+    headers.set(API_KEY_ID_HEADER, `${HUB_KEY_PREFIX}${app.id}`);
+    headers.set(CALLER_LOCATION_HEADER, 'elsewhere');
+    headers.set(API_KEY_SCOPE_HEADER, 'hub_app');
+    return NextResponse.next({ request: { headers } });
+  }
 
   const found = lookupApiToken(token);
   if (!found) return refuse(request, true);

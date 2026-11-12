@@ -658,8 +658,12 @@ export interface Caller {
   /** Viewer-bound connected MCP UI invocation. Not supplied by a guest. */
   connectedApp?: { viewId: string; invocationId: string; sourceRef: string; viewerId: string };
   chatSource?: { messageId: string; sourceRef: string; invocationId: string };
-  /** Host-issued local app identity, never supplied by a package. */
-  localApp?: { instanceId: string; invocationId: string; callId: string; principal: { kind: string; id: string } };
+  /**
+   * A personal app calling through the host's hub with its own token. Host-issued from the token,
+   * never from the request. `startedBy` is what the host knows started the call (a chat, the person,
+   * one of the app's jobs, or the app on its own): context for approvals and audit, never access.
+   */
+  hubApp?: { appId: string; startedBy: { kind: 'chat' | 'person' | 'job' | 'app'; id?: string; label?: string } };
   type: CallerType;
   /** Optional human/agent identity for audit. */
   id?: string;

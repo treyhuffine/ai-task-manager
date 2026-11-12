@@ -66,6 +66,7 @@ async function serve(input: string | URL | Request, init?: RequestInit): Promise
   if (auth.headers.get('x-middleware-next') !== '1') return auth;
   const next = new NextRequest(request, { headers: forwarded(auth) });
   if (path === HOME_MCP_PATH) return (await import('@/app/api/orchestrator/[transport]/route'))[request.method as 'GET' | 'POST' | 'DELETE'](next);
+  if (path === '/api/integrations/mcp') return (await import('@/app/api/integrations/[transport]/route'))[request.method as 'GET' | 'POST' | 'DELETE'](next);
   const routes: Record<string, () => Promise<{ POST(request: Request): Promise<Response> }>> = {
     '/api/oauth/register': () => import('@/app/api/oauth/register/route'),
     '/api/oauth/token': () => import('@/app/api/oauth/token/route'),
@@ -392,3 +393,84 @@ describe('refusals', () => {
     expect(await register(['http://127.0.0.1:43123/callback', 'cursor://anysphere.cursor-retrieval/oauth/callback'])).toMatchObject({ token_endpoint_auth_method: 'none' });
   });
 });
+
+/**
+ * The hub (docs/personal-apps.md "The hub"): a personal app connects to Ri's integrations endpoint
+ * with its own OAuth client, the person chooses what it may reach, and its token sees only that.
+ */
+describe('the hub for personal apps', () => {
+  const HUB = `${BASE}/api/integrations/mcp`;
+  const APP_CALLBACK = 'http://127.0.0.1:4391/api/hub/callback';
+
+  function appProvider() {
+    const p = provider({ name: 'Bloom' });
+    const base = Object.getOwnPropertyDescriptor(p, 'clientMetadata')!.get!.bind(p);
+    Object.defineProperty(p, 'redirectUrl', { get: () => APP_CALLBACK });
+    Object.defineProperty(p, 'clientMetadata', { get: () => ({ ...base(), redirect_uris: [APP_CALLBACK], software_id: 'bloom', client_uri: 'http://127.0.0.1:4391', purpose: 'Find messages from the pediatrician', scope: 'mail.read' }) });
+    return p;
+  }
+
+  /** The person on the hub's consent screen, ticking Ri's task services. */
+  async function allow(url: URL, services: string[]) {
+    const form = new URLSearchParams();
+    for (const field of AUTHORIZE_FIELDS) { const value = url.searchParams.get(field); if (value !== null) form.set(field, value); }
+    form.set('decision', 'allow');
+    for (const service of services) form.append('service', service);
+    const response = await serve(`${BASE}/api/oauth/authorize`, { method: 'POST', body: form.toString(), headers: { cookie: `ri_session=${viewer}`, origin: BASE, 'content-type': 'application/x-www-form-urlencoded' } });
+    expect(response.status).toBe(303);
+    return new URL(response.headers.get('location')!);
+  }
+
+  it('connects an app with its own token, serves exactly its grant, and cuts it off when turned off', async () => {
+    const p = appProvider();
+    const first = new Client({ name: 'bloom-hub', version: '1.0.0' });
+    await expect(first.connect(new StreamableHTTPClientTransport(new URL(HUB), { authProvider: p, fetch: serve as typeof fetch }))).rejects.toBeInstanceOf(UnauthorizedError);
+    // It asked for the hub, so the consent screen is the hub's.
+    expect(p.authorizationUrl!.searchParams.get('resource')).toBe(HUB);
+    const { checkAuthorizeRequest } = await import('./flow');
+    const check = await checkAuthorizeRequest(p.authorizationUrl!.searchParams, BASE);
+    expect(check).toMatchObject({ kind: 'ok', request: { audience: 'hub', scope: 'mail.read', client: { name: 'Bloom', softwareId: 'bloom', clientUri: 'http://127.0.0.1:4391/', purpose: 'Find messages from the pediatrician', refresh: true } } });
+
+    const callback = await allow(p.authorizationUrl!, ['list_tasks', 'create_task']);
+    expect(callback.origin + callback.pathname).toBe(APP_CALLBACK);
+    const transport = new StreamableHTTPClientTransport(new URL(HUB), { authProvider: p, fetch: serve as typeof fetch });
+    await transport.finishAuth(callback.searchParams);
+    const tokens = await p.tokens();
+    expect(tokens).toMatchObject({ token_type: 'Bearer', expires_in: 3600 });
+    expect(tokens!.refresh_token).toMatch(/^ri_hub_rt_/);
+    const app = new Client({ name: 'bloom-hub', version: '1.0.0' });
+    clients.push(app);
+    await app.connect(transport);
+    expect((await app.listTools()).tools.map(tool => tool.name).sort()).toEqual(['ri__create_task', 'ri__list_tasks']);
+    const created = await app.callTool({ name: 'ri__create_task', arguments: { title: 'Book the checkup', operationId: crypto.randomUUID() } });
+    expect(created.isError).toBeFalsy();
+    const q = await import('@/lib/db/queries');
+    const hubApp = q.listHubApps().find(item => item.name === 'Bloom')!;
+    expect(hubApp).toMatchObject({ softwareId: 'bloom', purpose: 'Find messages from the pediatrician', requested: 'mail.read', grant: { accounts: [], services: ['list_tasks', 'create_task'] } });
+    expect(q.listHubCalls(hubApp.id).map(call => [call.tool, call.status, call.startedByKind])).toEqual([['ri__create_task', 'ok', 'app']]);
+
+    // The token reaches nothing but the hub, and a viewer key on the hub gets the harness surface, not the app's.
+    expect((await serve(`${BASE}/api/tasks`, { headers: { authorization: `Bearer ${tokens!.access_token}` } })).status).toBe(403);
+    expect((await serve(MCP, { method: 'POST', headers: { authorization: `Bearer ${tokens!.access_token}`, 'content-type': 'application/json' }, body: '{}' })).status).toBe(403);
+    const asViewer = new Client({ name: 'viewer', version: '1.0.0' });
+    clients.push(asViewer);
+    await asViewer.connect(new StreamableHTTPClientTransport(new URL(HUB), { fetch: serve as typeof fetch, requestInit: { headers: { authorization: `Bearer ${viewer}` } } }));
+    expect((await asViewer.listTools()).tools.some(tool => tool.name.startsWith('ri__'))).toBe(false);
+
+    // Refresh rotates; the person narrows the grant; turning it off stops the next call.
+    const refreshed = await token({ grant_type: 'refresh_token', refresh_token: tokens!.refresh_token!, client_id: (await p.clientInformation())!.client_id });
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.body.refresh_token).not.toBe(tokens!.refresh_token);
+    const { narrowHubApp, turnOffHubApp } = await import('@/lib/integrations/hub/manage');
+    narrowHubApp(hubApp.id, { service: 'create_task' });
+    const narrowed = new Client({ name: 'bloom-hub', version: '1.0.0' });
+    clients.push(narrowed);
+    await narrowed.connect(new StreamableHTTPClientTransport(new URL(HUB), { fetch: serve as typeof fetch, requestInit: { headers: { authorization: `Bearer ${refreshed.body.access_token}` } } }));
+    expect((await narrowed.listTools()).tools.map(tool => tool.name)).toEqual(['ri__list_tasks']);
+    turnOffHubApp(hubApp.id);
+    const after = await serve(HUB, { method: 'POST', headers: { authorization: `Bearer ${refreshed.body.access_token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+    expect(after.status).toBe(401);
+    expect(after.headers.get('www-authenticate')).toContain('/.well-known/oauth-protected-resource/api/integrations/mcp');
+  });
+});
+

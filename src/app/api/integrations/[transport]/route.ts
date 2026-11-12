@@ -39,7 +39,10 @@ import { sessionCaller } from '@/lib/integrations/approval';
 import { resolveRiIntegrationFilter } from '@/lib/integrations/workspace-filter';
 import { planAppTools } from '@/lib/integrations/app-tools';
 import { registerAutomaticApps } from '@/lib/integrations/app-tools-mcp';
-import { getChatSession } from '@/lib/db/queries';
+import { getChatSession, getHubApp } from '@/lib/db/queries';
+import { serveHub } from '@/lib/integrations/hub/serve';
+import { withStartedBy } from '@/lib/integrations/hub/origin';
+import { registeredClient } from '@/lib/oauth/clients';
 import { actorFromSessionCredential, sessionCredentialFromHeaders } from '@/lib/orchestrator/session-credential';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { connectedButUnavailable, recordPausedConnection, requestConnection } from '@/lib/integrations/connection-requests';
@@ -184,8 +187,24 @@ function callingChat(req: NextRequest): string | null {
   return actorFromSessionCredential(sessionCredentialFromHeaders(req.headers))?.sessionId ?? null;
 }
 
+/**
+ * The hub: a personal app with its own token sees exactly its grant (src/lib/integrations/hub/serve.ts),
+ * never the harness surface, `?ws` or anything a key reaches.
+ */
+function hubHandler(appId: string, signal: AbortSignal) {
+  return riMcpHandler(async (server: RiMcpServer) => {
+    const app = getHubApp(appId);
+    if (!app || app.revokedAt) return;
+    await serveHub(server, await getIntegrationRuntime(), app, {
+      ownerId: getIntegrationOwnerId(), redirectUris: registeredClient(app.clientId)?.redirectUris ?? [], signal,
+    });
+  }, { name: `${APP_NAME.toLowerCase()}-hub`, version: '0.1.0', instructions: `The person's accounts and ${APP_NAME}'s own services, as they allowed for this app. Writes that reach outside ask the person: an approval_required answer means try the identical call again after they decide.` });
+}
+
 function handle(req: NextRequest): Promise<Response> {
   if (!isMcpTransport(new URL(req.url).pathname.split('/').pop())) return Promise.resolve(mcpNotFound());
+  const caller = getRequestKey(req.headers);
+  if (caller?.scope === 'hub_app') return caller.hubAppId ? hubHandler(caller.hubAppId, req.signal)(req) : Promise.resolve(mcpNotFound());
   const ticket = new URL(req.url).searchParams.get('evaluation');
   if (ticket) {
     const key = getRequestKey(req.headers);
@@ -193,7 +212,9 @@ function handle(req: NextRequest): Promise<Response> {
     return riMcpHandler(async server => { await serveAccountChat(server, ticket); }, { name: 'account_demo', version: '1' })(req);
   }
   const ws = new URL(req.url).searchParams.get('ws');
-  return buildHandler(ws, callingChat(req), req.signal)(req);
+  const chat = callingChat(req);
+  // Ri acting for this chat: an app's hub calls while Ri calls it are the chat's (hub/origin.ts).
+  return chat ? withStartedBy({ kind: 'chat', id: chat }, () => buildHandler(ws, chat, req.signal)(req)) : buildHandler(ws, chat, req.signal)(req);
 }
 
 export const GET = handle;

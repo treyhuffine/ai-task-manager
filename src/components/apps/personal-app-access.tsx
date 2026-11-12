@@ -10,6 +10,7 @@ import { openIntegrationAuthorization } from '@/lib/client/desktop';
 import { allowConsequence } from '@/lib/integrations/app-access-copy';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import { APP_NAME } from '@/constants/app';
+import { HubAppPanel } from './hub-access';
 
 type PlaceStatus = 'connected' | 'sign_in' | 'unavailable';
 const statusText = (status: PlaceStatus, app: string, error?: string) =>
@@ -24,6 +25,9 @@ export function PersonalAppAccess({ appId, onRemoved }: { appId: string; onRemov
   const queryClient = useQueryClient();
   const confirm = useConfirm();
   const app = useQuery(trpc.personalApps.get.queryOptions({ appId }));
+  // What the app can reach through Ri's hub, when it connected back to Ri.
+  const hub = useQuery(trpc.hubApps.list.queryOptions(undefined, { staleTime: 15_000 }));
+  const hubApp = hub.data?.find((item) => item.personalAppId === appId);
   const { data: workspaces } = useWorkspaces({ status: 'active' });
   const [error, setError] = useState<string | null>(null);
   const refresh = () => Promise.all([
@@ -112,6 +116,7 @@ export function PersonalAppAccess({ appId, onRemoved }: { appId: string; onRemov
         )}
         <Button size="xs" variant="ghost" className="text-destructive" disabled={busy} onClick={() => remove.mutate()}>Remove {name}</Button>
       </div>
+      {hubApp && <div className="pt-4"><HubAppPanel id={hubApp.id} embedded /></div>}
     </section>
   );
 }
