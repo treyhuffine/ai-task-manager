@@ -1,6 +1,6 @@
 # Personal apps in Ri
 
-Ri's side of the [shared app kit spec](shared-app-kit-spec.md). A personal app is an ordinary MCP server that runs on its own: a background service on the Mac through the kit's `serve --install`, or Cloudflare. Ri doesn't start, stop or supervise it. Ri connects to it with OAuth like any other connector, shows its screens through the connected app host ([connected MCP apps](connected-mcp-apps.md)), and lends it the person's accounts through the hub.
+Ri's side of the [shared app kit spec](shared-app-kit-spec.md). A personal app is an ordinary MCP server that runs on its own: a background service on the Mac through the kit's `serve --install`, or Cloudflare. Ri doesn't start, stop or supervise it. Its Restart button runs the kit's own command. Ri connects to it with OAuth like any other connector, shows its screens through the connected app host ([connected MCP apps](connected-mcp-apps.md)), and lends it the person's accounts through the hub.
 
 ## What Ri owns
 
@@ -12,6 +12,7 @@ Ri's side of the [shared app kit spec](shared-app-kit-spec.md). A personal app i
 | New app and Change app, running the kit's commands | `src/lib/apps/` |
 | What Ri brings for apps: the pinned kit and pnpm, run with Ri's Node | `packages/app-toolchain`, `src/lib/apps/toolchain.ts` |
 | The catalog of recommended apps: Add and Update | `src/lib/apps/catalog*.ts`, `src/components/apps/app-catalog.tsx` |
+| An installed app's state, Restart and Logs | `src/lib/apps/status.ts`, `src/components/apps/app-status.tsx` |
 
 ## Connecting an app
 
@@ -83,6 +84,17 @@ Ri builds and changes apps with the kit's own commands (shared spec §2, and the
 **The builder brief** (`src/lib/apps/builder-brief.ts`) keeps only host facts: where the folder or working copy is, that checks use their own data directory and fixture connectors, how to build and check, to commit, and never to install or run the service, open its data, connect it, grant it access, read Ri's credentials or edit Ri's source. How to build an app is the kit's build skill in the folder. The builder chat also has no reach into the person's accounts. It's guidance, not isolation (shared spec, Trust).
 
 Checked on November 12, 2026 with the kit's `claude/single-path-kit-jobs` branch, on the isolated Ri with the kit's plain-process service: New app created and committed Tide Log, Install and connect passed every kit step and connected Ri over OAuth, a change in its own working copy switched the running app to its commit and fast-forwarded the folder, and a change with a failing test stopped at `test` with nothing changed and the working copy kept.
+
+## Status, Restart and Logs
+
+The Apps page ("Running on this computer"), each installed app's build page and its source panel show the app's state with Restart and Logs (shared spec §2, "Status"). Ri gets them from the kit's own commands in the app's folder (`status --json`, `restart --json`, `logs --json`, in the kit's `docs/safe-change.md`), run with the app's own copy of the kit and Ri's toolchain, the way it runs `serve --install` and `change` (`src/lib/apps/status.ts`). Ri still never starts, stops or reads an app's process or data itself.
+
+- **State:** `running`, `starting`, `stopped` or `not installed`, with the release, how long it's been up and the last error the kit found. Ri keeps only what it shows (never the data folder) and shares one answer for five seconds between the views asking. It checks every 15 seconds while shown.
+- **Restart** runs `restart --json` as a job, like an install, so it shows on the app's page too. The kit stops the service, starts it and waits for the current release to answer.
+- **Logs** shows the last 500 lines of the server's log, refreshed every three seconds while open, or the last install or change log. Terminal colors are taken out. A `--since` value must be a span (`15m`, `2h`, `1d`) or an ISO time.
+- **An app made with an older kit** (before `status`) prints the kit's help for these commands, so Ri says the app's kit is older and offers neither Restart nor Logs. The kit's new `upgrade` command is how such an app gets a newer kit, and offering it is a follow-up.
+
+Checked on November 12, 2026 on the isolated Ri with an app made by the kit at `cc812fc` (core 0.2.2) and the kit's plain-process service. Status showed it running with its release and address. Logs showed the server's lines and the install log. After the app's process was killed, status showed it stopped, and Restart brought it back. An app made with the carried kit 0.2.0 showed the older-kit message.
 
 ## The catalog
 

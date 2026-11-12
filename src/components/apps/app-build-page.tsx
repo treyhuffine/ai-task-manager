@@ -11,6 +11,7 @@ import { APP_NAME } from '@/constants/app';
 import { openIntegrationAuthorization } from '@/lib/client/desktop';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import { useCatalogApp, useCatalogUpdate } from './app-catalog';
+import { AppStatusLine } from './app-status';
 import { ensureAppBuilderChat } from './new-app-dialog';
 
 type Navigate = (route: string, options?: { replace?: boolean }) => void;
@@ -91,6 +92,8 @@ export function AppBuildPage({ sourceId, navigate }: { sourceId: string; navigat
           </Button>
         )}
       </header>
+
+      {installed && <div className="border-b border-border px-5 py-2"><AppStatusLine sourceId={sourceId} name={data.name} /></div>}
 
       {(error || notice || job) && (
         <section aria-label="Progress" className="space-y-2 border-b border-border px-5 py-3 text-xs">

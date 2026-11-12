@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { APP_NAME } from '@/constants/app';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import { useCatalogApp } from './app-catalog';
+import { AppStatusLine } from './app-status';
 
 /**
  * Where an app's source lives (docs/personal-apps.md "Building and changing apps"), so Ri can fix
@@ -44,6 +45,7 @@ export function AppSourcePanel({ appId, appName, onOpenBuild }: { appId: string;
       {data ? (
         <div className="space-y-2 text-xs">
           <p className="text-muted-foreground">{data.folder ?? data.gitUrl}{data.notes ? `. ${data.notes}` : ''}</p>
+          {data.createdByRi && data.url && data.folder && <AppStatusLine sourceId={data.id} name={data.name} />}
           {catalogApp && (
             <p className="text-muted-foreground">
               From {APP_NAME}&apos;s catalog, {catalogApp.installedVersion ?? 'unknown version'}.
