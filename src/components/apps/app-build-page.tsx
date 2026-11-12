@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, ArrowLeft, CheckCircle2, Circle, GitBranch, Loader2, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowUpCircle, CheckCircle2, Circle, GitBranch, Loader2, XCircle } from 'lucide-react';
 import { uuidv7 } from 'uuidv7';
 import { HarnessChatSession } from '@/components/chat/harness-chat';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { APP_NAME } from '@/constants/app';
 import { openIntegrationAuthorization } from '@/lib/client/desktop';
 import { trpc, trpcClient } from '@/lib/trpc/client';
+import { useCatalogApp, useCatalogUpdate } from './app-catalog';
 import { ensureAppBuilderChat } from './new-app-dialog';
 
 type Navigate = (route: string, options?: { replace?: boolean }) => void;
@@ -47,6 +48,13 @@ export function AppBuildPage({ sourceId, navigate }: { sourceId: string; navigat
     onSuccess: () => { setError(null); void refresh(); },
     onError: (e) => setError(e instanceof Error ? e.message : String(e)),
   });
+  const catalogApp = useCatalogApp(sourceId);
+  const [notice, setNotice] = useState<string | null>(null);
+  const update = useCatalogUpdate(sourceId, (mode) => {
+    setError(null);
+    setNotice(mode === 'merge' ? 'You changed this app, so the builder is merging the update into a change first. Apply it when it’s ready.' : mode === 'current' ? 'It already has this version.' : null);
+    void queryClient.invalidateQueries({ queryKey: ['app-builder-chat', sourceId] });
+  });
   const askToFix = useMutation({
     mutationFn: async () => {
       const job = source.data?.job;
@@ -77,11 +85,17 @@ export function AppBuildPage({ sourceId, navigate }: { sourceId: string; navigat
         {data.createdByRi && installed && !changing && <Button size="sm" variant="outline" disabled={running || action.isPending} onClick={() => action.mutate('change')}>Change app</Button>}
         {changing && <Button size="sm" variant="ghost" disabled={running || action.isPending} onClick={() => action.mutate('discard')}>Discard change</Button>}
         {changing && <Button size="sm" disabled={running || action.isPending} onClick={() => action.mutate('apply')}>Apply change</Button>}
+        {installed && !changing && catalogApp?.updateAvailable && (
+          <Button size="sm" variant="outline" disabled={running || update.isPending} onClick={() => update.mutate(undefined, { onError: (e) => setError(e instanceof Error ? e.message : String(e)) })}>
+            {update.isPending ? <Loader2 size={14} className="animate-spin" /> : <ArrowUpCircle size={14} aria-hidden />}Update to {catalogApp.version}
+          </Button>
+        )}
       </header>
 
-      {(error || job) && (
+      {(error || notice || job) && (
         <section aria-label="Progress" className="space-y-2 border-b border-border px-5 py-3 text-xs">
           {error && <p role="alert" className="flex items-start gap-2 text-destructive"><AlertCircle size={13} className="mt-0.5 shrink-0" />{error}</p>}
+          {notice && <p role="status" className="text-muted-foreground">{notice}</p>}
           {job && (
             <>
               <ol className="flex flex-wrap gap-x-4 gap-y-1">
