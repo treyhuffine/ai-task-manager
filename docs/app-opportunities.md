@@ -1,5 +1,7 @@
 # App opportunities for Ri
 
+> **November 12, 2026.** Ri no longer bundles apps. Each new app is its own MCP server built with the shared app kit (see [personal apps](personal-apps.md)). The opportunities below still stand, and references to Ri's included app host are historical.
+
 October 15, 2026. These are product hypotheses for choosing another included app, not validated market-size claims or an implementation queue. Health is parked until an acceptable automatic Apple Health path is demonstrated. See [Health feasibility](health-app-discovery.md).
 
 ## Selection criteria

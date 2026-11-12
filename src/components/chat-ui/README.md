@@ -86,11 +86,11 @@ team runtime has an explicit attachment capability of false until its replacemen
 execution environment is qualified. This extraction alone does not enable that
 replacement runtime.
 
-The app kit remains the optional `@ri/app-kit` package. Connected app view hosts
-remain in `src/components/mcp-apps/`, local app companions in
-`src/components/local-apps/`, and their shared host in `packages/mcp-apps-host/`.
-The gallery imports their actual UI and labels its origin and requirements.
-No installed app or account is required to explore those fictional examples.
+Connected app view hosts remain in `src/components/mcp-apps/`, the app companion
+beside a chat and the Apps library in `src/components/apps/`, and their shared
+host in `packages/mcp-apps-host/`. The gallery imports their actual UI and labels
+its origin and requirements. No connected app or account is required to explore
+those fictional examples.
 
 ## Adding a chat interface
 

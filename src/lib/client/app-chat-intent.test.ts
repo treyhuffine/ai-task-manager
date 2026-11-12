@@ -1,6 +1,5 @@
 import { expect, it, vi } from "vitest";
 import {
-  appChatIntent,
   appPartsText,
   registerAppChatComposer,
   requestAppChatDraft,
@@ -8,18 +7,6 @@ import {
   serializeAppParts,
   type AppDraftPart,
 } from "./app-chat-intent";
-it("handles only the bounded local chat intent", () => {
-  expect(appChatIntent("/__host/chat?prompt=Explain%20this")).toEqual({
-    prompt: "Explain this",
-  });
-  expect(appChatIntent("/__host/chat")).toEqual({ prompt: "" });
-  expect(appChatIntent("https://elsewhere.test/__host/chat")).toBeNull();
-  expect(appChatIntent("//elsewhere.test/__host/chat")).toBeNull();
-  expect(appChatIntent("/views/a")).toBeNull();
-  expect(() =>
-    appChatIntent("/__host/chat?prompt=" + "x".repeat(2001)),
-  ).toThrow(/too long/);
-});
 it("stages into only the selected composer, once, even if the composer loads later", () => {
   const a = vi.fn(),
     b = vi.fn();

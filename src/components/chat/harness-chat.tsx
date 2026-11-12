@@ -1,7 +1,7 @@
 'use client';
 
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
-import { AppCompanion } from '@/components/local-apps/app-companion';
+import { AppCompanion } from '@/components/apps/app-companion';
 import {
 	EmptyChatActionsContext,
 	MainChatIntroPanel,
@@ -230,7 +230,7 @@ function ChatSession({
   if (!session) return <ChatLookupState paused={fetchStatus === 'paused'} error={sessionError} retry={() => void refetch()} />;
 
   return (
-    <AppCompanion chatId={sessionId} surfaceKind={session.surfaceKind}>
+    <AppCompanion chatId={sessionId}>
       <ChatRefreshBoundary error={sessionError} retry={() => void refetch()}>
     <ChatDropZone
       className="flex flex-1 min-h-0 flex-col"

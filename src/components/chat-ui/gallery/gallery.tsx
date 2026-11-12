@@ -66,7 +66,7 @@ export function ChatUiGallery() {
       <div className="mb-7 max-w-3xl">
         <div className="mb-3 flex items-center gap-2 text-xs font-medium text-muted-foreground"><LayoutTemplate size={16} />Chat interfaces</div>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Chat UI gallery</h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Explore the interfaces that turn a conversation into something you can act on. See what Ri includes, what connected apps supply, and what app authors can build with the kit.</p>
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Explore the interfaces that turn a conversation into something you can act on. See what Ri includes and what connected apps supply.</p>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">These examples use fictional data and simulated actions. You can try every example without installing an app or changing your accounts.</p>
       </div>
 
@@ -117,7 +117,7 @@ export function ChatUiGallery() {
           <details className="rounded-xl border border-border px-4 py-3"><summary className="cursor-pointer text-xs font-medium">Where this UI lives</summary>
             <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{GALLERY_ORIGINS[example.origin].description}</p>
             <ul className="mt-3 space-y-2">{example.sources.map(source => <li key={source} className="flex min-w-0 items-start gap-2 rounded-md bg-muted/40 p-2"><code className="min-w-0 flex-1 break-all text-[10px] leading-relaxed">{source}</code><Tip label="Copy the repository path"><button type="button" aria-label={`Copy ${source}`} className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground" onClick={() => void copy(source)}>{copied === source ? <Check size={12} /> : <Copy size={12} />}</button></Tip></li>)}</ul>
-            <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">The catalog and preview fixtures live in <code>src/components/chat-ui/gallery/</code>. Built-in interfaces live together in src/components/chat-ui/ and are reused here. App kit and connected-app hosts keep their own modules.</p>
+            <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">The catalog and preview fixtures live in <code>src/components/chat-ui/gallery/</code>. Built-in interfaces live together in src/components/chat-ui/ and are reused here. Connected-app hosts keep their own modules.</p>
           </details>
         </article>}
       </div>

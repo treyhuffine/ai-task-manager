@@ -4,7 +4,7 @@ Ri speaks MCP 2026-07-28 as a client and as a server, and still serves and reach
 
 ## Ri as a client
 
-Every MCP server Ri connects to (hosted catalog servers, servers you add, managed sources, local apps) goes through `packages/integrations/src/mcp/client.ts`.
+Every MCP server Ri connects to (hosted catalog servers, servers you add, managed sources, personal apps) goes through `packages/integrations/src/mcp/client.ts`.
 
 - Over HTTP, Ri opens with the 2026-07-28 probe (`server/discover`). A server that answers it is used statelessly on 2026-07-28: no session, no `initialize`, and a `subscriptions/listen` stream for tool list changes.
 - A server that fails the probe falls back to the 2025 handshake (`initialize`, ending at 2025-11-25 or whatever older version the server picks). Fallback happens only for an unusable answer to the probe (5xx, unknown method or version, malformed response) or a probe that takes more than 10 seconds. A 401 or 403 is never evidence of an old server: it goes to sign-in as before, so a 2026 server behind OAuth is never pinned to the old protocol.

@@ -1,8 +1,6 @@
 'use client';
 import { parseSourceMarkers } from '@/lib/chat-sources/reference';
 import { SourceText, SourceMetadataProvider, type SourceChipTone } from '@/components/chat-ui/references/source-chip';
-
-import {AppOpenControl} from '@/components/local-apps/open-control';
 import { ConnectedView } from '@/components/mcp-apps/view';
 import { MCP_TOOL_RESULT_EVENTS } from '@/lib/mcp-apps/metadata';
 import { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT } from '@/lib/mcp-apps/form-events';
@@ -368,7 +366,6 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
               </>
             )}
             <div className="ml-auto flex flex-shrink-0 items-center gap-2 pl-1.5">
-              {paired&&sessionId&&<AppOpenControl content={resultText} chatId={sessionId}/>}
               {pr && <PrLink url={pr.url} number={pr.number} />}
               {hasNested && (
                 <span className="flex items-center gap-1 text-[10.5px] text-muted-foreground/55">
@@ -431,9 +428,7 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
       // word "error" + the expandable body is enough for anyone digging in.
       const isError = event.toolIsError === true;
       const text = event.content ?? '';
-      const appOpen=sessionId?<AppOpenControl content={text} chatId={sessionId}/>:null;
       return (
-        <div>{appOpen}
         <button
           onClick={() => setExpanded((v) => !v)}
           className="w-full text-left text-[11px]"
@@ -450,7 +445,7 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
               {text}
             </pre>
           )}
-        </button></div>
+        </button>
       );
     }
 

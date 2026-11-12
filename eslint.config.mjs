@@ -71,8 +71,6 @@ const eslintConfig = defineConfig([
     "personal/**",
     "dist/**",
     "packages/*/dist/**",
-    // Each app owns its framework config and lint rules.
-    "apps/**",
   ]),
 ]);
 

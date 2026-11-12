@@ -4,11 +4,11 @@ import type { Attachment } from "@/db/types";
  * What apps put into a chat's composer, kept only in this browser while the
  * target composer loads.
  *
- * Local apps suggest plain text (`requestAppChatDraft`). Connected MCP apps
- * write OpenAI's extended `ui/message` (`requestAppChatMessage`): ordinary
- * text, titled items the person can remove as a unit, and files. Either way
- * it is a draft, and the person sends it (docs/connected-mcp-apps.md,
- * "Messages").
+ * Connected MCP apps write OpenAI's extended `ui/message`
+ * (`requestAppChatMessage`): ordinary text, titled items the person can
+ * remove as a unit, and files. `requestAppChatDraft` puts plain text there
+ * the same way. Either way it is a draft, and the person sends it
+ * (docs/connected-mcp-apps.md, "Messages").
  */
 export type AppDraftPart =
   | { type: "text"; text: string }
@@ -37,15 +37,6 @@ type Composer = { append: (text: string) => void } & AppChatComposerHandlers;
 const pending = new Map<string, Request[]>();
 const composers = new Map<string, Composer>();
 const QUEUE_MS = 60_000;
-
-export function appChatIntent(path: string): { prompt: string } | null {
-  const url = new URL(path, "https://app.invalid");
-  if (url.origin !== "https://app.invalid" || url.pathname !== "/__host/chat")
-    return null;
-  const prompt = url.searchParams.get("prompt") ?? "";
-  if (prompt.length > 2000) throw new Error("The app question is too long.");
-  return { prompt };
-}
 
 /** The text of parts, for a composer that takes only text. A titled item is its text. */
 export function appPartsText(parts: readonly AppDraftPart[]): string {

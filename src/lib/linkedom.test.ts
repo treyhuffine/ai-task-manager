@@ -1,7 +1,7 @@
 /**
  * Server code loads linkedom only through `./linkedom`, with require(). An
  * import of it anywhere else puts linkedom's ESM build beside the CommonJS one
- * @ri/app-kit's server build requires, and the build or a request fails at
+ * this loader requires, and the build or a request fails at
  * random with ERR_REQUIRE_ESM_RACE_CONDITION (see `./linkedom.ts`).
  */
 import fs from 'node:fs';

@@ -3,15 +3,14 @@
 import { AppWindow, Server } from 'lucide-react';
 import { INTEGRATION_ICONS } from '@/components/integrations/integration-icon-data';
 import { IntegrationLogo, isDarkBrandMark } from '@/components/integrations/integration-logo';
-import { AppMark } from '@/components/local-apps/app-mark';
 import type { SourceMark as Mark } from '@/lib/chat-sources/types';
 import { cn } from '@/lib/utils';
 
 /**
  * The glyph for a mentioned app or account, the same mark the library and the
- * rail use: the service's logo (Gmail's own inside Google), a server for an
- * MCP server you added, or an installed app's tile. Unknown or unresolved
- * sources get a plain app window. Decorative: the label beside it names it.
+ * rail use: the service's logo (Gmail's own inside Google), or a server for an
+ * MCP server you added. Unknown or unresolved sources get a plain app window.
+ * Decorative: the label beside it names it.
  */
 export function SourceMark({ mark, name, size = 14, className }: { mark?: Mark; name: string; size?: number; className?: string }) {
   if (mark?.kind === 'provider') {
@@ -34,7 +33,6 @@ export function SourceMark({ mark, name, size = 14, className }: { mark?: Mark; 
       </span>
     );
   }
-  if (mark?.kind === 'app') return <AppMark name={name} icon={mark.icon} size="xs" className={className} />;
   const Icon = mark?.kind === 'server' ? Server : AppWindow;
   return <Icon aria-hidden size={size} className={cn('shrink-0', className)} />;
 }

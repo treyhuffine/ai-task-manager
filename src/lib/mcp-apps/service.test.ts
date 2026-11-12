@@ -24,7 +24,7 @@ let entry: Record<string, unknown>;
 /** The `mcp_tool_results` table, as the query layer reads and writes it. */
 const results = new Map<string, Record<string, unknown>>();
 beforeEach(() => {
-  vi.resetAllMocks(); process.env.RI_LOCAL_APPS = '0'; delete process.env.RI_MCP_APPS;
+  vi.resetAllMocks(); delete process.env.RI_MCP_APPS;
   mcpViews().views.clear(); mcpViews().captures.clear();
   entry = {id: 'server', slug: 'fixture', enabled: true, displayName: 'Fixture', url: 'https://fixture.invalid/mcp', credentialRevision: 1, capabilityRevision: 'v1'};
   const connection = {id: 'mcp-fixture', providerId: 'mcp_fixture', ownerId: 'local', accountId: 'account-A', status: 'active', scopes: []};

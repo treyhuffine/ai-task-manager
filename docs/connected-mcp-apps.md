@@ -30,7 +30,7 @@ Every rule below was re-derived on October 20, 2026 from three facts, and kept o
 | Nothing on screen moves for an app's message | The screen, with no click needed | Switching Ri's panel or leaving focus mode under the person | Kept | The view's notice says where the draft is, naming the main chat for a screen with no chat of its own. |
 | A view's uploads capped at 64 MiB | The screen | Filling the Home's disk with draft attachments | Kept | The simplest bound. It is kept in the tab, per view and page load (256 views at most), so a reload starts it over. |
 | A screen's messages capped at 16 MiB plus 64 KiB, 100 a second and 24 MiB a second, in the relay | The screen | Freezing Ri's tab | Kept | One place, the relay, which is the only thing that posts as a view. |
-| Source markers (`[[source:…]]`) broken in what an app writes into a draft | The screen | Binding the person's accounts through a draft they send | Kept | Only the person chooses sources. It covers connected and local apps. |
+| Source markers (`[[source:…]]`) broken in what an app writes into a draft | The screen | Binding the person's accounts through a draft they send | Kept | Only the person chooses sources. It covers every connected app. |
 | Thumbnails and images from a screen shown only as `data:` images | The screen | Ri's page, which has no CSP, fetching any URL for it | Kept | Otherwise a screen would reach past its declared domains. |
 | The approval card lies over the screen and arms after 500 ms | The screen | A click it asked for (on a button of its own) landing on Allow once | Kept | The app chooses when the card appears, so it can make it appear under a click it expects. |
 | An app's tool calls go through the approval policy, as the app audience | The screen | Actions the person didn't approve | Kept | The person's approval settings apply to apps as to the agent. |
@@ -78,7 +78,7 @@ Chat is where a connected service is used. Only real application UI makes it an 
 - A source chip's Open <service> opens its latest live result beside that chat, or the account's Apps page when no result exists.
 - An app's connection page lists the network domains its screens declared ("Network access", `connectedApps.network`), read once per capability revision, or says it declared none.
 
-Connected views are enabled by default. `RI_MCP_APPS=0` disables them independently of `RI_LOCAL_APPS`.
+Connected views are enabled by default. `RI_MCP_APPS=0` disables them.
 
 ## Supported interfaces
 
@@ -96,7 +96,7 @@ Each view's frames (a relay frame Ri owns, holding the view) are opaque and sand
 
 ## Implementation and authority
 
-- `packages/mcp-apps-host` contains the shared `AppBridge`, opaque relay, CSP (`csp.ts`) and browser lifecycle. `packages/app-kit` re-exports it and inlines it at build time. The connected adapter has no local builder, app-kit, or domain dependency.
+- `packages/mcp-apps-host` contains the shared `AppBridge`, opaque relay, CSP (`csp.ts`) and browser lifecycle. The connected adapter has no app framework or domain dependency. Personal apps built with the kit are connected MCP apps like any other ([personal apps](personal-apps.md)).
 - The integration engine's trusted `prepareMcpResult` hook binds the resolved connection, caller, attempt and redacted original input before dispatch. Its observer receives the original MCP result after successful execution and stores it only if it still comes from the same account. Capture failure cannot turn a completed operation into a retryable failure. Private `_meta` is absent from model results and audit previews.
 - `lib/mcp-apps/service.ts` binds captures to exact accounts and chats, reads only the declared UI resource on that account, and dispatches UI calls through `runAction` with app audience. Every operation checks current access: the server is on, the connection is active, it is the account the result came from, the chat may use it, and the transport is current. Viewer procedures also recheck the signed-in key before and after work.
 - Checks that call nothing on the server (status polls, context, sends, the dispatch recheck, file watches) answer from the current integration build even past its age, while it refreshes in the background. Opening a view, reading a server resource, calling a tool and launching wait for a current build. A check reads runtime, connections and transport from one build.
@@ -260,7 +260,6 @@ Tests use synthetic accounts and independent MCP fixtures, not personal services
 pnpm ts
 pnpm exec vitest run src/lib/mcp-apps src/components/mcp-apps src/lib/client src/lib/chat-sources src/components/settings/sections/integrations
 pnpm --filter @integrations/engine test
-pnpm --filter @ri/app-kit test
 ```
 
 History: the extensions landed on October 19, 2026, and two independent reviews that day added rules that this section's table re-derived on October 20, removing those that stopped no realistic attacker (git history has each round).

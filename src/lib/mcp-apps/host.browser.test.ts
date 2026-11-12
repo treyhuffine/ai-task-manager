@@ -37,7 +37,6 @@ for (const profile of ['standard', 'legacy'] as const) it(`hosts ${profile} MCP 
   if (!executablePath) throw new Error('MCP UI qualification requires Chromium');
   const require = createRequire(import.meta.url);
   const output = await build({stdin: {contents: `import {AppViewController} from ${JSON.stringify(require.resolve('@ri/mcp-apps-host'))};window.AppViewController=AppViewController;`, resolveDir: process.cwd()}, bundle: true, write: false, metafile: true, format: 'iife', platform: 'browser'});
-  expect(Object.keys(output.metafile!.inputs).some(file => file.includes('packages/app-kit/'))).toBe(false);
   const host = output.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
   const server = createServer((_req,res) => {res.setHeader('Content-Type','text/html');res.end(`<html><body><div id="view" style="height:500px"></div><script>${host}</script></body></html>`);});
   await new Promise<void>(resolve => server.listen(0,'127.0.0.1',resolve));

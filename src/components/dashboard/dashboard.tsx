@@ -9,7 +9,7 @@ import { PowerRail } from './power-rail';
 import { PanelLayout } from './panel-layout';
 import { ExecutionView } from '@/components/executions/execution-view';
 import { DashboardAgentView } from '@/components/agents/dashboard-agent-view';
-import { AppsShell } from '@/components/local-apps/apps-shell';
+import { AppsShell } from '@/components/apps/apps-shell';
 import { SkillView } from '@/components/skills/skill-view';
 import { FocusView } from './focus-view';
 import { SearchOverlay } from '@/components/shared/search-overlay';

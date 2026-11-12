@@ -73,25 +73,30 @@ describe('proxy', () => {
     expect(forwarded(res, 'x-ri-caller-location')).toBeNull();
   });
 
-  it('passes only the local broker protocol to its credential adapter by default', async () => {
-    vi.stubEnv('RI_LOCAL_APPS', undefined);
+  it('keeps the removed local app routes behind Home authentication', async () => {
     const { proxy } = await import('./proxy');
     for (const operation of ['capabilities', 'call']) {
-      const res = proxy(new NextRequest(`http://127.0.0.1/api/local-apps/broker/v1/${operation}`, {
+      expect(proxy(new NextRequest(`http://127.0.0.1/api/local-apps/broker/v1/${operation}`, {
         headers: { 'x-ri-api-key-id': 'forged', 'x-ri-caller-location': 'home' },
-      }));
-      expect(passesThrough(res)).toBe(true);
-      expect(forwarded(res, 'x-ri-api-key-id')).toBeNull();
-      expect(forwarded(res, 'x-ri-caller-location')).toBeNull();
+      })).status).toBe(401);
     }
     expect(proxy(request('/api/local-apps/import')).status).toBe(401);
-    expect(proxy(request('/api/local-apps/broker/v1/unknown')).status).toBe(401);
   });
 
-  it('does not bypass Home authentication for a disabled local broker', async () => {
-    vi.stubEnv('RI_LOCAL_APPS', '0');
+  it('refuses a key made for a local app, on every surface', async () => {
     const { proxy } = await import('./proxy');
-    expect(proxy(request('/api/local-apps/broker/v1/call')).status).toBe(401);
+    const { generateToken } = await import('@/lib/auth/tokens');
+    const { getDb } = await import('@/lib/db');
+    const { apiKeys } = await import('@/lib/db/schema');
+    const appToken = generateToken();
+    const now = new Date().toISOString();
+    getDb().insert(apiKeys).values({ id: 'retired-app-key', name: 'Old app client', role: 'app_client', memberId: null, deviceId: null, client: 'old-app',
+      prefix: appToken.prefix, suffix: appToken.suffix, hash: appToken.hash, env: appToken.env, createdAt: now, updatedAt: now }).run();
+    for (const pathname of ['/api/tasks', '/api/integrations/mcp', '/api/local-apps/client/save', '/api/trpc/tasks.list']) {
+      const res = proxy(request(pathname, appToken.plaintext));
+      expect(res.status).toBe(403);
+      expect(passesThrough(res)).toBe(false);
+    }
   });
 
   it('answers 503 on a root that is not the active home, apart from health', async () => {

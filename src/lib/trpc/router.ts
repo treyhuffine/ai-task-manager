@@ -6,7 +6,6 @@ import { chatSourcesRouter } from '@/lib/chat-sources/router';
 import { connectedAppsRouter } from '@/lib/mcp-apps/router';
 import { mcpSettingsRouter } from '@/lib/mcp-apps/settings-router';
 import { appMentionsRouter } from '@/lib/mcp-apps/mentions-router';
-import { localAppsRouter } from '@/lib/local-apps/router';
 import { integrationSourcesRouter } from '@/lib/integrations/sources/router';
 import { toNoteListDTOs, toTaskListDTOs } from '@/lib/api/dto/entity-list';
 import * as q from '@/lib/db/queries';
@@ -87,7 +86,6 @@ export const appRouter = router({
   artifacts: artifactsRouter,
   email: emailRouter,
   externalAi: externalAiRouter,
-  localApps: localAppsRouter,
   chatSources: chatSourcesRouter,
   connectedApps: connectedAppsRouter,
   mcpSettings: mcpSettingsRouter,

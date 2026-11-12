@@ -109,7 +109,7 @@ New chat and Search chats each exist twice. The rail's are the agent side (a new
 
 - `src/components/dashboard/power-rail.tsx`: the aside, its width, and which collapse state drives it.
 - `src/components/workspaces/rail.tsx`: the rail, wide or collapsed, and the wide layout.
-- `src/components/workspaces/rail-nav.tsx`: verbs and places, as rows and as icons. `src/components/local-apps/use-app-places.tsx` adds Apps, from the pure `app-places.ts`.
+- `src/components/workspaces/rail-nav.tsx`: verbs and places, as rows and as icons. `src/components/apps/use-app-places.tsx` adds Apps, from the pure `app-places.ts`.
 - `src/components/workspaces/rail-list.tsx`: the list header (the switch, the actions, the selection toolbar) and the list, shared by the wide rail and the flyout.
 - `src/components/workspaces/rail-flyout.tsx`: the flyout both rails use. `agent-chats-flyout.tsx`: the collapsed agent's chat chooser. `rail-strip.tsx`: the collapsed strip and its Agents flyout.
 - `src/components/workspaces/rail-home.tsx`, `rail-footer.tsx`: top and bottom. `rail-count.tsx`: the count beside a label and the dot on an icon, in both tones. `src/components/integrations/accounts-needing-you.ts`: Connect accounts' count, label and destination.

@@ -4,7 +4,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { ContentPanel } from '@/components/dashboard/content-panel';
 import { ExecutionView } from '@/components/executions/execution-view';
 import { AgentView } from '@/components/agents/agent-view';
-import { AppsShell } from '@/components/local-apps/apps-shell';
+import { AppsShell } from '@/components/apps/apps-shell';
 import { SkillView } from '@/components/skills/skill-view';
 import { MobileAgentsView } from './mobile-agents-view';
 import { MobileMoreView } from './mobile-more-view';

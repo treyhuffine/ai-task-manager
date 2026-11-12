@@ -29,7 +29,7 @@ export function SourceMetadataProvider({ chatId, refs, children }: { chatId?: st
   useEffect(() => queryClient.getQueryCache().subscribe(event => {
     if (event.type !== 'updated' || event.action.type !== 'success') return;
     const root = event.query.queryKey[0];
-    if (typeof root === 'string' && (root === 'local-apps' || root.startsWith('integration') || root === 'workspaces'))
+    if (typeof root === 'string' && (root.startsWith('integration') || root === 'workspaces'))
       void queryClient.invalidateQueries({ queryKey: ['chat-sources', 'resolve', chatId] }, { cancelRefetch: false });
   }), [queryClient, chatId]);
   return <SourceContext.Provider value={{ chatId, sources: query.data ?? [] }}>{children}</SourceContext.Provider>;
@@ -90,7 +90,6 @@ export function SourceChip({ sourceRef, onRemove, tone = 'surface' }: { sourceRe
         }
         else window.location.assign(target.href);
       }
-      await queryClient.invalidateQueries({ queryKey: ['local-apps'] });
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not open the app'); }
     finally { setBusy(false); }
   };

@@ -14,7 +14,6 @@ async function main() {
   process.env.RI_CONFIG_DIR = path.join(root, '.config');
   process.env.RI_WORK_DIR = path.join(root, '.work');
   process.env.RI_DB_PATH = path.join(root, 'data.db');
-  process.env.RI_LOCAL_APPS = '0';
   process.env.RI_MIRROR_DISABLED = '1';
   process.env.NEXT_RUNTIME = 'nodejs';
   delete process.env.OPENAI_API_KEY;

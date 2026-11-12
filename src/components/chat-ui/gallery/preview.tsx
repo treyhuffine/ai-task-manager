@@ -3,7 +3,6 @@ import { useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from 'next-themes';
-import { UiGallery, type GalleryPage } from '@ri/app-kit/ui';
 import { Tip, TipProvider } from '@/components/ui/tip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -305,8 +304,8 @@ function Example() {
   const revision = useSyncExternalStore(runtime.subscribe, runtime.snapshot, runtime.snapshot);
   const example = galleryExample(__GALLERY_EXAMPLE__);
   const wide = (__GALLERY_EXAMPLE__ === 'files' || __GALLERY_EXAMPLE__ === 'text-files' || __GALLERY_EXAMPLE__ === 'file-previews') && config.state === 'beside';
-  return <div className={__GALLERY_EXAMPLE__ === 'app-kit' ? '' : wide ? 'p-4 sm:p-6' : 'mx-auto max-w-3xl p-4 sm:p-6'} data-gallery-example={__GALLERY_EXAMPLE__} data-gallery-state={config.state}>
-    {__GALLERY_EXAMPLE__ !== 'app-kit' && <p className="mb-5 text-xs leading-relaxed text-muted-foreground">{example.tryThis}</p>}
+  return <div className={wide ? 'p-4 sm:p-6' : 'mx-auto max-w-3xl p-4 sm:p-6'} data-gallery-example={__GALLERY_EXAMPLE__} data-gallery-state={config.state}>
+    <p className="mb-5 text-xs leading-relaxed text-muted-foreground">{example.tryThis}</p>
     {__GALLERY_EXAMPLE__ === 'text-files' && <TextFiles />}
     {__GALLERY_EXAMPLE__ === 'file-previews' && <RichFiles />}
     {__GALLERY_EXAMPLE__ === 'artifact-list' && <ArtifactCollection />}
@@ -332,7 +331,6 @@ function Example() {
     {__GALLERY_EXAMPLE__ === 'handoffs' && <ResultRenderer resultId={RECORD_ID} />}
     {__GALLERY_EXAMPLE__ === 'activity' && <div className="space-y-5"><ExecutionEvent event={event('tool_call', { toolName: 'Bash', toolInput: { command: 'pnpm test --filter=calendar' } })} /><ExecutionEvent event={event('tool_result', { content: config.state === 'error' ? 'The calendar test failed. Friday overlaps with the existing review.' : 'All 12 calendar tests passed.', toolIsError: config.state === 'error' })} /><ExecutionEvent event={event(config.state === 'error' ? 'error' : 'agent', { content: config.state === 'error' ? 'The schedule needs one more adjustment.' : 'The review plan is ready.' })} handoffActions={false} /></div>}
     {__GALLERY_EXAMPLE__ === 'connected-app' && <div className="h-[580px]"><ConnectedCompanion chatId={CHAT_ID}>{() => <div className="p-2"><p className="text-sm text-muted-foreground">The estimate is $960 for eight hours. Try changing the hours in the app.</p><ConnectedView captureId={DRAFT_ID} chatId={CHAT_ID} /></div>}</ConnectedCompanion></div>}
-    {__GALLERY_EXAMPLE__ === 'app-kit' && <UiGallery initialPage={config.state as GalleryPage} />}
     {runtime.logs.length > 0 && <div className="mt-6 space-y-1 rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground" aria-live="polite" key={`log-${revision}`}><p className="font-medium text-foreground">In this example</p>{runtime.logs.map((line, index) => <p key={index}>{line}</p>)}</div>}
   </div>;
 }

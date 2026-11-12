@@ -6346,28 +6346,6 @@ export function revokePersonalAiClient(keyId: string): void {
     .run();
 }
 
-/** A key for one local app's outside client (`api_keys.client` holds the instance). The token is shown once, here. */
-export function createAppClientKey(instanceId: string, name: string): { key: ApiKeyRecord; token: GeneratedToken } {
-  assertPersonalCapability('App client keys');
-  const clean = name.trim().replace(/\s+/g, ' ');
-  if (!clean || clean.length > AI_CLIENT_NAME_MAX) throw new TeamError('invalid', `Use a label of ${AI_CLIENT_NAME_MAX} characters or fewer.`);
-  return insertApiKey(getDb(), { name: clean, role: 'app_client', memberId: null, deviceId: null, client: instanceId });
-}
-
-export function listAppClientKeys(instanceId: string): ApiKeyRecord[] {
-  return getDb().select().from(apiKeys)
-    .where(and(eq(apiKeys.role, 'app_client'), eq(apiKeys.client, instanceId), isNull(apiKeys.revokedAt)))
-    .orderBy(desc(apiKeys.createdAt)).all();
-}
-
-/** Retry-safe. Names no other app's key, and no key of any other kind. With no key, all of the app's. */
-export function revokeAppClientKeys(instanceId: string, keyId?: string): void {
-  const now = new Date().toISOString();
-  getDb().update(apiKeys).set({ revokedAt: now, revokedReason: 'Disconnected', updatedAt: now })
-    .where(and(eq(apiKeys.role, 'app_client'), eq(apiKeys.client, instanceId), isNull(apiKeys.revokedAt), keyId ? eq(apiKeys.id, keyId) : undefined))
-    .run();
-}
-
 /** A new AI client for an active member. The token is shown once, here. */
 export function createMemberAiClient(memberId: string, name: string, client: string | null = null): { client: AiClientView; token: GeneratedToken } {
   const clean = name.trim().replace(/\s+/g, ' ');

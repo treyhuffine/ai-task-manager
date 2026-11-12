@@ -6,7 +6,7 @@ import { useHomeDocumentScope } from '@/components/home/home-context';
 import { DRAFT_STORAGE_PREFIX, encodeChatDraft, scopedDraftKey } from '@/components/chat/editor/draft-storage';
 import type { EditorSnapshot } from '@/components/chat/editor/chat-input-editor';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
-import { AppCompanion } from '@/components/local-apps/app-companion';
+import { AppCompanion } from '@/components/apps/app-companion';
 import { ChatRecovery } from '@/components/chat-ui/chat-recovery';
 import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 import { BackgroundTasksBar } from '@/components/chat-ui/activity/background-tasks-bar';
@@ -244,7 +244,7 @@ export function ExecutionChatColumn({
   const composerDisabled = !!disabledReason;
 
   return (
-    <AppCompanion chatId={session.id} surfaceKind={session.surfaceKind}>
+    <AppCompanion chatId={session.id}>
     <ChatDropZone
       className="flex flex-1 min-h-0 flex-col"
       onFiles={(files) => {

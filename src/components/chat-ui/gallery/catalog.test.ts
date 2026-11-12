@@ -26,7 +26,6 @@ describe('central chat UI catalog', () => {
     expect(filterGalleryExamples(' Gmail   draft ', 'ri').map(example => example.id)).toEqual(['email']);
     expect(filterGalleryExamples('pending-input-area', 'all').map(example => example.id)).toEqual(['questions', 'permissions']);
     expect(filterGalleryExamples('', 'connected').map(example => example.id)).toEqual(['connected-app']);
-    expect(filterGalleryExamples('', 'kit').map(example => example.id)).toEqual(['app-kit']);
     expect(filterGalleryExamples('a phrase that matches nothing', 'all')).toEqual([]);
     expect(galleryExample('unknown').id).toBe('email');
     expect(galleryPreviewUrl('../../api/send')).toBe('/chat-ui-gallery/email.html');

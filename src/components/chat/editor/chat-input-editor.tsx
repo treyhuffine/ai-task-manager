@@ -938,8 +938,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     }, [editor, sourceChatId, disabled]);
 
     // Register after this key's saved draft has been restored. App suggestions
-    // append a paragraph, preserving typed text, chips and history: plain text
-    // from local apps, and text, titled items and files from connected apps.
+    // append a paragraph, preserving typed text, chips and history: text,
+    // titled items and files from connected apps, or a line of plain text.
     // What a connected app writes lands in the draft, for the person to send.
     useEffect(() => {
       const base = draftKey ? draftIdentity(draftKey).base : '';

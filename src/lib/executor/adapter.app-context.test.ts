@@ -56,12 +56,11 @@ describe('connected app context at dispatch', () => {
 
   beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-app-context-'));
-    previous = Object.fromEntries(['RI_ROOT', 'RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_MIRROR_DISABLED', 'RI_LOCAL_APPS'].map((key) => [key, process.env[key]]));
+    previous = Object.fromEntries(['RI_ROOT', 'RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_MIRROR_DISABLED'].map((key) => [key, process.env[key]]));
     process.env.RI_ROOT = root;
     process.env.RI_DB_PATH = path.join(root, 'data.db');
     process.env.RI_CONFIG_DIR = path.join(root, '.config');
     process.env.RI_MIRROR_DISABLED = '1';
-    process.env.RI_LOCAL_APPS = '0';
     vi.resetModules(); vi.clearAllMocks();
     q = await import('@/lib/db/queries');
     executor = await import('./adapter');

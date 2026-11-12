@@ -1,1 +1,0 @@
-ALTER TABLE `finance_accounts` ADD `mask` text;

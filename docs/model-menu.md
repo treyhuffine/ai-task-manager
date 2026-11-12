@@ -165,8 +165,7 @@ transcript has loaded with no events and no send or turn is in flight. Chats
 with history, or whose transcript is still loading, keep the confirmation.
 Both paths preserve the selected model and the destination provider's settings.
 
-Run `pnpm --filter @ri/app-kit build` before typechecking or building gallery
-artifacts in a fresh worktree. Run `pnpm gallery:build`, then:
+Run `pnpm gallery:build`, then:
 
 ```sh
 RI_MODEL_MENU_BROWSER_TEST=1 pnpm exec vitest run src/components/chat-ui/model-menu/model-menu.browser.test.ts --testTimeout=15000

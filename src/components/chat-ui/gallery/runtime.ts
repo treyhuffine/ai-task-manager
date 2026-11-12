@@ -209,9 +209,6 @@ export class GalleryRuntime {
     }
     if (path === 'connectedApps.context') { this.changed('The example app shared its selection with the example chat'); return this.revision; }
     if (path === 'connectedApps.cancel') return { cancelled: true };
-    if (path === 'localApps.enabled') return { enabled: true };
-    if (path === 'localApps.list') return { instances: ['Field notes', 'Travel'].map(displayName => ({ id: displayName, displayName, icon: null, enabled: true, archived: false, hasView: true, activation: { phase: 'active' } })), panels: [] };
-    if (path === 'localApps.panel') { this.changed('Example app chosen. Nothing opened'); return { ok: true }; }
     if (path === 'workspaces.get') return { id: RECORD_ID, name: 'Example agent' };
     if (path === 'workspaces.foldersGet') return { devices: [{ deviceId: 'gallery-device', name: 'Example computer', isHome: true, connected: true, setup: null, linked: [] }] };
     if (path === 'workspaces.list') return [{ id: RECORD_ID, name: 'Research', slug: 'research', status: 'active', purpose: 'Example agent' }];

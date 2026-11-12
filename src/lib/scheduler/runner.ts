@@ -24,7 +24,6 @@
 import { assertPersonalCapability } from '@/lib/home/authority';
 import { withActivity, MaintenanceError } from '@/lib/service/maintenance';
 import { perfScope } from '@/lib/perf/recorder';
-import { localAppsEnabled } from '@/lib/config/features';
 import {
   acquireSchedulerLock,
   peekLockHolderPid,
@@ -178,7 +177,6 @@ async function runAdmittedTick(now: Date): Promise<number> {
     let dispatched = 0;
     try {
       state.tickCount++;
-      if (localAppsEnabled()) await (await import('@/lib/local-apps/service')).localApps().tick(now);
       const due = listDueTriggers(now);
       for (const trigger of due) {
         try {

@@ -30,11 +30,9 @@ IMPORTANT: When writing any copy or text for the website, never us em or long da
 - `pnpm db:generate` / `pnpm db:migrate` — generate / apply Drizzle migrations (`db:migrate` uses the app's safe runner, never `drizzle-kit migrate`)
 - `pnpm db:seed` / `pnpm db:reset` — the owner's personal Notion import (`personal/`). They act on whatever home `RI_ROOT` names, production when unset, and `db:reset` deletes that database. Never run them for dev data: use `pnpm dev:reseed`
 
-## Included apps
+## Personal apps
 
-Finances source is in `apps/finances`, a pnpm workspace in this repository. Its own `AGENTS.md` governs its separate service/schema and scoped broker boundary. Ri never imports its domain code. Use `pnpm finances:test`, `pnpm finances:typecheck`, `pnpm finances:package`, `pnpm apps:catalog` and `pnpm apps:dev`. Development and commit flow are documented in `docs/finances-development.md`.
-
-New apps are moving to the shared open-source app kit, with Ri as their host. Read `docs/shared-app-kit-spec.md` before changing how apps are built, hosted or connected, and don't add app-facing features to `@ri/app-kit`'s SDK, templates or UI.
+Ri bundles no apps. A personal app is an ordinary MCP server built with the shared open-source app kit, in its own git repository, running as its own service. Ri connects to it with OAuth like any connector, shows its screens through the connected app host and lends it the person's accounts through the hub. Read `docs/shared-app-kit-spec.md` (a pointer to the kit's copy) and `docs/personal-apps.md` before changing how apps are built, run, shown or connected. Ri never imports an app's code or the kit's internals. Finances lives in its own repository.
 
 ## Rules
 

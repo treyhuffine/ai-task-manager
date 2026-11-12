@@ -160,8 +160,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: 'go-chat', label: 'Go to Chat', keywords: 'navigate chat ai', icon: 'MessagesSquare', group: 'navigate' },
   { id: 'open-calendar', label: 'Open calendar', keywords: 'calendar day week schedule meetings agenda events', icon: 'Calendar', group: 'navigate' },
   SAVED_RESULTS_COMMAND,
-  // Shown only on a Home with local apps on (the palette filters it).
-  { id: 'open-apps', label: 'Open apps', keywords: 'apps app library local tools finances tracker build', icon: 'LayoutGrid', group: 'navigate' },
+  { id: 'open-apps', label: 'Open apps', keywords: 'apps app library connected tools connectors skills mcp', icon: 'LayoutGrid', group: 'navigate' },
 
   // Settings
   { id: 'open-settings', label: 'Settings', keywords: 'settings preferences config profile account voice notifications billing devices', icon: 'Settings', group: 'settings' },

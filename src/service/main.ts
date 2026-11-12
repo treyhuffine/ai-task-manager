@@ -328,9 +328,9 @@ async function probeBackend() {
  * under the server: an idle agent resumes when its chat continues, and the agent
  * browser is meant to outlive the server. */
 const count = (total: number, one: string) => total ? `${total} ${one}${total === 1 ? '' : 's'}` : '';
-interface ServerActivity { executions: number; apps: number; background: number; permissions: number; terminals: number; previews: number; lastUseAt: number }
+interface ServerActivity { executions: number; background: number; permissions: number; terminals: number; previews: number; lastUseAt: number }
 const serverActivity = () => backendRequest<ServerActivity>('/__ri_activity');
-const workOf = (state: ServerActivity) => [count(state.executions, 'chat'), count(state.apps, 'app task'), count(state.background, 'background task'),
+const workOf = (state: ServerActivity) => [count(state.executions, 'chat'), count(state.background, 'background task'),
   count(state.permissions, 'pending permission'), count(state.terminals, 'busy terminal')].filter(Boolean);
 async function activity() {
   if (!servesHome(role)) return worker ? worker.activity() : [];

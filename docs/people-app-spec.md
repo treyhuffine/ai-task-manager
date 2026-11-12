@@ -1,5 +1,7 @@
 # People app specification
 
+> **Removed from Ri on November 12, 2026.** Ri no longer bundles apps. This app is to be ported later as its own app built with the shared app kit, connected to Ri over MCP (see [personal apps](personal-apps.md)). Its source is in git history at `3c442810` (`apps/people`). What it does still stands. The packaging, permissions and host details below describe Ri's former app system, and the linked foundation documents are in git history at the same commit.
+
 October 15, 2026. Implementation scope for People, Ri's lightweight personal and professional CRM. Read with the [included apps foundation](included-apps-foundation.md) for runtime, scoped access, ingestion and shared release checks. This revision adopts Ri's own bounded ingestion and relationship context. Gbrain is not a dependency. These are requirements, not a claim that the app is implemented.
 
 People helps someone remember a relationship and follow through, whether they have twenty important contacts or thousands of professional ones. It begins with people, conversations and meetings. Companies, saved lists and small opportunity pipelines expand the same experience when the person needs them. There is one app, one set of records and no migration from a personal mode to a business mode.

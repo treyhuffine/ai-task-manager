@@ -279,16 +279,6 @@ Issues and PRs welcome.
 
 TBD.
 
-## Included app development
+## Personal apps
 
-Finances is maintained at `apps/finances` in this repository. It owns its service and data and uses the shared `packages/app-kit` through public exports.
-
-```sh
-pnpm finances:test
-pnpm finances:typecheck
-pnpm finances:package
-pnpm apps:catalog
-pnpm apps:dev --home /absolute/path/to/disposable-home --port 42251
-```
-
-`apps:dev` builds and stages the current included apps, then starts an isolated Home. Installed app updates require review and explicit activation. See [Finances development](docs/finances-development.md) and [the local apps trial](docs/local-apps-runbook.md).
+Ri bundles no apps. Each personal app is its own MCP server, built with the shared app kit in its own repository, and Ri connects to it like any connector. See [personal apps](docs/personal-apps.md).

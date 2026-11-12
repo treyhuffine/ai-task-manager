@@ -58,9 +58,8 @@ const nextConfig: NextConfig = {
   // `pending-input.ts`/`adapter.ts` guard against. Externalizing also removes
   // their ~160-module graph from every server-route compile.
   serverExternalPackages: [
-    "@ri/app-kit",
-    // Local apps' builder and the agent browser's page reader parse HTML with it, and it has optional native canvas adapters.
-    // Both require() it, never import it (src/lib/linkedom.ts says why).
+    // The agent browser's page reader parses HTML with it, and it has optional native canvas adapters.
+    // Server code require()s it, never imports it (src/lib/linkedom.ts says why).
     "linkedom",
     "better-sqlite3",
     "sqlite-vec",

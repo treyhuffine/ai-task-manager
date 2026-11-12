@@ -3,7 +3,7 @@
 import { RailRows, type RailPlace } from '@/components/home/home-navigation';
 export type { RailPlace } from '@/components/home/home-navigation';
 import { Calendar, Clock, Plus, Search, SquareKanban } from 'lucide-react';
-import { useAppPlaces } from '@/components/local-apps/use-app-places';
+import { useAppPlaces } from '@/components/apps/use-app-places';
 import { usePrefetchDayShape } from '@/hooks/use-day-shape';
 import { useRunsStats } from '@/hooks/use-runs-stats';
 import { openCalendarModal, useCalendarModal } from '@/lib/client/calendar-modal';

@@ -32,8 +32,6 @@ import { DEV_PORT, setRunningPort } from '@/lib/auth/port';
 import { acquireServiceOwner } from '@/lib/service/owner';
 import { clearServerRuntimeIfOwned, newRunId, publishServerRuntime } from '@/lib/server-runtime/record';
 import { waitForServer } from '@/cli/lib/server';
-import { localAppsEnabled } from '@/lib/config/features';
-import { stageLocalApps } from './local-apps-stage';
 import { buildChatUiGallery } from './build-chat-ui-gallery';
 
 async function main() {
@@ -63,14 +61,11 @@ async function main() {
     process.exit(1);
   }
 
-  // Source merges carry no generated app packages. Prepare the library before
-  // serving it, while reusing complete artifacts on subsequent development starts.
   try {
     await buildChatUiGallery();
-    if (localAppsEnabled()) await stageLocalApps({ onlyMissing: true, compatibleOnly: true });
   } catch (error) {
     release();
-    console.error(error instanceof Error ? error.message : 'Included apps could not be built');
+    console.error(error instanceof Error ? error.message : 'The chat interface gallery could not be built');
     process.exit(1);
   }
 

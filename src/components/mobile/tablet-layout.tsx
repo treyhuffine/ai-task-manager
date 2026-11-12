@@ -5,7 +5,7 @@ import { ContentPanel } from '@/components/dashboard/content-panel';
 import { PowerRail } from '@/components/dashboard/power-rail';
 import { ExecutionView } from '@/components/executions/execution-view';
 import { DashboardAgentView } from '@/components/agents/dashboard-agent-view';
-import { AppsShell } from '@/components/local-apps/apps-shell';
+import { AppsShell } from '@/components/apps/apps-shell';
 import { useOptionalHomeContext } from '@/components/home/home-context';
 import { SkillView } from '@/components/skills/skill-view';
 import { MobileAgentsView } from './mobile-agents-view';

@@ -855,8 +855,8 @@ export const apiKeys = sqliteTable(
     // For an `ai_client` key, the outside agent it was made for (an
     // `AiClientKind` in src/lib/external-ai/clients.ts: `codex`, `cursor`, ...),
     // so Settings lists and revokes keys per client. Null for every other key,
-    // and for AI client keys made before clients were recorded. For an
-    // `app_client` key, the local app instance it was made for.
+    // and for AI client keys made before clients were recorded. For a retired
+    // `app_client` key, the local app it was made for.
     client: text(),
   },
   (table) => [

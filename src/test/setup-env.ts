@@ -52,11 +52,6 @@ if (!process.env.PORT) {
 process.env.RI_INSTALL_ROOT = path.join(process.env[APP_ROOT_ENV]!, 'installation');
 process.env.RI_COMMAND_DIR = path.join(process.env[APP_ROOT_ENV]!, 'command');
 
-/** Ordinary fixtures keep the optional app runtime out of their chat prompts
- * and scheduler ticks. App tests explicitly unset this override to exercise
- * normal default-on startup, or set it when testing enable/disable behavior. */
-process.env.RI_LOCAL_APPS = '0';
-
 /** Native providers must be mocked or explicitly pointed at a test binary.
  * A missed mock must fail locally rather than use the operator's signed-in CLI.
  * Tests with controlled stand-ins set their command override after setup. */

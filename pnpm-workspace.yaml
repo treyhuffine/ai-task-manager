@@ -4,13 +4,7 @@
 # deps then break `pnpm install` for everyone. List packages one-by-one here.
 packages:
   - "packages/integrations"
-  - "packages/app-kit"
   - "packages/mcp-apps-host"
-  - "apps/finances"
-  - "apps/people"
-  - "apps/travel"
-  - "apps/job-search"
-  - "apps/bookmarks"
 # Dependency install scripts run only where listed true. The packages listed
 # false work from what they publish (prebuilt binaries, platform packages), so
 # their scripts are skipped. node-pty must stay true: its postinstall makes

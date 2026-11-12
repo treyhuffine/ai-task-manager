@@ -18,7 +18,7 @@ the current Home has installed or enabled.
 
 The examples cover shared conversations, email, questions, tool permissions, account approvals,
 account access, entity references, edit comparisons, attachments, HTML artifacts,
-handoffs, messages between chats, transcript activity, model controls, service forms, app context and messages, connected app results and app-kit components.
+handoffs, messages between chats, transcript activity, model controls, service forms, app context and messages, and connected app results.
 
 ## Where the UI lives
 
@@ -53,8 +53,7 @@ and page-level lists stay with the features that place these components.
 Separately owned UI keeps its boundaries:
 
 - Connected app views: `src/components/mcp-apps/` and `packages/mcp-apps-host/`. Service forms stay in `src/components/mcp-apps/form/`, shared with those view hosts and rendered by the common transcript.
-- Local app companions: `src/components/local-apps/`.
-- Optional app-author components: `packages/app-kit/src/ui/`.
+- The Apps library, rail list and companion: `src/components/apps/`.
 
 The gallery imports those real app interfaces too, with explicit origin and
 installation requirements. Catalog metadata, example data and the fixture

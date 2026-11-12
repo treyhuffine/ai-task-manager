@@ -1,5 +1,3 @@
-import { localApps } from '@/lib/local-apps/service';
-import { publicError } from '@ri/app-kit/contract';
 import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '@/db/types';
 import {
   archiveChatSession,
@@ -75,7 +73,7 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
  * chat ('trigger') is keyed by the schedule's id, or 'new' for the one that
  * sets up a new schedule (src/lib/triggers/builder-brief.ts).
  */
-const SURFACE_KINDS = ['task', 'note', 'skill', 'skill-try', 'app', 'app-builder', 'app-try', 'trigger'] as const;
+const SURFACE_KINDS = ['task', 'note', 'skill', 'skill-try', 'trigger'] as const;
 type SurfaceKind = (typeof SURFACE_KINDS)[number];
 
 interface EntityRef {
@@ -101,16 +99,12 @@ function missingSkill(ref: EntityRef) {
     if (ref.entityId === NEW_SCHEDULE_REF || getTrigger(ref.entityId)) return null;
     return reply({ error: "There's no such schedule." }, { status: 404 });
   }
-  if (ref.entityType.startsWith('app')) {
-    try { if (ref.entityType === 'app') localApps().instance(ref.entityId); else localApps().draft(ref.entityId); return null; }
-    catch (error) { return reply({ error: publicError(error).message }, { status: 409 }); }
-  }
   if (ref.entityType !== 'skill' && ref.entityType !== 'skill-try') return null;
   if (findSkill(ref.entityId)) return null;
   return reply({ error: "There's no such skill." }, { status: 404 });
 }
 
-const BAD_ENTITY = 'entityType (task|note|skill|skill-try|app|app-builder|app-try|trigger) and entityId are required';
+const BAD_ENTITY = 'entityType (task|note|skill|skill-try|trigger) and entityId are required';
 
 /** The active, user-opened content session for an entity (excludes scheduled/run-created chats). */
 function findCurrent(ref: EntityRef): ChatSessionWithExecution | null {
@@ -123,14 +117,6 @@ function findCurrent(ref: EntityRef): ChatSessionWithExecution | null {
         s.createdByRunId === null,
     ) ?? null
   );
-}
-
-async function recordAppChat(ref: EntityRef, session: Pick<ChatSessionWithExecution, 'id'>) {
-  if (ref.entityType !== 'app-builder' && ref.entityType !== 'app-try') return;
-  const apps = localApps();
-  const field = ref.entityType === 'app-builder' ? 'builderChatId' : 'tryChatId';
-  if (apps.draft(ref.entityId)[field] === session.id) return;
-  await apps.store.activity(state => {const draft=state.drafts.find(draft => draft.id === ref.entityId)!;draft[field] = session.id;draft.updatedAt=new Date().toISOString();});
 }
 
 async function createFocusedSession(
@@ -175,7 +161,6 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, req: OperationC
   if (missing) return missing;
   try {
     const session = findCurrent(ref) ?? await createFocusedSession(ref);
-    await recordAppChat(ref, session);
     return reply({ session });
   } catch (err) {
     console.error('[GET /api/document-chat]', err);
@@ -221,7 +206,6 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
       void deriveRetrospectiveLabel(current.id);
     }
     const session = await createFocusedSession(ref, override, permissions);
-    await recordAppChat(ref, session);
     return reply({ session });
   } catch (err) {
     console.error('[POST /api/document-chat]', err);

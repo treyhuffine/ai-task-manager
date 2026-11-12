@@ -27,8 +27,7 @@ import { closeTaskBoard, openBoard } from '@/lib/client/task-board';
 import { openScratchpad, useScratchpadAvailable } from '@/components/scratchpad/scratchpad-host';
 import { useViewportTier } from '@/hooks/use-viewport-tier';
 import { closeCalendarModal, openCalendarModal } from '@/lib/client/calendar-modal';
-import { useLocalApps } from '@/components/local-apps/app-hooks';
-import { appPlaces } from '@/components/local-apps/app-places';
+import { appPlaces } from '@/components/apps/app-places';
 import { connectedAppsQuery } from '@/components/mcp-apps/catalog';
 import type { AnyPanelTab } from '@/types/dashboard';
 
@@ -64,15 +63,10 @@ export function SearchOverlay() {
   const results = data ?? [];
 
   const { openTask, openNote, toggleTheme, theme, showPanelTab, triggerVoiceChat, setActiveView } = useDashboard();
-  // One Open <app> per app the rail's Apps flyout lists: installed apps, on a
-  // Home with local apps on, and connections whose MCP server declares a standalone screen.
-  const { enabled: localAppsEnabled, data: localApps } = useLocalApps({ live: false });
+  // One Open <app> per app the rail's Apps flyout lists: connections whose
+  // MCP server declares a standalone screen.
   const connectedApps = useQuery({ ...connectedAppsQuery(), enabled: open });
-  const appList = useMemo(() => appPlaces(
-    localAppsEnabled ? localApps?.instances ?? [] : [],
-    [],
-    connectedApps.data ?? [],
-  ), [localAppsEnabled, localApps?.instances, connectedApps.data]);
+  const appList = useMemo(() => appPlaces(connectedApps.data ?? []), [connectedApps.data]);
   const appCommands: PaletteCommand[] = appList.map((app) => ({
     id: `open-app:${app.key}`,
     label: `Open ${app.displayName}`,

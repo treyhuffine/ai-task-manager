@@ -7,7 +7,6 @@ import { assertSameNativeWindow, nativeWindowSnapshot } from './acceptance-surfa
 
 const source = !process.env.RI_DESKTOP_PACKAGE;
 void acceptance('settings-tab', async fixture => {
-  fixture.env.RI_LOCAL_APPS = '0';
   fixture.env.RI_DESKTOP_RECOVERY_SMOKE = '1';
   const page = await fixture.launch();
   await fixture.navigate('/?settings=this-computer');

@@ -72,12 +72,6 @@ export async function register() {
     .catch((err: unknown) => console.warn('[skills] startup refresh skipped:', err instanceof Error ? err.message : String(err)));
   await (await import('@/lib/home/execution-startup')).startHomeExecutionRuntime();
 
-  const { localAppsEnabled } = await import('@/lib/config/features');
-  if (localAppsEnabled()) {
-    try { await (await import('@/lib/local-apps/service')).localApps().initialize(); }
-    catch (error) { console.error('[local-apps] startup failed', error instanceof Error ? error.message : 'App registry could not start'); }
-  }
-
   // Every agent's folders are in the home's records (docs/homes-spec.md
   // §4.1): move what existed before into them, once, then check the home's
   // own. Connected devices check theirs when their workers connect.

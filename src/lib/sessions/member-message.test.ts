@@ -58,7 +58,7 @@ it('preserves shared attachment metadata and expands referenced files through th
 });
 it('refuses personal app context and validates unapproved native settings without changing stored work', async () => {
   const client = await member();
-  await expect(client.sessions.messagesPost.mutate({ params: params(), body: { id: uuidv7(), content: 'Private app context', appContext: { viewId: uuidv7(), revision: 1 } } })).rejects.toMatchObject({ data: { httpStatus: 403 } });
+  await expect(client.sessions.messagesPost.mutate({ params: params(), body: { id: uuidv7(), content: 'Private app context', connectedAppContext: [{ viewId: uuidv7(), revision: 1 }] } })).rejects.toMatchObject({ data: { httpStatus: 403 } });
   const patch = await serveTeam(`http://team.test/api/sessions/${session.id}`, { method: 'PATCH', headers: { ...headers(), 'x-ri-member-role': 'owner' }, body: JSON.stringify({ model: 'gpt-unapproved', permissionMode: 'auto_all' }) });
   expect(patch.status).toBe(400);
   expect(await patch.json()).toMatchObject({ error: expect.stringContaining('Invalid model') });

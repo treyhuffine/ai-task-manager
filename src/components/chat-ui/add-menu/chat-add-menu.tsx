@@ -14,7 +14,7 @@ import { LinkedFolderDefiner } from '@/components/agents/agent-folders';
 import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import type { ChatInputEditorHandle } from '@/components/chat/editor/chat-input-editor';
 import { usePersonalServices } from '@/components/home/use-personal-services';
-import { AppCompanionRows } from '@/components/local-apps/app-companion-rows';
+import { AppCompanionRows } from '@/components/apps/app-companion-rows';
 import { useSettingsLink } from '@/components/settings/settings-destination';
 import { ScheduleChatDialog } from '@/components/triggers/schedule-chat-button';
 import { DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
@@ -74,7 +74,7 @@ function ChatRows({ sessionId, onOpen }: {
       <DropdownMenuSeparator />
       {canScheduleChat(chat) && <AddMenuRow icon={Clock} onSelect={() => onOpen('schedule')}>Schedule this chat</AddMenuRow>}
       {folderAgentId && <AddMenuRow icon={FolderPlus} onSelect={() => onOpen('folder')}>Link a folder</AddMenuRow>}
-      <AppCompanionRows chatId={chat.id} surfaceKind={chat.surfaceKind} />
+      <AppCompanionRows chatId={chat.id} />
       {personalServices && openPlugins && (
         <>
           <DropdownMenuSeparator />

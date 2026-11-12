@@ -2,7 +2,6 @@ import { invalidateWorkspaceViews } from '@/lib/query/work-view-invalidation';
 import { usePersonalServices } from '@/components/home/use-personal-services';
 import { compareTranscriptEvents } from '@/lib/api/dto/chat-event';
 import { trpc } from '@/lib/trpc/client';
-import { flushAppContext } from '@/lib/client/app-context';
 import { flushConnectedContext, noteSkippedContext, type SkippedContext } from '@/lib/client/mcp-app-context';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import type { Attachment, EffortLevel, PermissionMode } from '@/db/types';
@@ -798,7 +797,6 @@ export function useSendMessage(id: string) {
     meta: { carriesInput: true },
     mutationFn: async (input) =>
       sessionsApi.sendMessage(id, input.content, {
-        appContext: await flushAppContext(id),
         connectedAppContext: await flushConnectedContext(id),
         attachments: input.attachments,
         eventId: input.eventId,

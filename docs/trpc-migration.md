@@ -134,10 +134,8 @@ The explicit exceptions are protocols rather than application JSON consumers:
 - Native desktop IPC, worker enrollment, grants, heartbeat, command/event
   delivery and worker byte streams.
 - Live page/chat SSE, external terminal SSE compatibility and the playground's model stream.
-- App package upload/download bytes, signed CLI forwarding at
-  `/chat-sources/action` and `/local-apps/action`, `/local-apps/client/[action]` for an app's outside clients, the app process's versioned
-  capability broker, and the backup CLI's pause/resume lease. App and source
-  UI operations use the typed `localApps` and `chatSources` routers.
+- Signed CLI forwarding at `/chat-sources/action`. Source UI operations use
+  the typed `chatSources` router.
 
 The exact route allowlist lives in
 `src/lib/trpc/migration-coverage.test.ts`. Adding an application JSON route

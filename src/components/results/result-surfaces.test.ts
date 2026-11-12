@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkResultRecord } from '@/db/types';
 import type { WorkResultDetailResponse } from '@/lib/api/results';
 
-const state = vi.hoisted(() => ({ enabled: false, appsEnabled: false, current: [] as WorkResultRecord[], history: [] as WorkResultRecord[], pages: [] as WorkResultRecord[][] }));
+const state = vi.hoisted(() => ({ enabled: false, current: [] as WorkResultRecord[], history: [] as WorkResultRecord[], pages: [] as WorkResultRecord[][] }));
 const lists = vi.hoisted(() => ({ query: vi.fn(), pages: vi.fn(), complete: vi.fn() }));
 vi.mock('@/hooks/use-results', () => ({
   useResultCapabilities: () => ({ data: { handoffsEnabled: state.enabled } }),
@@ -15,7 +15,6 @@ vi.mock('@/hooks/use-results', () => ({
 vi.mock('@/components/chat-ui/handoffs/result-renderer', () => ({ ResultRenderer: () => createElement('span', null, 'Shared handoff renderer') }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/contexts/dashboard-context', () => ({ useDashboard: () => ({ theme: 'light', toggleTheme: vi.fn(), openAreasList: vi.fn() }) }));
-vi.mock('@/components/local-apps/app-hooks', () => ({ useLocalApps: () => ({ enabled: state.appsEnabled }) }));
 vi.mock('@/components/tasks/task-list', () => ({ TaskList: () => null }));
 vi.mock('@/components/notes/note-list', () => ({ NoteList: () => null }));
 vi.mock('@/components/stream/stream-list', () => ({ StreamList: () => null }));
@@ -31,7 +30,7 @@ import { clearPendingResultCompletion, pendingResultCompletion, retainResultComp
 
 const result = { id: 'taskless-pruned', title: 'Retained research', body: 'Original durable body', createdAt: '2026-10-07', sourceChatSessionId: null, sourceExecutionId: null, supersedesId: null, attachments: [] } as unknown as WorkResultRecord;
 const choice = { id: 'task-1', title: 'Ship work', status: 'todo', statusChangedCount: 7, recurrence: null } as const;
-beforeEach(() => { vi.clearAllMocks(); state.enabled = false; state.appsEnabled = false; state.current = []; state.history = []; state.pages = []; });
+beforeEach(() => { vi.clearAllMocks(); state.enabled = false; state.current = []; state.history = []; state.pages = []; });
 afterEach(() => vi.unstubAllGlobals());
 
 describe('saved result rediscovery', () => {
@@ -58,8 +57,7 @@ describe('saved result rediscovery', () => {
     expect(resultListTitle({ title: null, body: '[[file:file.png]]' })).toBe('Untitled handoff');
     expect(uniqueResultPages([[result], [result, { ...result, id: 'second' }]]).map((row) => row.id)).toEqual(['taskless-pruned', 'second']);
   });
-  it.each([false, true])('uses the same route from the palette definition and gated touch menu with apps=%s', (appsEnabled) => {
-    state.appsEnabled = appsEnabled;
+  it('uses the same route from the palette definition and gated touch menu, beside Apps', () => {
     expect(PALETTE_COMMANDS).toContain(SAVED_RESULTS_COMMAND);
     expect(SAVED_RESULTS_COMMAND.href).toBe('/results');
     const disabledHtml = renderToStaticMarkup(createElement(MobileMoreView));

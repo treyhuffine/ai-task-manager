@@ -2,8 +2,6 @@ import { chatEventProjector } from '@/lib/team/chat-event-view';
 import { chatSources } from '@/lib/server/chat-sources';
 import { SourceError } from '@/lib/chat-sources/service';
 import { getRequestKey } from '@/lib/auth/request-key';
-import { localApps } from '@/lib/local-apps/service';
-import { publicError } from '@ri/app-kit/contract';
 import type { Attachment } from '@/db/types';
 import { parseSlashInvocation } from '@/lib/agent-skills/parse-invocation';
 import { toChatEventDTO } from '@/lib/api/dto/chat-event';
@@ -37,7 +35,6 @@ import { memberMessage } from '@/lib/sessions/member-message';
 import { executionOperationFailure } from '@/lib/workspaces/access';
 
 interface PostBody {
-  appContext?: { viewId: string; revision: number };
   connectedAppContext?: {viewId: string; revision: number}[];
   content?: string;
   /**
@@ -187,11 +184,6 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     // DB's idempotent semantics on the HTTP boundary. The dispatch
     // decision happens below: on retry we delegate to the health
     // check's orphan logic instead of unconditionally firing.
-    let frozenContext: unknown = null;
-    if (body.appContext && !isExistingRetry) {
-      try { const key = getRequestKey(request.headers); if (key?.scope !== 'viewer') return reply({ error: 'App context requires the viewing owner' }, { status: 403 }); frozenContext = await localApps().freezeContext(id, body.appContext, key.apiKeyId); }
-      catch (error) { return reply({ error: publicError(error).message }, { status: 409 }); }
-    }
     let connectedContext: unknown = null;
     // A global screen's context this chat may not use is left off, and the response names it.
     let connectedContextSkipped: { viewId: string; app: string; reason: string }[] = [];
@@ -231,7 +223,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     }
 
     const inserted = insertChatEvent({
-      ...(frozenContext || connectedContext ? { raw: {...(frozenContext ? {localAppContext: frozenContext} : {}), ...(connectedContext ? {connectedAppContext: connectedContext} : {})} } : {}),
+      ...(connectedContext ? { raw: { connectedAppContext: connectedContext } } : {}),
       id: body.id,
       sessionId: id,
       role: 'user',

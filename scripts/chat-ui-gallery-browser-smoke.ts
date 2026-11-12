@@ -577,8 +577,6 @@ async function main() {
     await waitForText(frame, 'The example app shared its selection with the example chat');
     await frame.getByRole('button', { name: 'Open beside chat', exact: true }).click();
     await frame.getByRole('button', { name: 'Close app', exact: true }).click();
-    frame = await select('app-kit', 'forms');
-    await frame.getByText('Kit gallery · Fictional records', { exact: true }).waitFor();
 
     await page.goto(`http://127.0.0.1:${address.port}/gallery#email?state=sent`);
     frame = await select('email', 'sent');
@@ -594,7 +592,7 @@ async function main() {
     await page.getByRole('button', { name: /^All sources/ }).click();
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1050 });
-      for (const id of ['email', 'shared-chat', 'server-form', 'questions', 'approvals', 'chat-messages', 'html', 'connected-app', 'app-kit']) {
+      for (const id of ['email', 'shared-chat', 'server-form', 'questions', 'approvals', 'chat-messages', 'html', 'connected-app']) {
         await select(id);
         for (const theme of ['light', 'dark']) {
           await page.getByRole('button', { name: theme, exact: true }).click();

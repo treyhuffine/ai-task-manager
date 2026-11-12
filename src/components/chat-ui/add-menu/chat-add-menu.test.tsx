@@ -27,7 +27,7 @@ vi.mock('@/lib/trpc/client', () => ({ trpc: { chatSources: { search: { queryOpti
 vi.mock('@/components/ui/dropdown-menu', () => ({ DropdownMenuSeparator: () => createElement('hr') }));
 vi.mock('@/components/agents/agent-folders', () => ({ LinkedFolderDefiner: () => null }));
 vi.mock('@/components/home/use-personal-services', () => ({ usePersonalServices: () => h.personal }));
-vi.mock('@/components/local-apps/app-companion-rows', () => ({ AppCompanionRows: () => createElement('button', null, 'Example app') }));
+vi.mock('@/components/apps/app-companion-rows', () => ({ AppCompanionRows: () => createElement('button', null, 'Example app') }));
 vi.mock('@/components/settings/settings-destination', () => ({ useSettingsLink: () => h.plugins }));
 vi.mock('@/components/triggers/schedule-chat-button', () => ({ ScheduleChatDialog: () => null }));
 vi.mock('@/hooks/use-execution', () => ({ useSession: () => ({ data: h.chat }) }));

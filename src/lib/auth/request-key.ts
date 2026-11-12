@@ -50,7 +50,7 @@ export type CallerLocation = 'home' | 'elsewhere';
  * acting for the member who asked, and the `host` key (the host's own)
  * administers the installation and is never a member. On a personal Home,
  * `ai_client` has no member and reaches only the content-scoped MCP. An
- * `app_client` key reaches only its local app's declared client actions.
+ * `app_client` key was made for a local app Ri no longer runs, and reaches nothing.
  */
 export type KeyScope = 'viewer' | 'worker' | 'session' | 'member' | 'ai_client' | 'app_client' | 'team_ai' | 'host';
 export type MemberRoleScope = 'owner' | 'member';

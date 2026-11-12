@@ -25,8 +25,6 @@ import { aiClientMayReach, hostMayReach, isTeamPublicPath, memberMayReach, TEAM_
 import { isSessionToken, sessionMayReach, verifySessionToken } from '@/lib/auth/session-token';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { permitsCookieMutation } from '@/lib/auth/request-origin';
-import { localAppsEnabled } from '@/lib/config/features';
-import { appClientMayReach } from '@/lib/local-apps/client-policy';
 import { issuerFor, mcpChallenge, OAUTH_PUBLIC_PATHS } from '@/lib/oauth/issuer';
 
 export const config = {
@@ -257,9 +255,6 @@ export function proxy(request: NextRequest) {
   }
   if (team) return teamProxy(request);
 
-  // Local app broker credentials are verified by this narrow protocol adapter.
-  if (localAppsEnabled() &&/^\/api\/local-apps\/broker\/v1\/(capabilities|call)$/.test(request.nextUrl.pathname)) return nextWithoutKeyHeaders(request);
-
   if (request.nextUrl.pathname.startsWith('/api/webhooks/')) {
     return nextWithoutKeyHeaders(request);
   }
@@ -346,18 +341,9 @@ export function proxy(request: NextRequest) {
     return NextResponse.next({ request: { headers } });
   }
 
-  // A local app's outside client reaches only that route, which checks the
-  // key's app and action. Its own surface, so no view protocol is asked of it.
-  if (key.role === 'app_client') {
-    if (!localAppsEnabled() || !appClientMayReach(request.nextUrl.pathname, request.method)) return forbidden('app_client', 'This key can only save to the app it was made for.');
-    touchApiKey(key.id, { ip: request.headers.get('x-forwarded-for'), userAgent: request.headers.get('user-agent') });
-    const headers = new Headers(request.headers);
-    for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
-    headers.set(API_KEY_ID_HEADER, key.id);
-    headers.set(CALLER_LOCATION_HEADER, 'elsewhere');
-    headers.set(API_KEY_SCOPE_HEADER, 'app_client');
-    return NextResponse.next({ request: { headers } });
-  }
+  // Keys made for local apps outlived the apps. Ri no longer runs local apps,
+  // so they reach nothing, and they must not fall through to another kind's surface.
+  if (key.role === 'app_client') return forbidden('app_client', 'This key was made for a local app Ri no longer runs.');
 
   // An authenticated stale view is refused before route writes or effects.
   // Worker and MCP transports retain their own authenticated negotiation.

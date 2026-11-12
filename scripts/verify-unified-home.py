@@ -50,7 +50,7 @@ browser = [
     'src/components/team/team-settings.browser.test.ts', 'src/components/team/team-ai-settings.browser.test.ts',
     'src/components/team/team-chat.browser.test.ts', 'src/components/team/team-chat-destination.browser.test.ts', 'src/components/team/team-chat-navigation.browser.test.ts', 'src/components/team/team-detail.browser.test.ts',
     'src/components/team/shared-body-editor.browser.test.ts', 'src/components/settings/sections/team-area-defaults.browser.test.ts',
-    'src/components/spaces/team-label.browser.test.ts', 'src/components/local-apps/apps-rail-list.browser.test.ts',
+    'src/components/spaces/team-label.browser.test.ts', 'src/components/apps/apps-rail-list.browser.test.ts',
     'src/components/settings/agent-skill-access.browser.test.ts', 'src/lib/spaces/forward.test.ts']
 tasks = {
     'build': ['build'], 'desktop-build': ['desktop:build'],

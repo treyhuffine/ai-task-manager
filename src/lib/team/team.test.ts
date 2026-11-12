@@ -582,7 +582,5 @@ describe('no AI in a team', () => {
     expect(() => startScheduler()).toThrow(boundary);
     const { ensureTodaysDeck } = await import('@/lib/deck/ensure-todays-deck');
     await expect(ensureTodaysDeck()).rejects.toThrow(boundary);
-    const { localApps } = await import('@/lib/local-apps/service');
-    expect(() => localApps().initialize()).toThrow(/team space|not enabled/);
   });
 });

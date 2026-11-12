@@ -4,8 +4,6 @@ import { coordinationActions } from '@/lib/coordination/actions';
 import { connectedHomeActions, withConnectedHome } from '@/lib/spaces/native-access';
 import { historyActions } from '@/lib/coordination/history-actions';
 import { chatSourceActions } from '@/lib/chat-sources/actions';
-import { localAppActions } from '@/lib/local-apps/actions';
-import { localAppsEnabled } from '@/lib/config/features';
 /**
  * Starter action registry for the agent orchestrator.
  *
@@ -3491,7 +3489,6 @@ export const typedActions = [
   ...connectedHomeActions,
   ...coordinationActions,
   ...historyActions,
-  ...localAppActions,
   ...chatSourceActions,
   register_device_action,
   rename_device_action,
@@ -3595,7 +3592,7 @@ export const typedActions = [
 
 /** Dynamic CLI/MCP dispatch validates the selected shape before invoking it.
  * Keep the concrete definitions for callers that know their action name. */
-export const actions = (typedActions.filter(action => localAppsEnabled() || !localAppActions.some(app => app.name === action.name)) as unknown as Action[]).map(withConnectedHome);
+export const actions = (typedActions as unknown as Action[]).map(withConnectedHome);
 export type ActionDefinition = typeof typedActions[number];
 export type ActionName = ActionDefinition['name'];
 export type ActionOutput<Name extends ActionName> = Awaited<ReturnType<Extract<ActionDefinition, { name: Name }>['handler']>>;
