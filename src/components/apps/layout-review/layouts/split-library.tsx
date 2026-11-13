@@ -12,6 +12,7 @@ import { HubAccessList } from '../../hub-access';
 import { NewAppDialog } from '../../new-app-dialog';
 import { AppBuildsList } from '../../app-builds-list';
 import { AppCatalogList } from '../../app-catalog';
+import { InstalledAppsList } from '../../app-status';
 import type { LibraryFilter } from '../../library-model';
 import { useReview } from '../context';
 import { ItemDetails } from '../details';
@@ -116,6 +117,7 @@ function GroupedLibrary({ filter }: { filter: LibraryFilter }) {
       </section>;
     })}
     {(filter === 'all' || filter === 'apps') && <div className={s.libraryGroup}><AppBuildsList onOpen={(id) => review.navigate(`build/${id}`)} /></div>}
+    {(filter === 'all' || filter === 'apps') && <div className={s.libraryGroup}><InstalledAppsList onOpen={(id) => review.navigate(`build/${id}`)} /></div>}
     {(filter === 'all' || filter === 'apps') && <div className={s.libraryGroup}><AppCatalogList onOpen={(id) => review.navigate(`build/${id}`)} /></div>}
     {(filter === 'all' || filter === 'apps') && <div className={s.libraryGroup}><HubAccessList /></div>}
     {!!drafts.length && <section className={s.libraryGroup} aria-label="In progress"><div className={s.groupHeading}><h3>In progress</h3><span>{drafts.length}</span></div>

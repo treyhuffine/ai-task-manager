@@ -8,6 +8,7 @@ import {
   recordAppSource, setAppBuildSettings, startChange,
 } from './builder';
 import { addCatalogApp, listCatalogApps, updateCatalogApp } from './catalog';
+import { appLogs, appStatus, restartApp } from './status';
 
 /** New app and Change app (docs/personal-apps.md "Building and changing apps"). */
 const id = z.string().min(1).max(200);
@@ -52,4 +53,9 @@ export const appBuildsRouter = router({
   addFromCatalog: p.input(z.object({ id: z.string().min(1).max(48), returnTo: z.string().max(2048).optional() }).strict())
     .mutation(({ input, ctx }) => run(() => addCatalogApp(input.id, ctx.request, safeReturnPath(input.returnTo) ?? undefined))),
   updateFromCatalog: p.input(z.object({ id }).strict()).mutation(({ input }) => run(() => updateCatalogApp(input.id))),
+  // An installed app's state, Restart and Logs, from the kit's own commands (docs/personal-apps.md "Status, Restart and Logs").
+  status: p.input(z.object({ id, fresh: z.boolean().optional() }).strict()).query(({ input }) => appStatus(input.id, { fresh: input.fresh })),
+  restart: p.input(z.object({ id }).strict()).mutation(({ input }) => run(() => restartApp(input.id))),
+  logs: p.input(z.object({ id, lines: z.number().int().min(1).max(2000).optional(), since: z.string().max(40).optional(), change: z.boolean().optional() }).strict())
+    .query(({ input }) => run(() => appLogs(input.id, input))),
 });
