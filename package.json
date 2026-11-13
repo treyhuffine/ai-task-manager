@@ -129,6 +129,7 @@
     "@mozilla/readability": "^0.6.0",
     "@napi-rs/canvas": "0.1.100",
     "@peculiar/x509": "^1.14.3",
+    "@ri/app-toolchain": "workspace:*",
     "@ri/mcp-apps-host": "workspace:*",
     "@sindresorhus/slugify": "^3.0.0",
     "@streamdown/cjk": "^1.0.3",

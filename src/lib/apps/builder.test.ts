@@ -1,9 +1,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { describe, expect, it, vi } from 'vitest';
 import * as q from '@/lib/db/queries';
-import { AppBuildError, appBuildSettings, foldKitLine, kitCliFor, setAppBuildSettings, type AppJob } from './builder';
+import { AppBuildError, appBuildSettings, createApp, foldKitLine, kitCliFor, setAppBuildSettings, type AppJob } from './builder';
+import { appToolchain } from './toolchain';
+
+vi.setConfig({ testTimeout: 60_000 });
 import { renderAppBuilderBrief } from './builder-brief';
 
 describe('reading the kit', () => {
@@ -40,6 +44,43 @@ describe('settings', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-apps-'));
     expect(setAppBuildSettings({ appsDir: dir, appKitCommand: 'pnpm --dir /kit create:app' })).toMatchObject({ appsDir: dir, appKitCommand: 'pnpm --dir /kit create:app' });
     expect(setAppBuildSettings({ appsDir: null, appKitCommand: null })).toMatchObject({ appKitCommand: null });
+  });
+});
+
+describe('what Ri brings', () => {
+  it('reports the carried kit and pnpm, and Ri\'s own Node', () => {
+    const { tools } = appBuildSettings();
+    expect(tools.node).toBe(process.version);
+    expect(tools.kit?.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(tools.pnpm).toMatch(/^\d+\.\d+\.\d+/);
+    // How to get git shows only when there's none.
+    expect(!!tools.gitHelp).toBe(!tools.git);
+  });
+
+  it('runs a kit command with Ri\'s toolchain first on its PATH, and gives the new repository a name to commit with', async () => {
+    const apps = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-apps-'));
+    const seen = path.join(apps, 'seen-path');
+    // A stand-in for a kit checkout's create (the developer override): it records its PATH and makes an app.
+    const kit = path.join(apps, 'fake-create.sh');
+    fs.writeFileSync(kit, `#!/bin/sh\nprintf '%s' "$PATH" > ${JSON.stringify(seen)}\nmkdir -p "$1"\necho '{"name":"tide-log","scripts":{"start":"kit serve"}}' > "$1/package.json"\n`, { mode: 0o755 });
+    setAppBuildSettings({ appsDir: apps, appKitCommand: kit });
+    // Someone without developer tools has no git identity.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-git-home-'));
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('XDG_CONFIG_HOME', home);
+    vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+    try {
+      const source = await createApp({ name: 'Tide Log' });
+      const tools = appToolchain();
+      expect(fs.readFileSync(seen, 'utf8').split(path.delimiter).slice(0, 2)).toEqual([tools.binDir, path.dirname(process.execPath)]);
+      const log = execFileSync('git', ['log', '--format=%an %s'], { cwd: source.folder!, encoding: 'utf8' }).trim();
+      expect(log).toBe('Ri Create Tide Log from the app kit');
+      // The builder's own commits work there too.
+      expect(execFileSync('git', ['config', 'user.email'], { cwd: source.folder!, encoding: 'utf8' }).trim()).toBe('ri@localhost');
+    } finally {
+      vi.unstubAllEnvs();
+      setAppBuildSettings({ appsDir: null, appKitCommand: null });
+    }
   });
 });
 

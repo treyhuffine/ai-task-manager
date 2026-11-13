@@ -37,8 +37,11 @@ export function NewAppDialog({ open, onOpenChange, onCreated }: { open: boolean;
     if (!settings.data) return;
     setAppsDir(settings.data.appsDir);
     setKit(settings.data.appKitCommand ?? '');
-    if (!settings.data.appKitCommand) setShowSettings(true);
+    // Only a copy of Ri that carries no kit needs the person to point at one.
+    if (!settings.data.appKitCommand && !settings.data.tools.kit) setShowSettings(true);
   }, [settings.data]);
+  const tools = settings.data?.tools;
+  const kitReady = !!kit.trim() || !!tools?.kit;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -89,9 +92,13 @@ export function NewAppDialog({ open, onOpenChange, onCreated }: { open: boolean;
                 <span className="block font-normal text-muted-foreground">Each app gets its own folder and git repository here.</span>
               </label>
               <label className="block space-y-1 text-xs font-medium">
-                <span>App kit command</span>
+                <span>{tools?.kit ? 'Kit checkout (for developers)' : 'App kit command'}</span>
                 <Input value={kit} onChange={(e) => setKit(e.target.value)} placeholder="pnpm --dir /path/to/app-kit create:app" className="font-mono text-xs" />
-                <span className="block font-normal text-muted-foreground">The command that runs the app kit&apos;s create. {APP_NAME} adds the new app&apos;s folder at the end.</span>
+                <span className="block font-normal text-muted-foreground">
+                  {tools?.kit
+                    ? <>{APP_NAME} makes apps with the app kit {tools.kit.version} it carries. To use a kit checkout instead, give the command that runs its create. {APP_NAME} adds the new app&apos;s folder at the end.</>
+                    : <>The command that runs the app kit&apos;s create. {APP_NAME} adds the new app&apos;s folder at the end.</>}
+                </span>
               </label>
             </div>
           ) : (
@@ -99,10 +106,11 @@ export function NewAppDialog({ open, onOpenChange, onCreated }: { open: boolean;
               Made in {settings.data?.appsDir ?? 'your apps folder'}. Change
             </button>
           )}
+          {tools && !tools.git && tools.gitHelp && <p role="status" className="flex items-start gap-2 text-xs text-muted-foreground"><AlertCircle size={13} className="mt-0.5 shrink-0" />{tools.gitHelp}</p>}
           {error && <p role="alert" className="flex items-start gap-2 text-xs text-destructive"><AlertCircle size={13} className="mt-0.5 shrink-0" />{error}</p>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={busy || !name.trim() || !kit.trim()}>{busy && <Loader2 size={14} className="animate-spin" />}Create</Button>
+            <Button type="submit" disabled={busy || !name.trim() || !kitReady || tools?.git === false}>{busy && <Loader2 size={14} className="animate-spin" />}Create</Button>
           </DialogFooter>
         </form>
       </DialogContent>
