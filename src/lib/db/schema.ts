@@ -913,6 +913,39 @@ export const hubTokens = sqliteTable(
   (table) => [index('idx_hub_tokens_app').on(table.appId)],
 );
 
+/**
+ * An app's write waiting for the person, and once they decide, its answer. The ID is what the hub
+ * answers with (`approvalId`). An approved request lets the app make that exact call once within
+ * 24 hours, so a job retrying on its own clock never races the window, and it survives a restart
+ * of Ri (docs/personal-apps.md "The hub").
+ */
+export const hubApprovals = sqliteTable(
+  'hub_approvals',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    appId: text().notNull().references(() => hubApps.id, { onDelete: 'cascade' }),
+    /** The exact call: owner, action, account, input digest and action version, and the app. */
+    callKey: text().notNull(),
+    actionId: text().notNull(),
+    connectionId: text().notNull(),
+    ownerId: text().notNull(),
+    providerId: text().notNull(),
+    risk: text().notNull(),
+    /** What the call would do, redacted. */
+    preview: text({ mode: 'json' }).$type<unknown>(),
+    account: text(),
+    /** The chat whose card shows it, when a chat started the call. */
+    sessionId: text(),
+    startedBy: text({ mode: 'json' }).$type<{ kind: 'chat' | 'person' | 'job' | 'app'; id?: string; label?: string }>().notNull(),
+    status: text({ enum: ['pending', 'approved', 'denied', 'used', 'dropped'] }).notNull(),
+    decidedAt: text(),
+    /** Until when an approved call may run. */
+    expiresAt: text(),
+  },
+  (table) => [index('idx_hub_approvals_app_status').on(table.appId, table.status), index('idx_hub_approvals_key').on(table.callKey)],
+);
+
 export const hubCalls = sqliteTable(
   'hub_calls',
   {

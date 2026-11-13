@@ -53,6 +53,7 @@ import { APP_NAME } from '@/constants/app';
 import { getWorkspace } from '@/lib/db/queries';
 import { resolveIntegrationFilter, resolveRiIntegrationFilter, type WorkspaceIntegrationFilter } from './workspace-filter';
 import { trackAppCall } from './hub/origin';
+import { hubApprovalStore } from './hub/approval-store';
 import { withLiveCallback } from './live-callback';
 import { hostedMcpConnectionId, hostedMcpDefinition, hostedMcpRequiresAuth, markHostedMcpReconnectRequired, hostedMcpEndpointSetup, mcpOAuthTransportOptions, trustHostedMcpAnnotations } from './hosted-mcp';
 import { finalizeMcpServer, finalizeMcpServers, isCurrentMcpTransport } from './mcp-lifecycle';
@@ -589,7 +590,7 @@ async function build(): Promise<Built> {
     // Real grant-remembering gate (reads allow, mutating → grant-or-ask). Dev auto-allows so the
     // chat works end-to-end; production runs the real gate (resolved from the approval card in
     // chat, via /api/integrations/approve). `INTEGRATIONS_AUTO_APPROVE=0` runs the real gate in dev.
-    approval: appApprovalPolicy({ autoApprove: devAutoApprove(), resolveMode: resolveMcpApprovalMode }),
+    approval: appApprovalPolicy({ autoApprove: devAutoApprove(), resolveMode: resolveMcpApprovalMode, hubStore: hubApprovalStore }),
     onActionRun: (e) => {
       if (e.phase === 'finish') {
         // Redacted previews; safe to log. Helps eyeball the flow during testing.

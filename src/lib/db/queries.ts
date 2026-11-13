@@ -25,7 +25,7 @@ export { listPersonalAreaDefaults, setPersonalAreaDefault } from './private-area
 import { emailDraftFieldsSchema, emailDraftPatchSchema, parseEmailDraft, EmailDraftError, type EmailDraftFields } from '@/lib/email/validation';
 import type { EmailDraft } from '@/db/types';
 import { teamContentChanged } from '@/lib/spaces/generation';
-import { tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, scratchpad, harnessSettings, harnessModelUsage, harnessOperations, apiKeys, home, devices, deviceGrants, members, teamActivity, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks, workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults, triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState, notificationChannels, webPushSubscriptions, notificationDeliveries, triagePasses, triageDecisions, streamLinks, skillUsage, hubApps, hubTokens, hubCalls, appSources, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent, NOTE_KINDS } from '@/lib/db/schema';
+import { tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, scratchpad, harnessSettings, harnessModelUsage, harnessOperations, apiKeys, home, devices, deviceGrants, members, teamActivity, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks, workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults, triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState, notificationChannels, webPushSubscriptions, notificationDeliveries, triagePasses, triageDecisions, streamLinks, skillUsage, hubApps, hubTokens, hubCalls, hubApprovals, appSources, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent, NOTE_KINDS } from '@/lib/db/schema';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { normalizeNoteRow } from '@/lib/notes/kind';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, notInArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
@@ -13376,6 +13376,54 @@ export function insertHubCall(input: Omit<HubCallRecord, 'id' | 'createdAt' | 'u
 /** An app's newest calls, bounded by the (app, created) index. */
 export function listHubCalls(appId: string, limit = 50): HubCallRecord[] {
   return getDb().select().from(hubCalls).where(eq(hubCalls.appId, appId)).orderBy(desc(hubCalls.createdAt), desc(hubCalls.id)).limit(Math.min(Math.max(limit, 1), 200)).all();
+}
+
+// ─── Apps' approvals (docs/personal-apps.md "The hub") ──────────────────────
+
+type HubApprovalRecord = typeof hubApprovals.$inferSelect;
+export type { HubApprovalRecord };
+
+export function insertHubApproval(input: Omit<HubApprovalRecord, 'createdAt' | 'updatedAt' | 'status' | 'decidedAt' | 'expiresAt'> & { createdAt?: string }): HubApprovalRecord {
+  const now = input.createdAt ?? new Date().toISOString();
+  return getDb().insert(hubApprovals).values({ ...input, createdAt: now, updatedAt: now, status: 'pending' }).returning().get();
+}
+
+/** Every app request still waiting for the person, oldest first, bounded by the status index. */
+export function listPendingHubApprovals(): HubApprovalRecord[] {
+  return getDb().select().from(hubApprovals).where(eq(hubApprovals.status, 'pending')).orderBy(asc(hubApprovals.createdAt)).limit(500).all();
+}
+
+export function decideHubApproval(id: string, decision: 'approved' | 'denied', expiresAt: string | null): void {
+  const now = new Date().toISOString();
+  getDb().update(hubApprovals).set({ status: decision, decidedAt: now, expiresAt, updatedAt: now })
+    .where(and(eq(hubApprovals.id, id), eq(hubApprovals.status, 'pending'))).run();
+}
+
+/** Spend an approved, unexpired approval for this exact call, once. Returns its ID, or null. */
+export function takeHubApprovalGrant(appId: string, callKey: string, now = new Date().toISOString()): string | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const row = tx.select({ id: hubApprovals.id }).from(hubApprovals)
+      .where(and(eq(hubApprovals.appId, appId), eq(hubApprovals.callKey, callKey), eq(hubApprovals.status, 'approved'), gt(hubApprovals.expiresAt, now)))
+      .orderBy(asc(hubApprovals.decidedAt)).limit(1).get();
+    if (!row) return null;
+    tx.update(hubApprovals).set({ status: 'used', updatedAt: now }).where(eq(hubApprovals.id, row.id)).run();
+    return row.id;
+  });
+}
+
+/** The newest decline of this exact call since `since`, if the person declined it. */
+export function deniedHubApproval(appId: string, callKey: string, since: string): string | null {
+  return getDb().select({ id: hubApprovals.id }).from(hubApprovals)
+    .where(and(eq(hubApprovals.appId, appId), eq(hubApprovals.callKey, callKey), eq(hubApprovals.status, 'denied'), gt(hubApprovals.decidedAt, since)))
+    .orderBy(desc(hubApprovals.decidedAt)).limit(1).get()?.id ?? null;
+}
+
+/** An app's access changed: its waiting and approved-but-unused requests can't license a call. */
+export function dropHubApprovals(appId: string, connectionId?: string): void {
+  const now = new Date().toISOString();
+  getDb().update(hubApprovals).set({ status: 'dropped', updatedAt: now })
+    .where(and(eq(hubApprovals.appId, appId), inArray(hubApprovals.status, ['pending', 'approved']), connectionId ? eq(hubApprovals.connectionId, connectionId) : undefined)).run();
 }
 
 // ─── Personal app sources (docs/personal-apps.md "Building and changing apps") ───

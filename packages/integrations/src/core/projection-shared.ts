@@ -128,6 +128,8 @@ export function modelSafeOutcome(outcome: FailedOutcome): Record<string, unknown
     case 'approval_required':
       return {
         status: 'approval_required',
+        // Which request is waiting: the identical call made again after approval goes through.
+        ...(outcome.approvalId ? { approvalId: outcome.approvalId } : {}),
         message: 'This action needs the user’s approval. The app is asking them now — retry once they approve.',
       };
     case 'error':
@@ -136,6 +138,7 @@ export function modelSafeOutcome(outcome: FailedOutcome): Record<string, unknown
         code: outcome.code,
         message: outcome.message,
         ...(outcome.indeterminate ? { indeterminate: true } : {}),
+        ...(outcome.approvalId ? { approvalId: outcome.approvalId } : {}),
       };
   }
 }
