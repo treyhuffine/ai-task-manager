@@ -20,6 +20,9 @@ describe('what Ri carries for apps', () => {
     expect(tools.kit).not.toBeNull();
     const pinned = JSON.parse(fs.readFileSync(path.resolve('packages/app-toolchain/kit/source.json'), 'utf8'));
     expect(tools.kit).toMatchObject({ version: pinned.version, commit: pinned.commit });
+    // The packed kit ships too, for the kit's upgrade --core.
+    expect(tools.kit!.tarball).toMatch(new RegExp(`kit-${pinned.version}-${pinned.commit.slice(0, 12)}\\.tgz$`));
+    expect(fs.existsSync(tools.kit!.tarball!)).toBe(true);
     // The kit's create writes this pnpm into each app's packageManager. Carrying the same one means
     // pnpm never fetches another version, so it works without the internet once installed.
     const cli = fs.readFileSync(path.join(path.dirname(tools.kit!.bin), '..', 'dist', 'cli.js'), 'utf8');

@@ -2,9 +2,10 @@
   "name": "@ri/app-toolchain",
   "version": "0.0.0",
   "private": true,
-  "description": "What Ri carries so personal apps need no developer tools: the app kit it runs for New app, and the pnpm the kit's commands use. Ri's own Node runs both.",
+  "description": "What Ri carries so personal apps need no developer tools: the app kit it runs for New app (and its tarball, which the kit's upgrade --core takes), and the pnpm the kit's commands use. Ri's own Node runs both.",
   "files": [
-    "kit/source.json"
+    "kit/source.json",
+    "kit/*.tgz"
   ],
   "dependencies": {
     "pnpm": "10.30.1",

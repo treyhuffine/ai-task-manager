@@ -30,6 +30,8 @@ export interface CarriedKit {
   commit: string | null;
   /** The kit's command, run with Ri's Node. */
   bin: string;
+  /** The packed kit, which the kit's `upgrade --core` takes to move an app onto this version. Null if this copy of Ri left it out. */
+  tarball: string | null;
 }
 
 export interface AppToolchain {
@@ -102,8 +104,14 @@ function carriedKit(toolchain: string): CarriedKit | null {
     const bin = kitCommandPath(manifest, pkg);
     if (!pkg.version || !bin || !fs.existsSync(/* turbopackIgnore: true */ bin)) return null;
     let commit: string | null = null;
-    try { commit = (readJson(path.join(/* turbopackIgnore: true */ path.dirname(toolchain), 'kit', 'source.json')).commit as string) || null; } catch { /* Not recorded. */ }
-    return { version: pkg.version, commit, bin };
+    const kitDir = path.join(/* turbopackIgnore: true */ path.dirname(toolchain), 'kit');
+    try { commit = (readJson(path.join(/* turbopackIgnore: true */ kitDir, 'source.json')).commit as string) || null; } catch { /* Not recorded. */ }
+    let tarball: string | null = null;
+    try {
+      const packed = fs.readdirSync(/* turbopackIgnore: true */ kitDir).filter((name) => name.endsWith('.tgz'));
+      if (packed.length === 1) tarball = path.join(/* turbopackIgnore: true */ kitDir, packed[0]!);
+    } catch { /* Not shipped. */ }
+    return { version: pkg.version, commit, bin, tarball };
   } catch { return null; }
 }
 
