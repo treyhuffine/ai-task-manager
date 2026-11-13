@@ -7,6 +7,7 @@ import {
   AppBuildError, appBuildSettings, applyChange, createApp, discardChange, getAppJob, installApp, latestAppJob,
   recordAppSource, setAppBuildSettings, startChange,
 } from './builder';
+import { addCatalogApp, listCatalogApps, updateCatalogApp } from './catalog';
 
 /** New app and Change app (docs/personal-apps.md "Building and changing apps"). */
 const id = z.string().min(1).max(200);
@@ -46,4 +47,9 @@ export const appBuildsRouter = router({
   applyChange: p.input(z.object({ id }).strict()).mutation(({ input }) => run(() => applyChange(input.id))),
   discardChange: p.input(z.object({ id }).strict()).mutation(({ input }) => run(() => discardChange(input.id))),
   job: p.input(z.object({ id }).strict()).query(({ input }) => getAppJob(input.id)),
+  // The catalog of recommended apps (docs/personal-apps.md "The catalog").
+  catalog: p.query(() => listCatalogApps()),
+  addFromCatalog: p.input(z.object({ id: z.string().min(1).max(48), returnTo: z.string().max(2048).optional() }).strict())
+    .mutation(({ input, ctx }) => run(() => addCatalogApp(input.id, ctx.request, safeReturnPath(input.returnTo) ?? undefined))),
+  updateFromCatalog: p.input(z.object({ id }).strict()).mutation(({ input }) => run(() => updateCatalogApp(input.id))),
 });

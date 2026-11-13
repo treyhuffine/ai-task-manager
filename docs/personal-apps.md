@@ -11,6 +11,7 @@ Ri's side of the [shared app kit spec](shared-app-kit-spec.md). A personal app i
 | The hub: apps borrowing the person's accounts and Ri's own services | `src/lib/integrations/hub/` |
 | New app and Change app, running the kit's commands | `src/lib/apps/` |
 | What Ri brings for apps: the pinned kit and pnpm, run with Ri's Node | `packages/app-toolchain`, `src/lib/apps/toolchain.ts` |
+| The catalog of recommended apps: Add and Update | `src/lib/apps/catalog*.ts`, `src/components/apps/app-catalog.tsx` |
 
 ## Connecting an app
 
@@ -82,6 +83,23 @@ Ri builds and changes apps with the kit's own commands (shared spec §2, and the
 **The builder brief** (`src/lib/apps/builder-brief.ts`) keeps only host facts: where the folder or working copy is, that checks use their own data directory and fixture connectors, how to build and check, to commit, and never to install or run the service, open its data, connect it, grant it access, read Ri's credentials or edit Ri's source. How to build an app is the kit's build skill in the folder. The builder chat also has no reach into the person's accounts. It's guidance, not isolation (shared spec, Trust).
 
 Checked on November 12, 2026 with the kit's `claude/single-path-kit-jobs` branch, on the isolated Ri with the kit's plain-process service: New app created and committed Tide Log, Install and connect passed every kit step and connected Ri over OAuth, a change in its own working copy switched the running app to its commit and fast-forwarded the folder, and a change with a failing test stopped at `test` with nothing changed and the working copy kept.
+
+## The catalog
+
+Ri offers recommended apps the way it used to offer its bundled ones, without carrying their code (shared spec §2, "The catalog"). Only first-party apps for now.
+
+**The list** is `src/lib/apps/catalog.json`, read by `catalog-entries.ts`. Each entry has an `id` (also its folder name), `name`, `description`, `reaches` (what it can reach beyond its own data, in plain words, shown before Add), `git` (an https URL, or a full path on this computer while repositories aren't public), `version` (a tag or a commit) and `checksum`. It ships empty: entries go in once each app's repository is ready. `RI_APP_CATALOG=<file>` uses another file, for development.
+
+**The checksum** (`catalog-checksum.ts`) is `sha256-` over every file's path, mode and contents at that version, so it names exactly the code that was reviewed, whatever a tag points at later. Git's own commit id is SHA-1 and covers who committed and when. This covers only the files and uses SHA-256. `pnpm tsx scripts/app-catalog-entry.ts <git url or folder> <tag or commit> --id … --name … --description … [--reaches …] --write` computes it and writes the entry. Given HEAD or a branch, it pins the commit, since those move.
+
+**Add** (Apps → Recommended apps) clones the repository into `<appsDir>/<id>` with its source as the `upstream` remote, fetches the version into `refs/ri-catalog/<version>`, checks its files against the checksum, and only then checks it out on the person's own branch, with no tracking of upstream. A mismatch or a failed clone leaves nothing behind. Then it's Install and connect, as for an app made with New app. The source records `catalog_id`, `catalog_version` and `catalog_commit`.
+
+**Updates.** When the catalog lists another version, the Apps page and the app's page offer it. Update fetches and checks it the same way, then:
+- If the person never changed the app (its folder is clean and still at the commit Ri installed), the kit's safe-change command switches straight to the new version.
+- If they did, Ri opens a change and asks the builder chat to merge the update there (`git merge <commit>`), keeping the person's changes. The person applies that change as usual.
+- Either way, once a switch runs a commit that includes the catalog's version, Ri records it (`recordCatalogVersion` in `builder.ts`). An update the running app already includes is just recorded.
+
+Checked on November 12, 2026 on the isolated Ri with a catalog of local repositories. Add cloned Tide Pools at its pinned commit with an `upstream` remote, and installed and connected it. An update the person hadn't changed switched straight over. After the person's own change, the next update opened a change, the merge kept both, and applying it recorded the new version. Add also cloned and verified Travel from `~/dynamism/apps/travel`. Its pinned commit then failed its own tests in the kit's checks (a mid-port test script, since fixed in Travel), so nothing switched.
 
 ## What Ri brings
 

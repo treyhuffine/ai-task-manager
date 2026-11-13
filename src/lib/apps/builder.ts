@@ -29,6 +29,7 @@ import { processState } from '@/lib/process-state';
 import { untraced } from '@/lib/utils/untraced';
 import { toSlug } from '@/lib/integrations/mcp-servers';
 import { appToolchain, gitHelp, type AppToolchain } from './toolchain';
+import { catalogEntry, catalogRef } from './catalog-entries';
 
 const run = promisify(execFile);
 
@@ -221,13 +222,13 @@ function pnpmCommand(tools: AppToolchain): string {
 }
 
 /** Ri's toolchain, refusing up front when there's no git, which every app needs. */
-function toolsWithGit(): AppToolchain & { git: string } {
+export function toolsWithGit(): AppToolchain & { git: string } {
   const tools = appToolchain();
   if (!tools.git) throw new AppBuildError('setup', gitHelp());
   return tools as AppToolchain & { git: string };
 }
 
-async function git(folder: string, args: string[], tools: AppToolchain & { git: string } = toolsWithGit()) {
+export async function git(folder: string, args: string[], tools: AppToolchain & { git: string } = toolsWithGit()) {
   return run(untraced(tools.git), args, { cwd: folder, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, ...tools.env } });
 }
 
@@ -235,7 +236,7 @@ async function git(folder: string, args: string[], tools: AppToolchain & { git: 
  * Commits need a name. When the computer has none set for git (someone without developer tools), the
  * app's repository gets its own, so the builder's commits work there.
  */
-async function ensureCommitIdentity(folder: string, tools: AppToolchain & { git: string }) {
+export async function ensureCommitIdentity(folder: string, tools: AppToolchain & { git: string }) {
   const set = async (key: string) => { try { return !!(await git(folder, ['config', '--get', key], tools)).stdout.trim(); } catch { return false; } };
   if (!await set('user.name')) await git(folder, ['config', 'user.name', 'Ri'], tools);
   if (!await set('user.email')) await git(folder, ['config', 'user.email', 'ri@localhost'], tools);
@@ -348,7 +349,14 @@ export async function applyChange(sourceId: string): Promise<AppJob> {
   const { stdout: dirty } = await git(source.changeFolder, ['status', '--porcelain']);
   if (dirty.trim()) throw new AppBuildError('invalid', 'The change has uncommitted edits. Ask the builder to commit them first.');
   const { stdout: head } = await git(source.folder!, ['rev-parse', source.changeBranch]);
-  const commit = head.trim();
+  return switchTo(source, head.trim());
+}
+
+/**
+ * Switch the running app to `commit` with the kit's safe-change command, as a job. When it switched,
+ * the app's folder moves to that commit and any change's working copy goes.
+ */
+export function switchTo(source: AppSourceRecord, commit: string): AppJob {
   const cli = kitCliFor(source.folder!);
   const tools = toolsWithGit();
   const job = newJob(source.id, 'change');
@@ -375,8 +383,30 @@ async function settleChange(source: AppSourceRecord, commit: string) {
     const { stdout } = await git(source.folder!, ['status', '--porcelain']);
     if (!stdout.trim()) await git(source.folder!, ['merge', '-q', '--ff-only', commit]);
   } catch { /* The folder moved on its own. The branch keeps the change. */ }
-  try { await git(source.folder!, ['worktree', 'remove', '--force', source.changeFolder!]); } catch { /* Already gone. */ }
+  if (source.changeFolder) { try { await git(source.folder!, ['worktree', 'remove', '--force', source.changeFolder]); } catch { /* Already gone. */ } }
   updateAppSource(source.id, { changeFolder: null, changeBranch: null });
+  await recordCatalogVersion(source, commit);
+}
+
+/**
+ * For an app from the catalog: once the running commit includes the catalog's current version (an
+ * update switched over, or the builder merged it into a change), record that version.
+ */
+export async function recordCatalogVersion(source: AppSourceRecord, running: string): Promise<boolean> {
+  if (!source.catalogId || !source.folder) return false;
+  let entry;
+  try { entry = catalogEntry(source.catalogId); } catch { return false; }
+  if (!entry || entry.version === source.catalogVersion) return false;
+  try {
+    const { stdout } = await git(source.folder, ['rev-parse', '-q', '--verify', `${catalogRef(entry.version)}^{commit}`]);
+    const target = stdout.trim();
+    await git(source.folder, ['merge-base', '--is-ancestor', target, running]);
+    updateAppSource(source.id, { catalogVersion: entry.version, catalogCommit: target });
+    return true;
+  } catch {
+    // Not fetched here yet, or not included in what's running.
+    return false;
+  }
 }
 
 /** Drop a change without applying it. Its branch stays in the app's repository. */
@@ -386,7 +416,7 @@ export async function discardChange(sourceId: string): Promise<AppSourceRecord> 
   return updateAppSource(source.id, { changeFolder: null, changeBranch: null })!;
 }
 
-function requireFolder(sourceId: string): AppSourceRecord {
+export function requireFolder(sourceId: string): AppSourceRecord {
   const source = getAppSource(sourceId);
   if (!source) throw new AppBuildError('not_found', 'That app isn’t in Ri anymore.');
   if (!source.folder || !fs.existsSync(/* turbopackIgnore: true */ source.folder)) throw new AppBuildError('setup', `Ri can’t find ${source.name}’s folder${source.folder ? ` at ${source.folder}` : ''}.`);

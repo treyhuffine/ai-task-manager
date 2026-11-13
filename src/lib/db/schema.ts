@@ -839,7 +839,7 @@ export const appSources = sqliteTable('app_sources', {
   gitUrl: text(),
   /** How to build and deploy an app Ri didn't make, in the person's words. */
   notes: text(),
-  /** Ri made it with New app, so Ri installs and changes it with the kit's commands. */
+  /** Ri made it (New app) or added it (the catalog), so Ri installs and changes it with the kit's commands. */
   createdByRi: integer({ mode: 'boolean' }).notNull(),
   /** The personal app (its connections' shared app id) once Ri connects to it. */
   personalAppId: text(),
@@ -848,6 +848,11 @@ export const appSources = sqliteTable('app_sources', {
   /** A change in progress: its working copy and branch. */
   changeFolder: text(),
   changeBranch: text(),
+  /** An app added from Ri's catalog (src/lib/apps/catalog.json): its entry's ID. */
+  catalogId: text(),
+  /** The catalog version the app includes, and the upstream commit it resolved to. */
+  catalogVersion: text(),
+  catalogCommit: text(),
 });
 
 // ─── App hub (docs/personal-apps.md "The hub") ─────────────────────────────

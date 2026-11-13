@@ -13431,7 +13431,7 @@ export function dropHubApprovals(appId: string, connectionId?: string): void {
 type AppSourceRecord = typeof appSources.$inferSelect;
 export type { AppSourceRecord };
 
-export function createAppSource(input: Pick<AppSourceRecord, 'name' | 'createdByRi'> & Partial<Pick<AppSourceRecord, 'folder' | 'gitUrl' | 'notes' | 'personalAppId' | 'url'>>): AppSourceRecord {
+export function createAppSource(input: Pick<AppSourceRecord, 'name' | 'createdByRi'> & Partial<Pick<AppSourceRecord, 'folder' | 'gitUrl' | 'notes' | 'personalAppId' | 'url' | 'catalogId' | 'catalogVersion' | 'catalogCommit'>>): AppSourceRecord {
   const now = new Date().toISOString();
   return getDb().insert(appSources).values({ id: uuidv7(), createdAt: now, updatedAt: now, ...input }).returning().get();
 }
@@ -13448,7 +13448,7 @@ export function listAppSources(): AppSourceRecord[] {
   return getDb().select().from(appSources).orderBy(asc(appSources.name)).all();
 }
 
-export function updateAppSource(id: string, patch: Partial<Pick<AppSourceRecord, 'name' | 'folder' | 'gitUrl' | 'notes' | 'personalAppId' | 'url' | 'changeFolder' | 'changeBranch'>>): AppSourceRecord | undefined {
+export function updateAppSource(id: string, patch: Partial<Pick<AppSourceRecord, 'name' | 'folder' | 'gitUrl' | 'notes' | 'personalAppId' | 'url' | 'changeFolder' | 'changeBranch' | 'catalogVersion' | 'catalogCommit'>>): AppSourceRecord | undefined {
   return getDb().update(appSources).set({ ...patch, updatedAt: new Date().toISOString() }).where(eq(appSources.id, id)).returning().get();
 }
 

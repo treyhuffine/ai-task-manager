@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { APP_NAME } from '@/constants/app';
 import { trpc, trpcClient } from '@/lib/trpc/client';
+import { useCatalogApp } from './app-catalog';
 
 /**
  * Where an app's source lives (docs/personal-apps.md "Building and changing apps"), so Ri can fix
@@ -32,6 +33,7 @@ export function AppSourcePanel({ appId, appName, onOpenBuild }: { appId: string;
     onSuccess: () => { setEditing(false); setError(null); void queryClient.invalidateQueries({ queryKey: trpc.appBuilds.pathKey() }); },
     onError: (e) => setError(e instanceof Error ? e.message : String(e)),
   });
+  const catalogApp = useCatalogApp(source.data?.id);
   if (source.isPending) return null;
   const data = source.data;
 
@@ -42,6 +44,12 @@ export function AppSourcePanel({ appId, appName, onOpenBuild }: { appId: string;
       {data ? (
         <div className="space-y-2 text-xs">
           <p className="text-muted-foreground">{data.folder ?? data.gitUrl}{data.notes ? `. ${data.notes}` : ''}</p>
+          {catalogApp && (
+            <p className="text-muted-foreground">
+              From {APP_NAME}&apos;s catalog, {catalogApp.installedVersion ?? 'unknown version'}.
+              {catalogApp.updateAvailable && <> {catalogApp.version} is available. <button type="button" className="underline underline-offset-2" onClick={() => onOpenBuild(data.id)}>Update</button></>}
+            </p>
+          )}
           {data.createdByRi && (
             <div className="flex flex-wrap gap-2">
               {data.changeFolder
