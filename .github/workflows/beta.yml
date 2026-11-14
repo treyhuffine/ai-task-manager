@@ -1,0 +1,79 @@
+name: Beta desktop builds
+# Manual workflow_dispatch build across macOS and Linux for beta testing.
+# Uploads ad-hoc signed Mac DMGs, Linux AppImages, and headless runtime tarballs
+# as workflow artifacts without requiring publisher signing keys.
+on:
+  workflow_dispatch:
+    inputs:
+      with_speech:
+        description: Bundle the local speech helper
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Beta ${{ matrix.platform }} / ${{ matrix.arch }}
+    timeout-minutes: 90
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Native builds on the same OS baselines as release.yml.
+        include:
+          - { os: macos-15, platform: darwin, arch: arm64 }
+          - { os: macos-15-intel, platform: darwin, arch: x64 }
+          - { os: ubuntu-22.04, platform: linux, arch: x64 }
+          - { os: ubuntu-22.04-arm, platform: linux, arch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/setup@v3
+        with:
+          version: 12.14.0
+          install: false
+          node-version-file: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.5.0'
+          cache: pnpm
+      - name: Verify the native target
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e 'const assert = require("node:assert/strict"); assert.equal(process.platform, process.env.EXPECTED_PLATFORM); assert.equal(process.arch, process.env.EXPECTED_ARCH); console.info(process.platform, process.arch, process.versions.node)'
+      - name: Install the pinned speech build tool
+        if: inputs.with_speech
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.10.3'
+          enable-cache: false
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2 squashfs-tools-ng gcc-12 g++-12
+          echo "CC=gcc-12" >> "$GITHUB_ENV"
+          echo "CXX=g++-12" >> "$GITHUB_ENV"
+      - run: pnpm install --frozen-lockfile
+      - name: Build speech helper
+        if: inputs.with_speech
+        run: pnpm speech:build
+      - name: Build beta installers
+        env:
+          RI_RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          if [ "${{ inputs.with_speech }}" = "true" ]; then
+            node desktop/package.mjs --share --with-speech
+          else
+            node desktop/package.mjs --share
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ri-beta-${{ matrix.platform }}-${{ matrix.arch }}
+          retention-days: 14
+          path: |
+            release/desktop/*.dmg
+            release/desktop/*.AppImage
+            release/ri-runtime-*.tar.gz

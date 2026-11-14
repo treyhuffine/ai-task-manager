@@ -19,10 +19,10 @@ const repo = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
 const headless = process.argv.includes('--headless');
 const releaseBuild = process.argv.includes('--release');
-// A dmg to hand to someone, without a Developer ID (docs/publishing.md). Ad-hoc
-// signed, since Apple silicon won't run an app with no signature at all. macOS warns
-// on first open, and it can't update itself.
-const shareBuild = process.argv.includes('--share') && process.platform === 'darwin';
+// An installer to hand to someone, without publisher keys or a Developer ID
+// (docs/publishing.md). Ad-hoc signed on macOS, since Apple silicon won't run
+// an app with no signature at all, and an AppImage on Linux. Can't update itself.
+const shareBuild = process.argv.includes('--share');
 // A release built from a checkout for this computer (docs/always-on-spec.md
 // section 8): written straight into this folder, with no distribution copy or
 // archive, since the release store takes its files from here.
@@ -173,7 +173,8 @@ console.info(`Headless runtime: ${runtimeOutput}`);
 console.info(`Update payload: ${runtimeArchive}`);
 if (!headless) {
   const platform = process.platform === 'darwin' ? Platform.MAC : Platform.LINUX;
-  const targets = shareBuild ? ['dmg'] : releaseBuild ? (process.platform === 'darwin' ? ['dmg', 'zip'] : ['AppImage']) : ['dir'];
+  const platformTargets = process.platform === 'darwin' ? (releaseBuild && !shareBuild ? ['dmg', 'zip'] : ['dmg']) : ['AppImage'];
+  const targets = (shareBuild || releaseBuild) ? platformTargets : ['dir'];
   const resourcesToCopy = ['server', 'node', 'desktop-config.json', 'runtime-manifest.json', ...(fs.existsSync(policy) ? ['release-policy.json'] : [])];
   const output = await build({ targets: platform.createTarget(targets, process.arch === 'arm64' ? Arch.arm64 : Arch.x64), publish: 'never', config: {
     appId: 'app.ri.desktop', productName: 'Ri', electronVersion: pkg.devDependencies.electron,
