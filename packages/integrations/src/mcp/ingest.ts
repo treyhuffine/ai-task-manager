@@ -162,7 +162,7 @@ export async function ingestMcpServers(
   };
   const { providerId, displayName, actionPrefix } = identityOf(accounts[0]!);
   const ids = new Set<string>();
-  type PreparedTool = { tool: McpToolDef; input: z.ZodObject<z.ZodRawShape>; mutating: boolean; risk: RiskLevel };
+  type PreparedTool = { tool: McpToolDef; input: z.ZodObject<z.ZodRawShape>; mutating: boolean; risk: RiskLevel; openWorld?: boolean };
   const prepared: {
     opts: IngestMcpOptions; connection: Connection; tools: McpToolDef[];
     enabled: Map<string, PreparedTool>; sessionToken: string;
@@ -211,7 +211,10 @@ export async function ingestMcpServers(
       const mutating = override?.mutating ?? (annotations?.readOnlyHint === true ? false : opts.defaultMutating ?? true);
       const risk = override?.risk ?? (mutating
         ? opts.defaultRisk ?? (annotations?.destructiveHint === false ? 'medium' : 'high') : 'low');
-      enabled.set(tool.name, { tool, input: jsonSchemaToZodObject(tool.inputSchema), mutating, risk });
+      // Reaching outside: a trusted server's word either way. An untrusted server's claim counts only
+      // when it makes a call stricter, so its own annotations can never relax the gate.
+      const openWorld = opts.trustToolAnnotations ? annotations?.openWorldHint : tool.annotations?.openWorldHint === true ? true : undefined;
+      enabled.set(tool.name, { tool, input: jsonSchemaToZodObject(tool.inputSchema), mutating, risk, ...(openWorld !== undefined ? { openWorld } : {}) });
     }
     prepared.push({ opts, connection, tools, enabled, sessionToken });
   }
@@ -237,6 +240,9 @@ export async function ingestMcpServers(
       return selected ? [{ ...selected, account }] : [];
     });
     const mutating = variants.some(variant => variant.mutating);
+    // Across accounts, the strictest word: outside if any says so, the person's own only if all do.
+    const openWorld = variants.some(variant => variant.openWorld === true) ? true
+      : variants.every(variant => variant.openWorld === false) ? false : undefined;
     const risk = variants.reduce<RiskLevel>((maximum, variant) => riskOrder[variant.risk] > riskOrder[maximum] ? variant.risk : maximum, 'low');
     const first = variants[0]!;
     const description = first.tool.description
@@ -245,7 +251,7 @@ export async function ingestMcpServers(
     const result = action({
       id: `${actionPrefix}.${name}`, description,
       input: unionInput(variants.map(variant => ({ schema: variant.tool.inputSchema, input: variant.input }))),
-      mutating, risk,
+      mutating, risk, ...(openWorld !== undefined ? { openWorld } : {}),
       async execute(ctx, input) {
         const selected = selectedTool(ctx.connection, name, input);
         const { account } = selected;

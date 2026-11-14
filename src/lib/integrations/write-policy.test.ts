@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   defaultApprovalMode,
   isOutwardAction,
+  reachesOutside,
   resolveApprovalMode,
   setActionOverride,
   getActionOverride,
@@ -133,3 +134,21 @@ describe('overrides', () => {
     expect(resolveApprovalMode({ actionId: 'todoist.add-tasks', risk: 'medium', mutating: true })).toBe('auto');
   });
 });
+
+describe('reachesOutside: what a personal app may never do quietly', () => {
+  it('is sending, posting, sharing, inviting or paying, by verb when the provider says nothing', () => {
+    for (const actionId of ['gmail.send_email', 'slack.post_message', 'google_drive.share_file', 'google_calendar.invite_attendees', 'stripe.create_payment', 'paypal.pay_invoice', 'bank.transfer_funds']) {
+      expect(reachesOutside({ actionId, mutating: true }), actionId).toBe(true);
+    }
+    for (const actionId of ['gmail.create_draft', 'gmail.modify_labels', 'google_calendar.create_event', 'notion.update_page', 'google_calendar.delete_event']) {
+      expect(reachesOutside({ actionId, mutating: true }), actionId).toBe(false);
+    }
+  });
+
+  it('takes the provider\'s word where it gave one, and never counts a read', () => {
+    expect(reachesOutside({ actionId: 'mcp.x.post_entry', mutating: true, openWorld: false })).toBe(false);
+    expect(reachesOutside({ actionId: 'mcp.x.create_doc', mutating: true, openWorld: true })).toBe(true);
+    expect(reachesOutside({ actionId: 'gmail.send_email', mutating: false })).toBe(false);
+  });
+});
+

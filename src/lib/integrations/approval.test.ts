@@ -105,31 +105,67 @@ describe('appApprovalPolicy', () => {
     expect(await gate.check(request())).toBe('allow');
     expect(await gate.check(request())).toBe('ask');
   });
-  it('asks for every write a hub app makes, shows it in the chat that started it, and lets only that app retry it', async () => {
+  describe('a personal app through the hub', () => {
     const hub = (appId: string, startedBy: NonNullable<Caller['hubApp']>['startedBy']): Caller => ({ type: 'app', id: `hub:${appId}`, hubApp: { appId, startedBy } });
-    const gate = policy();
-    // Even an action the person set to run without asking, and even with dev auto-approve.
-    setActionOverride('google_calendar.delete_event', 'auto');
-    try {
-      expect(await gate.check(check({ caller: hub('bloom', { kind: 'chat', id: CHAT }) }))).toBe('ask');
-      expect(await policy({ autoApprove: true }).check(check({ caller: hub('bloom', { kind: 'job', label: 'import' }) }))).toBe('ask');
-    } finally { setActionOverride('google_calendar.delete_event', null); }
-    const pending = listPendingApprovals();
-    // One pending for the app's call, wherever it was started from, shown in the chat that started it.
-    expect(pending).toHaveLength(1);
-    expect(pending[0]).toMatchObject({ sessionId: CHAT, hubApp: { appId: 'bloom', startedBy: { kind: 'chat', id: CHAT } } });
-    expect(events.recordApprovalRequested).toHaveBeenCalledTimes(1);
-    expect(sessionIdFromCaller(hub('bloom', { kind: 'job', label: 'import' }))).toBeNull();
-    resolvePendingApprovals([pending[0]!.id], 'approve');
-    // Another app, a chat's own call, and an anonymous caller can't use Bloom's approval.
-    expect(await gate.check(check({ caller: hub('finances', { kind: 'chat', id: CHAT }) }))).toBe('ask');
-    expect(await gate.check(check())).toBe('ask');
-    expect(await gate.check(check({ caller: { type: 'mcp' } }))).toBe('ask');
-    // Bloom's identical retry is allowed once, even from its job rather than the chat.
-    expect(await gate.check(check({ caller: hub('bloom', { kind: 'job', label: 'import' }) }))).toBe('allow');
-    expect(await gate.check(check({ caller: hub('bloom', { kind: 'job', label: 'import' }) }))).toBe('ask');
-    // A hub app's reads never ask.
-    expect(await gate.check(check({ mutating: false, caller: hub('bloom', { kind: 'app' }) }))).toBe('allow');
+    const job = hub('bloom', { kind: 'job', label: 'import' });
+    const send = (overrides: Partial<ApprovalCheckInput> = {}) => check({ actionId: 'gmail.send_email', risk: 'medium', ...overrides });
+
+    it('asks for a write that reaches outside every time, even when the action runs without asking and in development', async () => {
+      const gate = policy();
+      setActionOverride('gmail.send_email', 'auto');
+      try {
+        expect(await gate.check(send({ caller: hub('bloom', { kind: 'chat', id: CHAT }) }))).toBe('ask');
+        expect(await policy({ autoApprove: true }).check(send({ caller: job }))).toBe('ask');
+        // The same write from the person's own agent follows their setting.
+        expect(await gate.check(send())).toBe('allow');
+      } finally { setActionOverride('gmail.send_email', null); }
+      const pending = listPendingApprovals();
+      // One pending for the app's call, wherever it was started from, shown in the chat that started it.
+      expect(pending).toHaveLength(1);
+      expect(pending[0]).toMatchObject({ sessionId: CHAT, hubApp: { appId: 'bloom', startedBy: { kind: 'chat', id: CHAT } } });
+      expect(events.recordApprovalRequested).toHaveBeenCalledTimes(1);
+      expect(sessionIdFromCaller(job)).toBeNull();
+      resolvePendingApprovals([pending[0]!.id], 'approve');
+      // Another app, a chat's own call and an anonymous caller can't use Bloom's approval.
+      expect(await gate.check(send({ caller: hub('finances', { kind: 'chat', id: CHAT }) }))).toBe('ask');
+      expect(await gate.check(send({ caller: { type: 'mcp' } }))).toBe('ask');
+      // Bloom's identical retry is allowed once, even from its job rather than the chat.
+      expect(await gate.check(send({ caller: job }))).toBe('allow');
+      expect(await gate.check(send({ caller: job }))).toBe('ask');
+    });
+
+    it('lets a write to the person\'s own data follow their usual setting, from a chat or a job', async () => {
+      const gate = policy();
+      const createEvent = check({ actionId: 'google_calendar.create_event', risk: 'medium', caller: job });
+      // A reversible write to their own calendar runs without asking by default, as for any caller.
+      expect(await gate.check(createEvent)).toBe('allow');
+      // Pulled behind the gate by the person, it asks the app too.
+      setActionOverride('google_calendar.create_event', 'ask');
+      try { expect(await gate.check(createEvent)).toBe('ask'); } finally { setActionOverride('google_calendar.create_event', null); }
+      // An irreversible one asks by default, and the person can let it run.
+      const remove = check({ caller: job });
+      expect(await gate.check(remove)).toBe('ask');
+      setActionOverride('google_calendar.delete_event', 'auto');
+      try { expect(await gate.check(remove)).toBe('allow'); } finally { setActionOverride('google_calendar.delete_event', null); }
+      expect(await policy({ autoApprove: true }).check(check({ caller: job }))).toBe('allow');
+      // Reads never ask.
+      expect(await gate.check(check({ mutating: false, caller: hub('bloom', { kind: 'app' }) }))).toBe('allow');
+    });
+
+    it('takes the provider\'s word on whether a write reaches outside, where it gave one', async () => {
+      const gate = policy();
+      // A tool that posts but says it stays within the person's own data follows their setting, here
+      // to run without asking. Without that word, its verb says it reaches outside, and it asks.
+      setActionOverride('mcp.notes.post_entry', 'auto');
+      try {
+        expect(await gate.check(check({ actionId: 'mcp.notes.post_entry', risk: 'medium', openWorld: false, caller: job }))).toBe('allow');
+        expect(await gate.check(check({ actionId: 'mcp.notes.post_entry', risk: 'medium', caller: job }))).toBe('ask');
+      } finally { setActionOverride('mcp.notes.post_entry', null); }
+      // A tool with a quiet name that says it reaches the open world asks, even set to run without asking.
+      setActionOverride('mcp.docs.create_doc', 'auto');
+      try { expect(await gate.check(check({ actionId: 'mcp.docs.create_doc', risk: 'medium', openWorld: true, caller: job }))).toBe('ask'); }
+      finally { setActionOverride('mcp.docs.create_doc', null); }
+    });
   });
   it('lets reads, dev auto-approve, and the notifier delivery through without a pending', async () => {
     const gate = policy();

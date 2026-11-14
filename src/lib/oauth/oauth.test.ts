@@ -421,6 +421,38 @@ describe('the hub for personal apps', () => {
     return new URL(response.headers.get('location')!);
   }
 
+  /** An app connected through the SDK, with the person allowing Ri's task list. */
+  async function connectApp() {
+    const p = appProvider();
+    const first = new Client({ name: 'bloom-hub', version: '1.0.0' });
+    await expect(first.connect(new StreamableHTTPClientTransport(new URL(HUB), { authProvider: p, fetch: serve as typeof fetch }))).rejects.toBeInstanceOf(UnauthorizedError);
+    const callback = await allow(p.authorizationUrl!, ['list_tasks']);
+    await new StreamableHTTPClientTransport(new URL(HUB), { authProvider: p, fetch: serve as typeof fetch }).finishAuth(callback.searchParams);
+    return { tokens: (await p.tokens())!, clientId: (await p.clientInformation())!.client_id };
+  }
+  const listTools = (accessToken: string) => serve(HUB, { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+
+  it('rotates the refresh token on every refresh, and ends all of the app\'s tokens when a used one comes back', async () => {
+    const { tokens, clientId } = await connectApp();
+    const second = await token({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token!, client_id: clientId });
+    expect(second.status).toBe(200);
+    expect(second.body.refresh_token).toMatch(/^ri_hub_rt_/);
+    expect(second.body.refresh_token).not.toBe(tokens.refresh_token);
+    // The refresh spent the old pair: its access token stops at once.
+    expect((await listTools(tokens.access_token)).status).toBe(401);
+    expect((await listTools(second.body.access_token)).status).toBe(200);
+    const third = await token({ grant_type: 'refresh_token', refresh_token: second.body.refresh_token, client_id: clientId });
+    expect(third.status).toBe(200);
+    // The first refresh token again: only a copy could present it, so every token the app holds ends.
+    const replay = await token({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token!, client_id: clientId });
+    expect(replay).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
+    expect((await listTools(third.body.access_token)).status).toBe(401);
+    expect(await token({ grant_type: 'refresh_token', refresh_token: third.body.refresh_token, client_id: clientId })).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
+    // Another client can't spend this app's refresh token either.
+    const fresh = await connectApp();
+    expect(await token({ grant_type: 'refresh_token', refresh_token: fresh.tokens.refresh_token!, client_id: clientId })).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
+  });
+
   it('connects an app with its own token, serves exactly its grant, and cuts it off when turned off', async () => {
     const p = appProvider();
     const first = new Client({ name: 'bloom-hub', version: '1.0.0' });

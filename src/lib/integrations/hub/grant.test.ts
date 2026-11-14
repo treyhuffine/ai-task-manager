@@ -23,7 +23,7 @@ describe('the hub consent screen', () => {
       ['Gmail', 'me@example.com'], ['Gmail', 'me@work.example'], ['Google Calendar', 'me@example.com'], ['Google Calendar', 'me@work.example'],
     ]);
     const gmail = options.accounts[0]!;
-    expect(gmail.tools.map(t => [t.name, t.requested, t.write])).toEqual([
+    expect(gmail.tools.map(t => [t.name, t.requested, t.outside])).toEqual([
       ['gmail__search_messages', true, false], ['gmail__get_message', true, false], ['gmail__send_email', false, true],
     ]);
     expect(options.services.find(s => s.name === 'list_tasks')?.requested).toBe(true);

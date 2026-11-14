@@ -47,6 +47,24 @@ export function isOutwardAction(actionId: string): boolean {
   return /^(send|post|publish|share|upload|dm|tweet|broadcast|reply)([_-]|$)/.test(method) || /(message|mail)$/.test(method);
 }
 
+/**
+ * Whether a write reaches outside the person's own data: it sends, posts, shares, invites or pays,
+ * so other people or systems see it and it can't be quietly taken back. Used for personal apps'
+ * calls through the hub, where such a write asks every time, whoever triggered it, while a write to
+ * the person's own data follows their usual setting (docs/personal-apps.md "The hub").
+ *
+ * The provider's word comes first: MCP's `openWorldHint` (`openWorld`), where it exists. Without
+ * it, the action's verb decides: the outward verbs above, and inviting or paying.
+ */
+export function reachesOutside(facts: Pick<ActionApprovalFacts, 'actionId' | 'mutating'> & { openWorld?: boolean }): boolean {
+  if (!facts.mutating) return false;
+  if (facts.openWorld !== undefined) return facts.openWorld;
+  const method = facts.actionId.slice(facts.actionId.lastIndexOf('.') + 1);
+  return isOutwardAction(facts.actionId)
+    || /^(invite|pay|transfer|purchase|charge)([_-]|$)/.test(method)
+    || /(invite|invitation|invitations|payment|payout|transfer)s?$/.test(method);
+}
+
 /** The built-in default for an action, before any user override. */
 export function defaultApprovalMode(facts: ActionApprovalFacts): ApprovalMode {
   if (!facts.mutating) return 'auto'; // reads are never gated

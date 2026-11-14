@@ -15,8 +15,22 @@ import { webPageInput } from './web-page';
 export const RI_SERVICE_NAMES = ['get_task', 'get_note', 'list_tasks', 'list_notes', 'create_task', 'create_note', 'ai_text', 'extract_text', 'read_web_page'] as const;
 export type RiServiceName = typeof RI_SERVICE_NAMES[number];
 
-/** Which services only read, so the grant screen and approvals can tell them apart from writes. */
-export const RI_SERVICE_WRITES: ReadonlySet<RiServiceName> = new Set(['create_task', 'create_note']);
+/**
+ * What each service does to the person's data, so the line between what an app may do quietly and
+ * what asks the person is plain here (docs/personal-apps.md "The hub"). `own` writes change only
+ * the person's own Ri data, and follow their usual setting, as Ri's task and note writes do for
+ * every caller: they run without asking. None reaches outside. Reading a public page or running the
+ * person's own model changes nothing anywhere. A service that did reach outside would need its own
+ * value here and an approval path in the hub before it could be offered.
+ */
+export const RI_SERVICE_REACH: Record<RiServiceName, 'read' | 'own'> = {
+  get_task: 'read', get_note: 'read', list_tasks: 'read', list_notes: 'read',
+  create_task: 'own', create_note: 'own',
+  ai_text: 'read', extract_text: 'read', read_web_page: 'read',
+};
+
+/** The services that write, all to the person's own data. */
+export const RI_SERVICE_WRITES: ReadonlySet<RiServiceName> = new Set(RI_SERVICE_NAMES.filter((name) => RI_SERVICE_REACH[name] === 'own'));
 
 export type RiServiceErrorCode = 'invalid_input' | 'interrupted' | 'not_found' | 'unsupported';
 export class RiServiceError extends Error {

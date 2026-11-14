@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import * as q from '@/lib/db/queries';
-import { callRiService, RiServiceError } from './ri-services';
+import { callRiService, RI_SERVICE_NAMES, RI_SERVICE_REACH, RI_SERVICE_WRITES, RiServiceError } from './ri-services';
 
 const signal = new AbortController().signal;
 
@@ -58,3 +58,10 @@ it('reads text from a real PDF through Ri\'s parser', async () => {
   const result = await callRiService('extract_text', { fileName: 'confirmation.pdf', mimeType: 'application/pdf', base64: 'JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA2NyA+PgpzdHJlYW0KQlQgL0YxIDE4IFRmIDcyIDcyMCBUZCAoUml2ZXJzaWRlIEhvdXNlIGNvbmZpcm1hdGlvbiBSSC00ODIxKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCjUgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCjAwMDAwMDAyNDEgMDAwMDAgbiAKMDAwMDAwMDM1OCAwMDAwMCBuIAp0cmFpbGVyCjw8IC9TaXplIDYgL1Jvb3QgMSAwIFIgPj4Kc3RhcnR4cmVmCjQyOAolJUVPRgo=' }, { appId: randomUUID() }, signal) as { text: string };
   expect(result.text).toContain('Riverside House confirmation RH-4821');
 }, 20000);
+
+it('lists what each service does: none reaches outside, and the writes change only the person\'s own Ri data', () => {
+  expect(Object.keys(RI_SERVICE_REACH).sort()).toEqual([...RI_SERVICE_NAMES].sort());
+  expect(Object.values(RI_SERVICE_REACH).every(reach => reach === 'read' || reach === 'own')).toBe(true);
+  expect([...RI_SERVICE_WRITES].sort()).toEqual(['create_note', 'create_task']);
+});
+
