@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline';
 import { randomBytes } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import getPort from 'get-port';
+import { terminateWindowsTree } from '@/lib/utils/windows-processes';
 import { acquireServiceOwner } from '@/lib/service/owner';
 import { runtimeJob, initializeRuntimeJobs, stopRuntimeJobs } from '@/lib/service/runtime-job';
 import { serviceEnvironment } from '@/lib/service/environment';
@@ -108,8 +109,12 @@ async function stopBackend() {
   expectedExit = true;
   if (child.exitCode === null && child.signalCode === null) {
     const exited = once(child, 'exit');
-    child.kill('SIGTERM');
-    const force = setTimeout(() => child.kill('SIGKILL'), 15_000);
+    if (process.platform === 'win32' && child.connected) child.send({ type: 'ri:stop' });
+    else child.kill('SIGTERM');
+    const force = setTimeout(() => {
+      if (process.platform === 'win32' && child.pid) void terminateWindowsTree(child.pid).catch(() => child.kill('SIGKILL'));
+      else child.kill('SIGKILL');
+    }, 15_000);
     try { await exited; } finally { clearTimeout(force); }
   }
   next = undefined;
@@ -241,6 +246,7 @@ async function killBackendTree(reason: string) {
   const child = next;
   if (!child?.pid) return;
   exitReason = reason;
+  if (process.platform === 'win32') { await terminateWindowsTree(child.pid); return; }
   const pids = await ownedProcessIds(child.pid).catch(() => [] as number[]);
   for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
   child.kill('SIGKILL');
@@ -552,12 +558,12 @@ async function start() {
     },
     unavailable: error => { status.phase = 'failed'; status.error = error; },
   });
-  if (fs.existsSync(paths.socket)) {
+  if (process.platform !== 'win32' && fs.existsSync(paths.socket)) {
     if (!fs.lstatSync(paths.socket).isSocket()) throw new Error('The service socket path is occupied by another file');
     fs.unlinkSync(paths.socket);
   }
   await new Promise<void>((resolve, reject) => { control.once('error', reject); control.listen(paths.socket, resolve); });
-  fs.chmodSync(paths.socket, 0o600);
+  if (process.platform !== 'win32') fs.chmodSync(paths.socket, 0o600);
   // Keep the private recovery/status surface alive without a crash loop.
   try { await updater.recover(); }
   catch (error) {
@@ -775,6 +781,9 @@ async function checkForRelease() {
   } catch (error) { console.warn('[update] Automatic check unavailable:', error instanceof Error ? error.message : 'Offline'); }
 }
 process.once('SIGTERM', () => void shutdown()); process.once('SIGINT', () => void shutdown());
+// Windows has no POSIX signals. A desktop-owned controller ends with the
+// helper's IPC connection, including when the app crashes.
+if (process.env.RI_DESKTOP_OWNED === '1') process.once('disconnect', () => void shutdown());
 void start().catch(async error => {
   console.error('[service]', error instanceof Error ? error.message : 'Startup failed');
   status.phase = 'failed'; status.error = error instanceof Error ? error.message : 'Startup failed';

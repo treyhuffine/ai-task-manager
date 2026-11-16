@@ -25,6 +25,12 @@ function readMachineId(): string | null {
     const match = out.status === 0 ? /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(out.stdout) : null;
     return match?.[1] ?? null;
   }
+  if (process.platform === 'win32') {
+    const out = spawnSync(untraced('reg.exe'), ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid', '/reg:64'],
+      { encoding: 'utf8', timeout: 3000, windowsHide: true });
+    return out.status === 0 ? /MachineGuid\s+REG_SZ\s+([^\r\n]+)/i.exec(out.stdout)?.[1]?.trim() ?? null : null;
+  }
+  if (process.platform !== 'linux') return null;
   for (const file of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
     try {
       const id = fs.readFileSync(/* turbopackIgnore: true */ file, 'utf8').trim();

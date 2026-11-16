@@ -1,3 +1,4 @@
+import { hasPrivatePermissions } from '@/lib/config/private-paths';
 /**
  * The mark that makes a root a team space before anything starts in it
  * (docs/homes-spec.md §9.1, P6.1).
@@ -69,7 +70,7 @@ export function readTeamIntent(configDir: string = getConfigDir()): TeamIntent |
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw error;
   }
-  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0 || (process.getuid && stat.uid !== process.getuid())) {
+  if (!stat.isFile() || stat.isSymbolicLink() || !hasPrivatePermissions(stat) || (process.getuid && stat.uid !== process.getuid())) {
     throw new TeamIntentError(`${file} must be a private file owned by this user. Nothing was started.`);
   }
   let parsed: Partial<TeamIntent>;

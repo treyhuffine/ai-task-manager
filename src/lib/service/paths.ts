@@ -22,7 +22,7 @@ export function servicePaths() {
   return {
     id, identity,
     // A short per-user socket path also works with macOS's sockaddr_un limit.
-    socket: path.join(/* turbopackIgnore: true */ os.tmpdir(), `ri-${process.getuid?.() ?? 'user'}-${id}.sock`),
+    socket: process.platform === 'win32' ? `\\\\.\\pipe\\ri-${id}` : path.join(/* turbopackIgnore: true */ os.tmpdir(), `ri-${process.getuid?.() ?? 'user'}-${id}.sock`),
     settings: path.join(/* turbopackIgnore: true */ identity.config, 'local-service.json'),
     log: path.join(/* turbopackIgnore: true */ identity.work, 'service.log'),
     ownerLock: `${identity.database}.owner.sqlite`,
@@ -34,6 +34,8 @@ export function servicePaths() {
 export function getRuntimeBaseDir() {
   const base = process.env.RI_INSTALL_ROOT || (process.platform === 'darwin'
     ? path.join(/* turbopackIgnore: true */ os.homedir(), 'Library/Application Support', APP_NAME, 'runtime')
+    : process.platform === 'win32'
+    ? path.join(/* turbopackIgnore: true */ process.env.LOCALAPPDATA || path.join(/* turbopackIgnore: true */ os.homedir(), 'AppData/Local'), APP_NAME, 'runtime')
     : path.join(/* turbopackIgnore: true */ process.env.XDG_DATA_HOME || path.join(/* turbopackIgnore: true */ os.homedir(), '.local/share'), APP_SHORT_ID, 'runtime'));
   return canonical(path.resolve(/* turbopackIgnore: true */ base));
 }

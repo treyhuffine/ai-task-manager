@@ -14,8 +14,12 @@ export function atomicWriteFile(file: string, contents: string | Buffer): void {
     fs.closeSync(fd);
     fd = undefined;
     fs.renameSync(temporary, file);
-    const directory = fs.openSync(path.dirname(file), 'r');
-    try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+    // Windows cannot fsync a directory through Node's file API. The file's
+    // bytes above are still flushed before its atomic replacement.
+    if (process.platform !== 'win32') {
+      const directory = fs.openSync(path.dirname(file), 'r');
+      try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+    }
   } finally {
     if (fd !== undefined) fs.closeSync(fd);
     try { fs.unlinkSync(temporary); } catch (error) {
@@ -34,8 +38,10 @@ export async function atomicWriteFileAsync(file: string, contents: string | Buff
     handle = await io.open(temporary, 'wx', 0o600);
     await handle.writeFile(contents); await handle.sync(); await handle.close(); handle = undefined;
     await io.rename(temporary, file);
-    const directory = await io.open(path.dirname(file), 'r');
-    try { await directory.sync(); } finally { await directory.close(); }
+    if (process.platform !== 'win32') {
+      const directory = await io.open(path.dirname(file), 'r');
+      try { await directory.sync(); } finally { await directory.close(); }
+    }
   } finally {
     if (handle) await handle.close();
     await io.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });

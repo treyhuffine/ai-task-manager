@@ -50,15 +50,15 @@ export function DesktopDeviceSettings({ desktop }: { desktop: RiDesktop }) {
       </Button>}
     </section>
     {state.preferences && <DesktopPreferenceControls status={state.preferences} busy={blocked} save={value => change({ type: 'preferences', value })} />}
-    <section aria-label="Background service" className="space-y-3 rounded-lg border border-border p-3">
+    {desktop.platform === 'win32' ? <p className="text-sm text-muted-foreground">This Windows preview runs while Ri is open. Start at login and running after the app closes are not available.</p> : <section aria-label="Background service" className="space-y-3 rounded-lg border border-border p-3">
       <div className="flex items-center justify-between gap-3">
         <div><h3 className="text-sm font-medium">Keep Ri running when I log in</h3><p className="text-xs text-muted-foreground">Start this computer’s background service at login, even when the desktop window is closed.</p></div>
         <Switch aria-label="Start this computer’s service at login" checked={state.startsAtLogin} disabled={blocked || !state.serviceAvailable} onCheckedChange={enabled => void change({ type: 'login', enabled })} />
       </div>
-    </section>
+    </section>}
     <section aria-label="Updates on this computer" className="space-y-3 rounded-lg border border-border p-3">
       <h3 className="text-sm font-medium">Updates on this computer</h3>
-      {!update?.configured ? <div className="space-y-2 text-xs text-muted-foreground"><p>This build updates manually. The desktop app and background runtime update separately.</p><p>Update the runtime from a Ri checkout with <code>ri update --from &lt;checkout&gt;</code>. Rebuild and install Ri.app to update the desktop app. Your saved connection and local agent setup are kept.</p></div> : <>
+      {desktop.platform === 'win32' ? <p className="text-xs text-muted-foreground">Close Ri before installing a newer Windows installer. Your tasks, notes and chats stay on this computer. Automatic updates are not available in this preview.</p> : !update?.configured ? <div className="space-y-2 text-xs text-muted-foreground"><p>This build updates manually. The desktop app and background runtime update separately.</p><p>Update the runtime from a Ri checkout with <code>ri update --from &lt;checkout&gt;</code>. Rebuild and install Ri.app to update the desktop app. Your saved connection and local agent setup are kept.</p></div> : <>
         <p role="status" className="text-xs text-muted-foreground">{update.error || update.reason || `Update ${update.phase}`}</p>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" disabled={blocked} onClick={() => void change({ type: 'update-check' })}>Check for updates</Button>

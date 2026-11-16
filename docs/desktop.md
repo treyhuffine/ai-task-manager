@@ -8,6 +8,11 @@ Quick navigation: [Status](#status-and-landing-boundary), [Implementation review
 
 ## Status and landing boundary
 
+The native [Windows x64 preview](windows-first-version.md) has a separate
+qualification record. It runs its Home only while the app is open and has no
+login service, update feed or speech helper. Historical platform qualification
+claims below describe their dated candidates.
+
 **The standalone desktop and personal Homes implementation are on main. The P5.4 companion integration is built and exercised on macOS arm64.** Electron can select a Home or connected-device role before database startup, pair a viewer, opt into a supervised worker, and keep local controls outside the remote Home page. This is an unsigned local beta candidate, not a published or qualified production release. No production Home, OS login service, live tunnel, provider account or public release was changed by implementation tests.
 
 The original audit and phase snapshots later in this document are dated evidence. This status, the P5.4 checklist and the current implementation matrix supersede their statements about features still missing. Homes' personal device design is now adopted. Teams P6/P7 remain separate.
@@ -1413,7 +1418,7 @@ This is the original combined Home/team acceptance checklist. It remains uncheck
 | Malicious document, preview or oversized request | Untrusted content cannot execute as Ri or mutate via ambient cookies, bounded resource consumption, useful safe previews/downloads still work |
 | Signed clean installation with normal usage | Real shortcuts/editor/PTY/notifications/dialogs pass, logs contain no credentials, performance budgets and platform support are measured |
 
-The original packaged smoke demonstrated h2, eight SSE streams, certificate rejection, mock PKCE, relocation, native modules, bundled CLI, persistence and owned-process teardown. It did not certify this complete matrix. Linux and Intel Mac remain separate qualification work. Windows is unsupported by the current packager and service adapters. Full high availability or offline personal DB replication remain outside the current architecture.
+The original packaged smoke demonstrated h2, eight SSE streams, certificate rejection, mock PKCE, relocation, native modules, bundled CLI, persistence and owned-process teardown. It did not certify this complete matrix. Linux and Intel Mac remain separate qualification work. The [Windows preview](windows-first-version.md) has its own native installer and app-owned runtime qualification, without an OS service. Full high availability or offline personal DB replication remain outside the current architecture.
 
 ## Landing verification
 

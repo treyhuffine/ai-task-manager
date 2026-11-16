@@ -11,7 +11,7 @@ import { assertDesktopPackagingRuntime, DESKTOP_NODE_VERSION } from './package-p
 assertDesktopPackagingRuntime();
 const { build, Platform, Arch } = await import('electron-builder');
 const tar = await import('tar');
-const { appPartId, assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, LINUX_ICON_RELATIVE_PATH, MAC_MINIMUM_SYSTEM_VERSION, MAC_SIGN_IGNORE, pruneDependencySourceMaps, removeUnusedPackageCopy, SHELL_ENTRYPOINTS, rebaseResourceLinks } = await import('./package-files.mjs');
+const { copyNextVectorExtension, appPartId, assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, LINUX_ICON_RELATIVE_PATH, MAC_MINIMUM_SYSTEM_VERSION, MAC_SIGN_IGNORE, pruneDependencySourceMaps, removeUnusedPackageCopy, SHELL_ENTRYPOINTS, rebaseResourceLinks } = await import('./package-files.mjs');
 const { signRuntime } = await import('./sign-runtime.mjs');
 const { stageSpeechHelper } = await import('./speech/package.mjs');
 
@@ -29,8 +29,14 @@ const shareBuild = process.argv.includes('--share');
 const releaseDirArg = process.argv.indexOf('--release-dir');
 const releaseDir = releaseDirArg === -1 ? null : path.resolve(process.argv[releaseDirArg + 1] ?? '');
 if (releaseDir && (!process.argv[releaseDirArg + 1] || !headless || releaseBuild)) throw new Error('--release-dir needs a folder, and is only for a headless, unsigned local build');
-const run = (cmd, args, cwd = repo, env = process.env) => {
-  const result = spawnSync(cmd, args, { cwd, env, stdio: 'inherit' });
+const run = (cmd, args, cwd = repo, env = process.env, timeout) => {
+  if (process.platform === 'win32' && cmd === 'pnpm') {
+    const entry = process.env.npm_execpath;
+    if (!entry) throw new Error('Run packaging through pnpm');
+    if (entry.endsWith('.exe')) cmd = entry;
+    else { args = [entry, ...args]; cmd = process.execPath; }
+  }
+  const result = spawnSync(cmd, args, { cwd, env, stdio: 'inherit', timeout });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${cmd} exited with ${result.status}`);
 };
@@ -73,7 +79,7 @@ const { transformSync } = createRequire(require.resolve('tsup'))('esbuild');
 fs.writeFileSync(path.join(server, 'next.config.mjs'), transformSync(fs.readFileSync(path.join(repo, 'next.config.ts'), 'utf8'), { loader: 'ts', format: 'esm' }).code);
 
 const version = DESKTOP_NODE_VERSION;
-const archive = `node-v${version}-${process.platform}-${process.arch}.tar.gz`;
+const archive = `node-v${version}-${process.platform === 'win32' ? 'win' : process.platform}-${process.arch}.${process.platform === 'win32' ? 'zip' : 'tar.gz'}`;
 const base = `https://nodejs.org/dist/v${version}/`;
 const checksums = await fetch(`${base}SHASUMS256.txt`).then((r) => { if (!r.ok) throw new Error('Could not download Node checksums'); return r.text(); });
 const expected = checksums.split('\n').map((line) => line.trim().split(/\s+/)).find(([, name]) => name === archive)?.[0];
@@ -86,7 +92,7 @@ if (!fs.existsSync(cache)) {
 }
 if (createHash('sha256').update(fs.readFileSync(cache)).digest('hex') !== expected) throw new Error('Node download checksum mismatch');
 fs.mkdirSync(node);
-run('/usr/bin/tar', ['-xzf', cache, '--strip-components=1', '-C', node]);
+run(process.platform === 'win32' ? 'tar.exe' : '/usr/bin/tar', ['-xf', cache, '--strip-components=1', '-C', node]);
 
 // Scripts were disabled in deploy, so preserve the already-built native artifacts
 // from this exact Node ABI. Do not rebuild these libraries for Electron.
@@ -101,9 +107,11 @@ for (const name of ['better-sqlite3', 'node-pty']) {
 // Before the checks below, so they run against what ships.
 removeUnusedPackageCopy(server);
 console.info(`Removed ${pruneDependencySourceMaps(path.join(server, 'node_modules')) + pruneDependencySourceMaps(path.join(server, '.next-desktop/server'))} source maps from the release.`);
-const portableNode = path.join(node, 'bin/node');
-run(portableNode, ['-e', "const db = new (require('better-sqlite3'))(':memory:'); require('sqlite-vec').load(db); console.log('SQLite/vector:', db.prepare('select vec_version() version').get()); db.close(); require('node-pty').spawn('/bin/echo', ['PTY ready']).onExit(({exitCode}) => {if (exitCode) process.exitCode=exitCode;});"], server);
+const portableNode = path.join(node, process.platform === 'win32' ? 'node.exe' : 'bin/node');
 run(portableNode, ['dist/cli/index.mjs', '--help'], server);
+for (const name of ['.env', '.env.local', '.env.production', '.config', '.work', 'data.db']) {
+  if (fs.existsSync(path.join(server, name))) throw new Error(`Private data must not ship: server/${name}`);
+}
 
 fs.mkdirSync(shell);
 assertWindowPreloadsShipped(path.join(repo, 'desktop'));
@@ -121,7 +129,9 @@ if (callbackUrl) {
 fs.writeFileSync(desktopConfig, JSON.stringify({ callbackUrl, relayProviders: process.env.RI_DESKTOP_OAUTH_RELAY_PROVIDERS, appPart: appPartId(path.join(repo, 'dist/desktop'), pkg.devDependencies.electron) }));
 // Finalize resources before signing. Neither an updater nor a running service
 // may modify a signed .app after this step.
-console.info(`Verified ${rebaseResourceLinks(stage, stage)} portable resource links.`);
+console.info(`Verified ${rebaseResourceLinks(stage, stage, server)} portable resource links.`);
+copyNextVectorExtension(server);
+run(portableNode, [path.join(repo, 'desktop/native-probe.mjs')], server, process.env, 35_000);
 if (releaseBuild && process.platform === 'darwin') {
   if (!process.env.CSC_NAME) throw new Error('Signed macOS releases require CSC_NAME with your Developer ID Application identity');
   signRuntime(stage, process.env.CSC_NAME, path.join(repo, 'desktop/runtime-entitlements.plist'));
@@ -172,11 +182,13 @@ await tar.c({ file: runtimeArchive, cwd: runtimeOutput, gzip: true, portable: tr
 console.info(`Headless runtime: ${runtimeOutput}`);
 console.info(`Update payload: ${runtimeArchive}`);
 if (!headless) {
-  const platform = process.platform === 'darwin' ? Platform.MAC : Platform.LINUX;
-  const platformTargets = process.platform === 'darwin' ? (releaseBuild && !shareBuild ? ['dmg', 'zip'] : ['dmg']) : ['AppImage'];
+  const platform = process.platform === 'darwin' ? Platform.MAC : process.platform === 'win32' ? Platform.WINDOWS : Platform.LINUX;
+  const platformTargets = process.platform === 'darwin' ? (releaseBuild && !shareBuild ? ['dmg', 'zip'] : ['dmg']) : process.platform === 'win32' ? ['nsis'] : shareBuild ? ['AppImage', 'deb'] : ['AppImage'];
   const targets = (shareBuild || releaseBuild) ? platformTargets : ['dir'];
   const resourcesToCopy = ['server', 'node', 'desktop-config.json', 'runtime-manifest.json', ...(fs.existsSync(policy) ? ['release-policy.json'] : [])];
-  const output = await build({ targets: platform.createTarget(targets, process.arch === 'arm64' ? Arch.arm64 : Arch.x64), publish: 'never', config: {
+  // electron-builder normalizes its configuration in place. Each installer
+  // needs fresh arrays and objects, including the higher-version test build.
+  const packageOptions = () => ({ targets: platform.createTarget(targets, process.arch === 'arm64' ? Arch.arm64 : Arch.x64), publish: 'never', config: {
     appId: 'app.ri.desktop', productName: 'Ri', electronVersion: pkg.devDependencies.electron,
     directories: { app: shell, output: path.join(repo, 'release/desktop'), buildResources: path.join(repo, 'assets/brand/icons') },
     files: [...SHELL_ENTRYPOINTS, 'package.json', '!node_modules/**/*'], asar: true,
@@ -184,7 +196,9 @@ if (!headless) {
     protocols: [{ name: 'Ri OAuth callback', schemes: ['ri'] }],
     mac: { icon: path.join(repo, 'assets/brand/icons/icon.icns'), identity: releaseBuild ? process.env.CSC_NAME : shareBuild ? '-' : null, signIgnore: MAC_SIGN_IGNORE, minimumSystemVersion: MAC_MINIMUM_SYSTEM_VERSION, hardenedRuntime: true, notarize: releaseBuild,
       extendInfo: { NSMicrophoneUsageDescription: 'Ri uses the microphone when you record a voice message.', NSCameraUsageDescription: 'Ri uses the camera when you scan a pairing code.' } },
-    linux: { executableName: 'ri', syncDesktopName: true, icon: path.join(repo, LINUX_ICON_RELATIVE_PATH), category: 'Office' },
+    linux: { executableName: 'ri', syncDesktopName: true, icon: path.join(repo, LINUX_ICON_RELATIVE_PATH), category: 'Office', maintainer: 'Ri contributors' },
+    win: { icon: path.join(repo, 'assets/brand/icons/icon.ico'), signExecutable: false, artifactName: 'Ri-Setup-${version}-${arch}.exe' },
+    nsis: { oneClick: false, perMachine: false, allowElevation: false, allowToChangeInstallationDirectory: true, deleteAppDataOnUninstall: false, differentialPackage: false, include: path.join(repo, 'desktop/windows-installer.nsh') },
     // The native updater obtains the eligible URL from signed Ri metadata.
     publish: process.env.RI_RELEASE_FEED ? [{ provider: 'generic', url: new URL('.', process.env.RI_RELEASE_FEED).href }] : null,
     afterPack: async context => {
@@ -192,7 +206,7 @@ if (!headless) {
       // Builder's dependency filters prune pnpm's virtual store even for
       // extraResources. Copy the already verified runtime verbatim instead.
       for (const name of resourcesToCopy) fs.cpSync(path.join(stage, name), path.join(resources, name), { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
-      rebaseResourceLinks(resources, stage);
+      rebaseResourceLinks(resources, stage, path.join(resources, 'server'));
       // Any changed bytes here are included in the subsequent OS signature.
       run(process.execPath, ['dist/cli/index.mjs', 'service', 'manifest', resources]);
     },
@@ -202,6 +216,15 @@ if (!headless) {
       run(process.execPath, ['dist/cli/index.mjs', 'service', 'verify', resources]);
     },
   } });
+  const output = await build(packageOptions());
+  if (process.platform === 'win32' && process.argv.includes('--upgrade-test')) {
+    const parts = pkg.version.split('.').map(Number);
+    const upgradeVersion = `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
+    const upgradeOptions = packageOptions();
+    upgradeOptions.config.extraMetadata = { version: upgradeVersion };
+    upgradeOptions.config.directories.output = path.join(repo, 'release/windows-upgrade-test');
+    await build(upgradeOptions);
+  }
   console.info(`Desktop output: ${output.join(', ') || path.join(repo, 'release/desktop')}`);
 }
 console.info(releaseBuild ? 'Artifacts built. Verify them and sign the release manifest before publishing.' : 'Local unsigned build. This is not a published release.');

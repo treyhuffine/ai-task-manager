@@ -1,3 +1,4 @@
+import { hasPrivatePermissions } from '@/lib/config/private-paths';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
@@ -16,7 +17,7 @@ function readRecord() {
   const file = recordFile();
   if (!fs.existsSync(file)) return null;
   const stat = fs.lstatSync(file);
-  if (!stat.isFile() || stat.size > 16_384 || (stat.mode & 0o077) || (process.getuid && stat.uid !== process.getuid())) throw new Error('Unsafe desktop initialization record');
+  if (!stat.isFile() || stat.size > 16_384 || !hasPrivatePermissions(stat) || (process.getuid && stat.uid !== process.getuid())) throw new Error('Unsafe desktop initialization record');
   const record = recordSchema.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
   if (JSON.stringify(record.identity) !== JSON.stringify(serviceIdentity())) throw new Error('Desktop initialization belongs to another installation');
   return record;

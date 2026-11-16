@@ -2,10 +2,25 @@ import { afterEach, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { appPartId, assertCompanionPackage, assertShellDependencies, pruneDependencySourceMaps, removeUnusedPackageCopy, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks } from './package-files.mjs';
+import { createRequire } from 'node:module';
+import { copyNextVectorExtension, appPartId, assertCompanionPackage, assertShellDependencies, pruneDependencySourceMaps, removeUnusedPackageCopy, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks } from './package-files.mjs';
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
+it('removes optional dependency source maps while preserving executable code, types and assets', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-dependency-maps-')); dirs.push(root);
+  const modules = path.join(root, 'node_modules');
+  fs.mkdirSync(path.join(modules, 'example/nested'), { recursive: true });
+  const remove = ['example/index.js.map', 'example/nested/index.d.ts.map', 'example/style.css.map'];
+  const keep = ['example/index.js', 'example/index.d.ts', 'example/location.map', 'example/LICENSE'];
+  for (const name of [...remove, ...keep]) fs.writeFileSync(path.join(modules, name), 'fixture');
+  fs.mkdirSync(path.join(root, 'dist'));
+  fs.writeFileSync(path.join(root, 'dist/main.cjs.map'), 'Ri debug map');
+  expect(pruneDependencySourceMaps(modules)).toBe(3);
+  for (const name of remove) expect(fs.existsSync(path.join(modules, name))).toBe(false);
+  for (const name of keep) expect(fs.readFileSync(path.join(modules, name), 'utf8')).toBe('fixture');
+  expect(fs.readFileSync(path.join(root, 'dist/main.cjs.map'), 'utf8')).toBe('Ri debug map');
+});
 it('checks static constant, shorthand, nested and registered preloads against the shipped inventory', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-preload-inventory-')); dirs.push(root);
   fs.mkdirSync(path.join(root, 'windows'));
@@ -34,6 +49,53 @@ it('preserves pnpm links after the staging folder is removed and refuses externa
   fs.mkdirSync(source);
   fs.symlinkSync(temp, path.join(output, 'outside'));
   expect(() => rebaseResourceLinks(output, source)).toThrow('escapes resources');
+});
+
+it.each([true, false])('materializes Windows Next externals only from a matching deployed package (%s)', (matching) => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-next-junction-')); dirs.push(temp);
+  const stage = path.join(temp, 'stage'); const server = path.join(stage, 'server');
+  const original = path.join(temp, 'checkout/node_modules/@ri/example');
+  const deployed = path.join(server, 'node_modules/@ri/example');
+  for (const directory of [original, deployed]) fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(original, 'package.json'), JSON.stringify({ name: '@ri/example', version: '1.0.0' }));
+  fs.writeFileSync(path.join(deployed, 'package.json'), JSON.stringify({ name: '@ri/example', version: matching ? '1.0.0' : '2.0.0' }));
+  fs.writeFileSync(path.join(deployed, 'index.js'), 'deployed bytes');
+  const link = path.join(server, '.next-desktop/node_modules/@ri/example-hash');
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  fs.symlinkSync(original, link, process.platform === 'win32' ? 'junction' : 'dir');
+  const platform = process.platform;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try {
+    if (!matching) expect(() => rebaseResourceLinks(stage, stage, server)).toThrow('does not match');
+    else {
+      expect(rebaseResourceLinks(stage, stage, server)).toBe(1);
+      fs.rmSync(path.join(temp, 'checkout'), { recursive: true });
+      expect(fs.lstatSync(link).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(path.join(link, 'index.js'), 'utf8')).toBe('deployed bytes');
+    }
+  } finally { Object.defineProperty(process, 'platform', { value: platform }); }
+});
+
+it('keeps the native sibling beside a materialized Windows Next sqlite-vec external', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-next-vector-')); dirs.push(temp);
+  const server = path.join(temp, 'server');
+  const external = path.join(server, '.next-desktop/node_modules/sqlite-vec-123abc');
+  const native = path.join(server, 'node_modules/sqlite-vec-windows-x64');
+  fs.mkdirSync(external, { recursive: true }); fs.mkdirSync(native, { recursive: true });
+  fs.copyFileSync(require.resolve('sqlite-vec'), path.join(external, 'index.cjs'));
+  fs.writeFileSync(path.join(native, 'vec0.dll'), 'native extension');
+  const platform = process.platform; const arch = process.arch;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  Object.defineProperty(process, 'arch', { value: 'x64' });
+  try {
+    const adapter = createRequire(path.join(temp, 'package.json'))(path.join(external, 'index.cjs'));
+    expect(() => adapter.getLoadablePath()).toThrow('extension for sqlite-vec not found');
+    copyNextVectorExtension(server);
+    expect(fs.readFileSync(adapter.getLoadablePath(), 'utf8')).toBe('native extension');
+  } finally {
+    Object.defineProperty(process, 'platform', { value: platform });
+    Object.defineProperty(process, 'arch', { value: arch });
+  }
 });
 
 it('refuses a new companion package missing setup, worker, privileged preload or offline appearance assets', () => {

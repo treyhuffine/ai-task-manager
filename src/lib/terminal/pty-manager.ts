@@ -25,6 +25,7 @@
  */
 import * as nodePty from 'node-pty';
 import * as fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { sanitizeChildEnv } from '@/lib/utils/sanitize-child-env';
 import { sliceReplay } from './replay';
@@ -103,10 +104,10 @@ const terminals = g.__ptyRegistry.terminals;
  */
 function resolveShell(): string {
   const candidates: string[] = [];
-  if (process.env.SHELL) candidates.push(process.env.SHELL);
   if (process.platform === 'win32') {
-    candidates.push('powershell.exe', 'cmd.exe');
+    candidates.push(path.join(/* turbopackIgnore: true */ process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'), process.env.COMSPEC ?? 'cmd.exe');
   } else {
+    if (process.env.SHELL) candidates.push(process.env.SHELL);
     candidates.push('/bin/zsh', '/bin/bash', '/bin/sh');
   }
   for (const c of candidates) {
@@ -214,7 +215,7 @@ export function createTerminal(input: CreateTerminalInput): TerminalDescriptor {
   // from `.bash_profile` / `.zprofile`, which only run for login shells.
   // Without `-l`, `cd <tab>` completes files (no bash-completion), `node`
   // points at the wrong version (no nvm), etc.
-  const args = process.platform === 'win32' ? [] : ['-l'];
+  const args = process.platform === 'win32' ? ['-NoLogo', '-NoProfile'] : ['-l'];
 
   let proc: nodePty.IPty;
   try {
@@ -277,6 +278,11 @@ export function createTerminal(input: CreateTerminalInput): TerminalDescriptor {
   });
 
   proc.onExit(({ exitCode, signal }) => {
+    // This node-pty version keeps its Windows pipe worker after natural exit.
+    // kill() releases that worker even when the shell has already finished.
+    if (process.platform === 'win32') {
+      try { proc.kill(); } catch { /* An explicit close may already have released it. */ }
+    }
     t.exited = true;
     t.exitCode = exitCode ?? null;
     t.exitSignal = signal ?? null;
@@ -352,6 +358,11 @@ export function killAllForOwner(ownerId: string): number {
     n += 1;
   }
   return n;
+}
+
+/** Desktop-owned Windows server shutdown also closes unobserved terminals. */
+export function killAllTerminals(): void {
+  for (const terminal of [...terminals.values()]) killTerminal(terminal.ownerId, terminal.id);
 }
 
 /**

@@ -56,3 +56,14 @@ it('returns a first-run status for setup without inventing a local session', asy
   expect((await ensureServiceStatus({ repo: '/repo', node: '/node' })).origin).toBeUndefined();
   await expect(ensureService({ repo: '/repo', node: '/node' })).rejects.toThrow('Choose how');
 });
+it('keeps waiting for the same starting controller after a short status probe times out', async () => {
+  let attempts = 0;
+  await listen((_request, response) => {
+    attempts++;
+    if (attempts === 2) return;
+    response.end(JSON.stringify({ protocol: 1, identity: servicePaths().identity, phase: attempts === 1 ? 'starting' : 'running' }));
+  });
+  expect((await ensureServiceStatus({ repo: '/repo', node: '/node', timeoutMs: 5_000 })).phase).toBe('running');
+  expect(attempts).toBe(3);
+  expect(server?.listening).toBe(true);
+}, 10_000);

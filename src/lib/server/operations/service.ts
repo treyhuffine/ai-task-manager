@@ -6,7 +6,7 @@ import { z as rpcZ } from 'zod/v4';
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   const rights = updateRights(request);
   const visible = visibleServiceStatus(await serviceStatus(), rights);
-  return reply({ ...(visible ?? { phase: 'unmanaged', update: undefined, version: undefined }), canManage: rights.manage, canUseUpdates: rights.use }, { headers: { 'Cache-Control': 'no-store' } });
+  return reply({ ...(visible ?? { phase: 'unmanaged', update: undefined, version: undefined }), canManage: rights.manage, canUseUpdates: rights.use, platform: process.platform }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export const GETInput = rpcZ.object({}).strict().default({});

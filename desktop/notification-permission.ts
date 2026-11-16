@@ -1,3 +1,4 @@
+import { hasPrivatePermissions } from '../src/lib/config/private-paths';
 import fs from 'node:fs';
 import { atomicWriteFile } from '../src/lib/config/atomic-write';
 
@@ -9,7 +10,7 @@ export class RemoteNotificationPermission {
   enabled(): boolean {
     try {
       const stat = fs.lstatSync(this.file);
-      if (!stat.isFile() || stat.size > 4096 || (stat.mode & 0o077) || (process.getuid && stat.uid !== process.getuid())) return false;
+      if (!stat.isFile() || stat.size > 4096 || !hasPrivatePermissions(stat) || (process.getuid && stat.uid !== process.getuid())) return false;
       const value = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       return value.format === 1 && value.homeId === this.homeId && value.deviceId === this.deviceId && value.enabled === true;
     } catch { return false; }

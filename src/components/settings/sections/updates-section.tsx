@@ -146,6 +146,11 @@ export function UpdatesSection() {
     finally { setWorking(false); }
   };
   if (!data) return <p className="text-sm text-muted-foreground">{status.error ? 'The service is reconnecting. Your drafts remain on this device.' : 'Checking the local service…'}</p>;
+  if (data.platform === 'win32') return <div className="space-y-5 text-sm">
+    <div><p>{'version' in data ? `Ri ${data.version}` : 'Ri Windows preview'}</p><p className="text-muted-foreground">This Windows preview runs while Ri is open. Close Ri before installing a newer installer. Your tasks and notes stay on this computer.</p></div>
+    <p className="text-muted-foreground">Automatic updates and running after you close the app are not available in this preview.</p>
+    {data.canManage && <RuntimeSetup />}
+  </div>;
   if (data.phase === 'unmanaged') return <p className="text-sm text-muted-foreground">This Ri runs from a source checkout, started by hand. To keep it running and update it safely, run <code>pnpm cli:dev update --from .</code> and then <code>ri start</code>.</p>;
   const disabled = working || !!update?.busy || !!status.error;
   const progress = update ? updateProgress(update) : null;

@@ -5,6 +5,7 @@ import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { protectWindowsDirectories } from '../src/lib/config/private-paths';
 import { createInterface } from 'node:readline';
 import { APP_NAME, PAIRING_TOKEN_FRAGMENT_KEY } from '../src/constants/app';
 import { getConfigDir, getProductionAppRoot } from '../src/lib/config/paths';
@@ -90,7 +91,7 @@ if (app.isPackaged) {
     if (defaults.callbackUrl) process.env.RI_DESKTOP_OAUTH_RELAY_URL ||= defaults.callbackUrl;
     if (defaults.relayProviders) process.env.RI_DESKTOP_OAUTH_RELAY_PROVIDERS ||= defaults.relayProviders;
   }
-  process.env.RI_DESKTOP_NODE = path.join(process.resourcesPath, 'node', 'bin', 'node');
+  process.env.RI_DESKTOP_NODE = path.join(process.resourcesPath, 'node', process.platform === 'win32' ? 'node.exe' : 'bin/node');
   process.env.RI_DESKTOP_RESOURCES = process.resourcesPath;
   process.env.RI_DESKTOP_ROOT ||= defaultDesktopRoot;
   process.env.RI_DESKTOP_MODE = 'production';
@@ -108,6 +109,7 @@ try {
   // first-initialization permit. This pass only establishes a safe profile.
   if (process.env.RI_DESKTOP_ASSOCIATED === '1') assertExistingInstallation(identity, { allowMissingDatabase: true });
   fs.mkdirSync(profile, { recursive: true, mode: 0o700 });
+  protectWindowsDirectories([desktopState, identity.root, identity.config, identity.work]);
 } catch (error) {
   selectionInvalid = true;
   selectionError = error instanceof Error ? error.message : 'The selected installation profile cannot be opened.';
@@ -115,6 +117,7 @@ try {
   fs.mkdirSync(profile, { recursive: true, mode: 0o700 });
 }
 app.setName(app.isPackaged ? APP_NAME : `${APP_NAME} Demo`);
+if (process.platform === 'win32') app.setAppUserModelId('app.ri.desktop');
 app.setPath('userData', profile);
 let window: BrowserWindow | undefined;
 let backend: ChildProcess | undefined;
@@ -596,7 +599,7 @@ async function companionStatus(includeNotifications = true) {
     if (discover) void detectedInstallation();
     const update = service ? await serviceRequest<{ update: ReturnType<UpdateCoordinator['status']> }>('/update').catch(() => null) : null;
     const teamStatus = (() => { try { return teams?.status(); } catch { return undefined; } })();
-    return { ...setup, ...teamStatus, desktop: app.getVersion(), service, worker: service?.worker, update: update?.update, connectionError: selectionError, connection: desktopConnection.snapshot(), connecting, hasViewer: !!viewerTransitions.current,
+    return { ...setup, ...teamStatus, desktop: app.getVersion(), platform: process.platform, service, worker: service?.worker, update: update?.update, connectionError: selectionError, connection: desktopConnection.snapshot(), connecting, hasViewer: !!viewerTransitions.current,
       detectedInstallation: discover ? discovered : null,
       login: { enabled: hasLoginSupervision() }, preferences: captureShortcut ? { shortcut: captureShortcut.status(), login: desktopLogin.status() } : null,
       notifications: includeNotifications && notifications ? await notifications.action('status').catch(() => ({ supported: Notification.isSupported(), enabled: notificationPermission?.enabled() ?? false, error: 'Waiting for your Ri to reconnect.' })) : null };
@@ -844,7 +847,7 @@ async function quit(skipGuard = false) {
   if (backend && backend.exitCode === null && backend.signalCode === null) {
     const exited = once(backend, 'exit');
     if (backend.connected) backend.send({ type: 'stop' });
-    const force = setTimeout(() => stopTree(backend!), 10_000);
+    const force = setTimeout(() => stopTree(backend!), process.platform === 'win32' ? 75_000 : 10_000);
     await exited.catch(() => {});
     clearTimeout(force);
   }
@@ -1113,7 +1116,7 @@ async function start() {
     if (result.response === 0 && appOrigin) await window?.loadURL(appOrigin);
     else void quit(true);
   });
-  window.on('close', event => { if (!quitting) { event.preventDefault(); void hideWindow(); } });
+  window.on('close', event => { if (!quitting) { event.preventDefault(); if (process.platform === 'win32') void quit(); else void hideWindow(); } });
   window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { captureReady = false; settingsReady = false; } });
   ipcMain.on('desktop:appearance', (event, theme: unknown) => {
     if (!trustedViewerFrame({ senderId: event.sender.id, windowId: window?.webContents.id,
@@ -1196,6 +1199,9 @@ async function start() {
     if (process.platform !== 'darwin') throw new Error('Open your computer’s notification settings to allow Ri.');
     await shell.openExternal(MAC_NOTIFICATION_SETTINGS);
   });
+  // Give the covered viewer a document before the local setup view appears.
+  // A never-navigated WebContents cannot finish attaching a DevTools client.
+  await window.loadURL('about:blank');
   await localSurface.show({ id: 'loading', html: startingPage(randomUUID().replaceAll('-', ''), localStyleOptions()) });
   teams = teamFlow({
     personalRoot: () => identity.root,
@@ -1217,7 +1223,7 @@ async function start() {
   };
   menuActions = actions;
   const commands = desktopMenuCommands(actions);
-  tray = createDesktopTray(repo, actions);
+  tray = process.platform === 'win32' ? undefined : createDesktopTray(repo, actions);
   const wayland = process.platform === 'linux' && (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
   captureShortcut = new CaptureShortcut(path.join(profile, 'capture-shortcut.json'), globalShortcut, requestQuickCapture, wayland, () => {
     if (!wayland) return;
@@ -1248,10 +1254,12 @@ async function start() {
     ] },
     { label: 'Tools', submenu: [
       commands.capture, { id: 'ri-activity-menu', label: 'Activity', submenu: activityMenuItems(activityState, openActivity) }, commands.preferences,
-      commands.notifications, ...(process.platform === 'darwin' ? [] : [commands.update]), commands.status, commands.recovery,
+      commands.notifications, ...(['darwin', 'win32'].includes(process.platform) ? [] : [commands.update]), commands.status, commands.recovery,
       ...(localService?.role === 'worker' ? [{ label: localService.worker?.enabled === false ? 'Resume Local Execution' : 'Stop Local Execution', click: () => void localWorkerCommand(localService?.worker?.enabled === false ? 'resume' : 'stop').catch(error => dialog.showErrorBox('Local execution', error.message)) }] : []),
-      { label: 'Start This Device’s Service', click: () => void serviceCommand('start') },
-      { label: 'Stop This Device’s Service', click: () => void serviceCommand('stop') },
+      ...(process.platform === 'win32' ? [] : [
+        { label: 'Start This Device’s Service', click: () => void serviceCommand('start') },
+        { label: 'Stop This Device’s Service', click: () => void serviceCommand('stop') },
+      ]),
     ] },
   ]));
   refreshApplicationMenu();

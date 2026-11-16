@@ -72,7 +72,7 @@ function HomeComputerSection() {
       <Switch id={`${id}-keep`} checked={app.data.keepRunning} disabled={working} aria-describedby={`${id}-keep-help`} onCheckedChange={on => void act({ type: 'keep-running', on })} />
     </div>}
     {!desktop && !supervised && <p className="text-muted-foreground">To keep this Ri running after crashes and restarts, run <code>ri start</code> on this computer.</p>}
-    {desktop && <div className="space-y-2">
+    {desktop && desktop.platform !== 'win32' && <div className="space-y-2">
       <Button variant="outline" disabled={working} onClick={() => void act({ type: 'add-to-terminal' })}>Add <code className="mx-1">ri</code> to Terminal</Button>
       <p className="text-xs text-muted-foreground">Installs the <code>ri</code> command and adds it to your shell&apos;s PATH if needed.</p>
     </div>}

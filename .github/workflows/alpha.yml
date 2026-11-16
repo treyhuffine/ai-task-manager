@@ -1,27 +1,58 @@
 name: Alpha desktop builds
-# Manual workflow_dispatch build across macOS and Linux for alpha sharing.
-# Uploads ad-hoc signed Mac DMGs, Linux AppImages, and headless runtime tarballs
-# as workflow artifacts without requiring publisher signing keys.
+# One manual, speech-free sharing path. Installer lifecycle checks are opt-in.
 on:
   workflow_dispatch:
-
+    inputs:
+      target:
+        description: Native installer target
+        type: choice
+        options: [all, macos-arm64, macos-x64, linux-x64, linux-arm64, windows-x64]
+        default: all
+      installer_checks:
+        description: Install and exercise actual installers on disposable hosted runners
+        type: boolean
+        default: false
+      installer_run:
+        description: Retest an existing alpha run without rebuilding (requires installer_checks)
+        type: string
+        default: ''
 permissions:
   contents: read
-
+  actions: read
 jobs:
+  targets:
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        env:
+          TARGET: ${{ inputs.target }}
+          INSTALLER_RUN: ${{ inputs.installer_run }}
+          INSTALLER_CHECKS: ${{ inputs.installer_checks }}
+        run: |
+          node <<'JS'
+          const fs = require('node:fs');
+          const targets = [
+            { target: 'macos-arm64', os: 'macos-15', platform: 'darwin', arch: 'arm64' },
+            { target: 'macos-x64', os: 'macos-15-intel', platform: 'darwin', arch: 'x64' },
+            { target: 'linux-x64', os: 'ubuntu-22.04', platform: 'linux', arch: 'x64' },
+            { target: 'linux-arm64', os: 'ubuntu-22.04-arm', platform: 'linux', arch: 'arm64' },
+            { target: 'windows-x64', os: 'windows-2025', platform: 'win32', arch: 'x64' },
+          ];
+          if (process.env.INSTALLER_RUN && process.env.INSTALLER_CHECKS !== 'true') throw new Error('Enable installer_checks when reusing installers');
+          const include = targets.filter(t => process.env.TARGET === 'all' || t.target === process.env.TARGET);
+          if (!include.length) throw new Error('Choose a supported target');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include })}\n`);
+          JS
   build:
-    name: Alpha ${{ matrix.platform }} / ${{ matrix.arch }}
-    timeout-minutes: 90
+    needs: targets
+    name: Alpha ${{ matrix.target }}
+    timeout-minutes: ${{ inputs.installer_checks && 180 || 90 }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        # Native builds on the same OS baselines as release.yml.
-        include:
-          - { os: macos-15, platform: darwin, arch: arm64 }
-          - { os: macos-15-intel, platform: darwin, arch: x64 }
-          - { os: ubuntu-22.04, platform: linux, arch: x64 }
-          - { os: ubuntu-22.04-arm, platform: linux, arch: arm64 }
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
     env:
       NODE_OPTIONS: --max-old-space-size=4096
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -41,22 +72,36 @@ jobs:
         env:
           EXPECTED_PLATFORM: ${{ matrix.platform }}
           EXPECTED_ARCH: ${{ matrix.arch }}
-        run: node -e 'const assert = require("node:assert/strict"); assert.equal(process.platform, process.env.EXPECTED_PLATFORM); assert.equal(process.arch, process.env.EXPECTED_ARCH); console.info(process.platform, process.arch, process.versions.node)'
-      - name: Install Linux native dependencies
+        run: node -e 'const a=require("node:assert/strict"); a.equal(process.platform,process.env.EXPECTED_PLATFORM); a.equal(process.arch,process.env.EXPECTED_ARCH)'
+      - name: Install Linux native and desktop test dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2 squashfs-tools-ng gcc-12 g++-12
+          sudo apt-get install --no-install-recommends -y xvfb xauth openbox libgtk-3-0 libnss3 libasound2 libgbm1 libsecret-1-0 libnotify4 libxss1 libxtst6 xdg-utils libfuse2 squashfs-tools-ng gcc-12 g++-12
           echo "CC=gcc-12" >> "$GITHUB_ENV"
           echo "CXX=g++-12" >> "$GITHUB_ENV"
       - run: pnpm install --frozen-lockfile
+      - name: Check types and native dependencies
+        run: |
+          pnpm ts
+          node desktop/native-probe.mjs
+      - name: Check desktop contracts
+        if: runner.os != 'Windows'
+        run: pnpm desktop:test
+      - name: Check native Windows contracts
+        if: runner.os == 'Windows'
+        run: |
+          pnpm exec vitest run --config desktop/vitest.config.ts desktop/windows-platform.test.ts desktop/package-layout.test.ts desktop/package-preflight.test.ts
+          pnpm exec vitest run --config desktop/vitest.config.ts desktop/package-files.test.ts -t "Windows Next externals"
+          pnpm exec vitest run src/lib/service/client.test.ts
       - name: Disable Spotlight indexing during macOS DMG creation
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && !inputs.installer_run
         run: |
           test "$GITHUB_ACTIONS" = true
           test "$RUNNER_ENVIRONMENT" = github-hosted
           sudo mdutil -a -i off || sudo mdutil -i off /System/Volumes/Data
       - name: Build the production app with a bounded heap
+        if: ${{ !inputs.installer_run }}
         env:
           RI_ROOT: ${{ runner.temp }}/ri-alpha-build-home
           RI_DB_PATH: ''
@@ -67,23 +112,44 @@ jobs:
           RI_BUILD_MEMORY_LIMIT_GB: '16'
         run: node scripts/next-build.mjs
       - name: Build alpha installers
+        if: ${{ !inputs.installer_run }}
         env:
           RI_RELEASE_COMMIT: ${{ github.sha }}
-        run: node desktop/package.mjs --share --skip-build
+          UPGRADE_TEST: ${{ runner.os == 'Windows' && inputs.installer_checks && '--upgrade-test' || '' }}
+        shell: bash
+        run: pnpm desktop:package --share --skip-build $UPGRADE_TEST
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.installer_run }}
+        with:
+          name: ri-alpha-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release
+          run-id: ${{ inputs.installer_run }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        if: runner.os == 'Windows' && inputs.installer_run
+        with:
+          name: ri-alpha-win32-x64-upgrade-fixture
+          path: release/windows-upgrade-test
+          run-id: ${{ inputs.installer_run }}
+          github-token: ${{ github.token }}
       - name: Verify expected alpha artifacts exist
         env:
           PLATFORM: ${{ matrix.platform }}
+        shell: bash
         run: |
           set -- release/ri-runtime-*.tar.gz
           test -f "$1" || { echo "Missing headless runtime tarball"; exit 1; }
-          if [ "$PLATFORM" = darwin ]; then
-            set -- release/desktop/*.dmg
-            test -f "$1" || { echo "Missing macOS DMG"; exit 1; }
-          else
-            set -- release/desktop/*.AppImage
-            test -f "$1" || { echo "Missing Linux AppImage"; exit 1; }
-          fi
+          case "$PLATFORM" in
+            darwin) set -- release/desktop/*.dmg ;;
+            win32) set -- release/desktop/Ri-Setup-*-x64.exe ;;
+            linux)
+              set -- release/desktop/*.deb
+              test -f "$1" || { echo "Missing Linux Debian package"; exit 1; }
+              set -- release/desktop/*.AppImage ;;
+          esac
+          test -f "$1" || { echo "Missing platform installer"; exit 1; }
       - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.installer_run }}
         with:
           name: ri-alpha-${{ matrix.platform }}-${{ matrix.arch }}
           if-no-files-found: error
@@ -92,4 +158,55 @@ jobs:
           path: |
             release/desktop/*.dmg
             release/desktop/*.AppImage
+            release/desktop/*.deb
+            release/desktop/*.exe
             release/ri-runtime-*.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows' && inputs.installer_checks && !inputs.installer_run
+        with:
+          name: ri-alpha-win32-x64-upgrade-fixture
+          path: release/windows-upgrade-test/*.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Prepare the disposable Linux account's user service manager
+        if: runner.os == 'Linux' && inputs.installer_checks
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          account_uid=$(id -u)
+          sudo loginctl enable-linger "$USER"
+          sudo systemctl start "user@${account_uid}.service"
+          echo "XDG_RUNTIME_DIR=/run/user/${account_uid}" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${account_uid}/bus" >> "$GITHUB_ENV"
+      - name: Exercise Windows install, chat, quit, reopen, upgrade and uninstall
+        if: runner.os == 'Windows' && inputs.installer_checks
+        timeout-minutes: 45
+        run: pnpm exec tsx desktop/windows-smoke.ts
+      - name: Exercise macOS install and persistence
+        if: runner.os == 'macOS' && inputs.installer_checks
+        timeout-minutes: 45
+        env:
+          RI_SERVICE_SMOKE_SUPERVISOR: install-test-job-on-disposable-github-hosted-account
+        run: pnpm exec tsx desktop/installer-smoke.ts
+      - name: Exercise Linux install, persistence, AppImage and uninstall
+        if: runner.os == 'Linux' && inputs.installer_checks
+        timeout-minutes: 45
+        env:
+          RI_SERVICE_SMOKE_SUPERVISOR: install-test-job-on-disposable-github-hosted-account
+        run: |
+          xvfb-run --auto-servernum sh -ec '
+            openbox --sm-disable >/dev/null 2>&1 &
+            manager_pid=$!
+            trap "kill $manager_pid 2>/dev/null || true" EXIT
+            pnpm exec tsx desktop/installer-smoke.ts
+          '
+      - uses: actions/upload-artifact@v4
+        if: always() && inputs.installer_checks
+        with:
+          name: ri-alpha-${{ matrix.platform }}-${{ matrix.arch }}-qualification
+          path: |
+            release/qualification/*.json
+            release/qualification/*.png
+          if-no-files-found: ignore
+          retention-days: 14

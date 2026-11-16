@@ -54,7 +54,7 @@ function inventory(root: string): RuntimeFile[] {
       if (!target.startsWith(`${physicalRoot}${path.sep}`)) throw new Error(`Runtime link escapes its package: ${relative}`);
       files.push({ name: relative, link, executable: false });
     } else if (stat.isDirectory()) {
-      for (const name of fs.readdirSync(/* turbopackIgnore: true */ absolute).sort()) walk(path.join(/* turbopackIgnore: true */ relative, name));
+      for (const name of fs.readdirSync(/* turbopackIgnore: true */ absolute).sort()) walk(path.posix.join(relative, name));
     } else if (stat.isFile()) {
       files.push({ name: relative, sha256: digestFile(absolute), executable: !!(stat.mode & 0o111) });
     } else throw new Error(`Unsupported runtime entry: ${relative}`);
@@ -68,19 +68,26 @@ function manifestId(manifest: Omit<RuntimeManifest, 'id'>) {
   return createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
 }
 
+/** Public release metadata must remain readable when an installer owns the
+ * runtime as root. Home credentials still use atomicWriteFile's private mode. */
+function writeRuntimeMetadata(file: string, value: unknown) {
+  atomicWriteFile(file, JSON.stringify(value));
+  fs.chmodSync(file, 0o644);
+}
+
 export function createRuntimeManifest(resources: string): RuntimeManifest {
   const pkg = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ resources, 'server/package.json'), 'utf8'));
   // Keep release envelope 1 parseable by old updaters. This metadata is
   // authenticated transitively by the existing signed runtime inventory.
-  atomicWriteFile(path.join(/* turbopackIgnore: true */ resources, 'server/ri-compatibility.json'), JSON.stringify(CURRENT_COMPATIBILITY));
+  writeRuntimeMetadata(path.join(/* turbopackIgnore: true */ resources, 'server/ri-compatibility.json'), CURRENT_COMPATIBILITY);
   const content = { format: 1 as const, version: pkg.version as string, platform: process.platform, arch: process.arch,
     node: process.versions.node, files: inventory(resources) };
   const manifest = { ...content, id: manifestId(content) };
-  atomicWriteFile(path.join(/* turbopackIgnore: true */ resources, 'runtime-manifest.json'), JSON.stringify(manifest));
+  writeRuntimeMetadata(path.join(/* turbopackIgnore: true */ resources, 'runtime-manifest.json'), manifest);
   return manifest;
 }
 
-const REQUIRED = ['node/bin/node', 'server/dist/service/main.cjs', 'server/dist/service/http-server.cjs', 'server/dist/service/handoff.cjs', 'server/dist/service/runtime-job.cjs', 'server/dist/cli/index.mjs'];
+const REQUIRED = [process.platform === 'win32' ? 'node/node.exe' : 'node/bin/node', 'server/dist/service/main.cjs', 'server/dist/service/http-server.cjs', 'server/dist/service/handoff.cjs', 'server/dist/service/runtime-job.cjs', 'server/dist/cli/index.mjs'];
 
 function readManifest(resources: string): RuntimeManifest {
   const manifest = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ resources, 'runtime-manifest.json'), 'utf8')) as RuntimeManifest;

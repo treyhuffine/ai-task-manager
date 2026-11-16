@@ -120,7 +120,7 @@ export function globalSkillFolders(): SkillFolder[] {
   for (const id of KNOWN_HARNESS_IDS) {
     const { dir, links } = HARNESS_REGISTRY[id].globalSkills;
     const folder = path.join(/* turbopackIgnore: true */ home, dir);
-    folders.set(folder, (folders.get(folder) ?? true) && links);
+    folders.set(folder, (folders.get(folder) ?? true) && links && process.platform !== 'win32');
   }
   return [...folders].map(([folder, links]) => ({ folder, links }));
 }

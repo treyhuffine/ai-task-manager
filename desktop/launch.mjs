@@ -13,6 +13,12 @@ const env = { ...process.env, RI_DESKTOP_REPO: repo, RI_DESKTOP_ROOT: process.en
 delete env.ELECTRON_RUN_AS_NODE;
 
 function run(executable, args, childEnv) {
+  if (process.platform === 'win32' && executable === 'pnpm') {
+    const entry = process.env.npm_execpath;
+    if (!entry) throw new Error('Run the desktop build through pnpm');
+    if (entry.endsWith('.exe')) executable = entry;
+    else { args = [entry, ...args]; executable = process.execPath; }
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd: repo, env: childEnv, stdio: 'inherit' });
     const stop = () => child.kill('SIGTERM');

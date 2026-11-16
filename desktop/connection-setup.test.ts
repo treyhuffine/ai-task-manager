@@ -94,6 +94,14 @@ describe('desktop setup trust', () => {
 });
 
 describe('installation role choice', () => {
+  it('explains that Windows cannot host a separate team service in the preview', async () => {
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      await expect(connectionSetup({ action: 'create-team', creationId: 'windows-fixture', teamName: 'Fixture', ownerName: 'Fixture' }, development)).rejects.toThrow('Hosting a team is not available');
+      expect(fs.readdirSync(root)).toEqual([]);
+    } finally { Object.defineProperty(process, 'platform', { value: platform }); }
+  });
   it('inspects an empty root without opening any database or writing any files', async () => {
     expect(await connectionSetup({ action: 'inspect' })).toMatchObject({ role: 'first-run', homeSelected: false, workerEnrolled: false });
     expect(fs.readdirSync(root)).toEqual([]);

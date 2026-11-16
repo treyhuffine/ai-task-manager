@@ -1,3 +1,4 @@
+import { signedCliCommand } from '@/lib/utils/signed-cli-command';
 export const COORDINATION_INSTRUCTIONS = `## Working with other Ri agents
 
 Use get_session_context to see your identity, capabilities and stable addresses. The orchestrator is "orchestrator", your own agent's main chat is "agent", and another agent is "agent:<workspace id>" (discover agents with list_workspaces).
@@ -14,4 +15,4 @@ To come back to your own work later (a job to check on, a time to resume), creat
 
 For history, search_sessions includes personal main chats, get_session_events pages complete messages, and get_chat_event reads the rest of a long message.
 
-When native coordination tools are unavailable, the same actions are available through the signed CLI: "\${RI_SESSION_CLI:-ri}" agent <action> --input '<JSON>'.`;
+When native coordination tools are unavailable, the same actions are available through the signed CLI: ${signedCliCommand()} agent <action> --input '<JSON>'.`;

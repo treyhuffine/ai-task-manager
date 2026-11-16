@@ -75,7 +75,8 @@ export function saveEnvironment(input: unknown) {
 export function serviceEnvironment(node: string, inherited: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const settings = read();
   const home = inherited.HOME ?? os.homedir();
-  const paths = [path.dirname(node), ...(settings.paths ?? []), ...((inherited.PATH ?? '').split(path.delimiter)),
+  const paths = [path.dirname(node), ...(settings.paths ?? []), ...((inherited.PATH ?? inherited.Path ?? '').split(path.delimiter)),
+    ...(process.platform === 'win32' ? [path.join(/* turbopackIgnore: true */ inherited.APPDATA ?? path.join(/* turbopackIgnore: true */ home, 'AppData/Roaming'), 'npm')] : []),
     path.join(home, '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin',
     ...['.volta/bin', '.asdf/shims', '.cargo/bin', '.bun/bin', '.opencode/bin'].map(name => path.join(/* turbopackIgnore: true */ home, name))];
   for (const [directory, suffix] of [['.nvm/versions/node', 'bin'], ['.local/share/fnm/node-versions', 'installation/bin']] as const) {
@@ -83,6 +84,7 @@ export function serviceEnvironment(node: string, inherited: NodeJS.ProcessEnv = 
     if (fs.existsSync(/* turbopackIgnore: true */ base)) for (const version of fs.readdirSync(base).sort().reverse()) paths.push(path.join(/* turbopackIgnore: true */ base, version, suffix));
   }
   const env: NodeJS.ProcessEnv = { ...inherited, PATH: [...new Set(paths.filter(Boolean))].join(path.delimiter) };
+  if (process.platform === 'win32') delete env.Path;
   for (const [name, value] of Object.entries(settings)) {
     if (name === 'paths') continue;
     if (value === null || value === '') delete env[name];

@@ -36,6 +36,65 @@ index 798547e0037e1dc1849eb8294794ec256199cbc9..29da95358b17f8ed729c9fffce621680
          cwd,
          env: { ...env, OPENCODE_SERVER_PASSWORD: password },
          stdio: ["ignore", "pipe", "pipe"],
+diff --git a/dist/utils/binary.js b/dist/utils/binary.js
+index 34dce49d4f1fea7349aa88f9190cca0e41e77d87..3abe265eeb6410c49fc30df71bd7d0af665c7a40 100644
+--- a/dist/utils/binary.js
++++ b/dist/utils/binary.js
+@@ -83,13 +83,15 @@ function runWhich(name) {
+ export async function resolveWindowsCmdShim(cmdPath) {
+     try {
+         const content = await fs.readFile(cmdPath, "utf-8");
+-        // Match patterns like: "%dp0%\node_modules\...\.js" or "%~dp0\...\entry.js"
+-        const match = content.match(/%(?:~dp0|dp0)[\\\/]([^\s"]+\.js)/i);
++        // npm shims invoke either a JS entry with Node or a native executable.
++        // Prefer JS so the wrapper's optional local node.exe is never the target.
++        const match = content.match(/%(?:~dp0|dp0%)[\\\/]?([^"\r\n]+?\.[cm]?js)(?=["\s]|$)/i)
++            ?? content.match(/%(?:~dp0|dp0%)[\\\/]?([^"\r\n]+?\.exe)(?=["\s]|$)/i);
+         if (match?.[1]) {
+             const dir = path.dirname(cmdPath);
+-            const jsPath = path.resolve(dir, match[1]);
+-            if (await fileExists(jsPath)) {
+-                return { bin: "node", prefixArgs: [jsPath] };
++            const entry = path.resolve(dir, match[1]);
++            if (await fileExists(entry)) {
++                return /\.exe$/i.test(entry) ? { bin: entry, prefixArgs: [] } : { bin: "node", prefixArgs: [entry] };
+             }
+         }
+     }
+@@ -102,6 +104,11 @@ export async function findBinary(name, configOverride) {
+     // 1. Config override
+     if (configOverride) {
+         if (await fileExists(configOverride)) {
++            if (process.platform === "win32" && /\.cmd$/i.test(configOverride)) {
++                const resolved = await resolveWindowsCmdShim(configOverride);
++                if (resolved)
++                    return resolved;
++            }
+             return { bin: configOverride, prefixArgs: [] };
+         }
+         throw new Error(`Configured binary path "${configOverride}" does not exist. ` +
+diff --git a/dist/utils/skills.js b/dist/utils/skills.js
+index 5acb614f5f41aa1c3f2cbe63e7d6867e872603c2..d9c5707f7cad3e7feecd583cd9328a605f5f8c3f 100644
+--- a/dist/utils/skills.js
++++ b/dist/utils/skills.js
+@@ -358,7 +358,7 @@ export async function ensureSkillSymlink(source, target) {
+         return "conflict";
+     }
+     catch {
+-        await fs.symlink(source, target, "dir");
++        await fs.symlink(process.platform === "win32" ? path.resolve(source) : source, target, process.platform === "win32" ? "junction" : "dir");
+         return "created";
+     }
+ }
+@@ -389,7 +389,7 @@ export async function buildSkillsDir(skillDirs, runtime) {
+     for (const dir of skillDirs) {
+         const name = path.basename(dir);
+         try {
+-            await fs.symlink(path.resolve(dir), path.join(skillsRoot, name), "dir");
++            await fs.symlink(path.resolve(dir), path.join(skillsRoot, name), process.platform === "win32" ? "junction" : "dir");
+         }
+         catch (err) {
+             console.warn(`Failed to symlink skill "${name}": ${err}`);
 diff --git a/src/providers/opencode/server.ts b/src/providers/opencode/server.ts
 index 2913910f8db5ebeff75f7461de3f855bd820a207..d3eec773b2c5337cb8338dbda10144c0ad44da3f 100644
 --- a/src/providers/opencode/server.ts
@@ -84,3 +143,61 @@ index 2913910f8db5ebeff75f7461de3f855bd820a207..d3eec773b2c5337cb8338dbda10144c0
      {
        cwd,
        env: { ...env, OPENCODE_SERVER_PASSWORD: password },
+diff --git a/src/utils/binary.ts b/src/utils/binary.ts
+index dcb137e3f97786992510782dbaf2b2aa9aa2c84d..bf26664360f2870f5c31f54d4e2c24cc2603d2f7 100644
+--- a/src/utils/binary.ts
++++ b/src/utils/binary.ts
+@@ -93,13 +93,15 @@ function runWhich(name: string): Promise<string | null> {
+ export async function resolveWindowsCmdShim(cmdPath: string): Promise<ResolvedBinary | null> {
+   try {
+     const content = await fs.readFile(cmdPath, "utf-8");
+-    // Match patterns like: "%dp0%\node_modules\...\.js" or "%~dp0\...\entry.js"
+-    const match = content.match(/%(?:~dp0|dp0)[\\\/]([^\s"]+\.js)/i);
++    // npm shims invoke either a JS entry with Node or a native executable.
++    // Prefer JS so the wrapper's optional local node.exe is never the target.
++    const match = content.match(/%(?:~dp0|dp0%)[\\\/]?([^"\r\n]+?\.[cm]?js)(?=["\s]|$)/i)
++      ?? content.match(/%(?:~dp0|dp0%)[\\\/]?([^"\r\n]+?\.exe)(?=["\s]|$)/i);
+     if (match?.[1]) {
+       const dir = path.dirname(cmdPath);
+-      const jsPath = path.resolve(dir, match[1]);
+-      if (await fileExists(jsPath)) {
+-        return { bin: "node", prefixArgs: [jsPath] };
++      const entry = path.resolve(dir, match[1]);
++      if (await fileExists(entry)) {
++        return /\.exe$/i.test(entry) ? { bin: entry, prefixArgs: [] } : { bin: "node", prefixArgs: [entry] };
+       }
+     }
+   } catch {
+@@ -112,6 +114,10 @@ export async function findBinary(name: string, configOverride?: string): Promise
+   // 1. Config override
+   if (configOverride) {
+     if (await fileExists(configOverride)) {
++      if (process.platform === "win32" && /\.cmd$/i.test(configOverride)) {
++        const resolved = await resolveWindowsCmdShim(configOverride);
++        if (resolved) return resolved;
++      }
+       return { bin: configOverride, prefixArgs: [] };
+     }
+     throw new Error(
+diff --git a/src/utils/skills.ts b/src/utils/skills.ts
+index 9efc2e718e0460de7ab5c5cf7f16cab2a68490e3..1058a1192592c7957a7fdff42504135141d4f65a 100644
+--- a/src/utils/skills.ts
++++ b/src/utils/skills.ts
+@@ -479,7 +479,7 @@ export async function ensureSkillSymlink(
+     }
+     return "conflict";
+   } catch {
+-    await fs.symlink(source, target, "dir");
++    await fs.symlink(process.platform === "win32" ? path.resolve(source) : source, target, process.platform === "win32" ? "junction" : "dir");
+     return "created";
+   }
+ }
+@@ -512,7 +512,7 @@ export async function buildSkillsDir(skillDirs: string[], runtime: SkillRuntime)
+   for (const dir of skillDirs) {
+     const name = path.basename(dir);
+     try {
+-      await fs.symlink(path.resolve(dir), path.join(skillsRoot, name), "dir");
++      await fs.symlink(path.resolve(dir), path.join(skillsRoot, name), process.platform === "win32" ? "junction" : "dir");
+     } catch (err) {
+       console.warn(`Failed to symlink skill "${name}": ${err}`);
+     }

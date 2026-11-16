@@ -19,3 +19,15 @@ app signature and checked against Ri's runtime manifest.
 `desktop/signing-walk.test.ts` verifies that ignored trees are never inspected
 and that ordinary native files are still discovered. Remove this patch after
 an upstream release supports pruning ignored directories during traversal.
+
+# Windows harness launching and skills
+
+The same `@agentex__agent@0.0.50.patch` also carries the Windows fixes from
+[agentex branch `ri/windows-first-version`](https://github.com/dynamismlabs/agentex/tree/ri/windows-first-version).
+It resolves npm `.cmd` shims, including paths with spaces and native Claude
+executables, and uses directory junctions for skill links without elevation.
+Source and shipped JavaScript are patched together. The OpenCode port fix above
+is retained. `desktop/windows-platform.test.ts` exercises the actual patched
+resolver and skill links, including native Windows sign-in. No agentex version
+was published for this integration. Remove these hunks after taking up an
+agentex release that includes them and repeating Windows lifecycle qualification.
