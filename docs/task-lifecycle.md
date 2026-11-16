@@ -68,8 +68,10 @@ months or years. The app writes the short form (`daily`, `weekly`, `monthly`,
 goes through `parseRecurrence` (`src/lib/tasks/recurrence.ts`), so the server,
 the Repeat editor, the Deck and the labels agree on what it means. A write Ri
 can't read a cadence from (a weekday schedule like "every Monday and Thursday",
-an RRULE with `BYDAY`, nonsense) is refused with `invalid_params` and what to
-write instead, unless it is the value already stored. Blank means none.
+an RRULE with `BYDAY`, a word that changes the cadence like "twice weekly",
+"every week and a half" or the ambiguous "bi-monthly", nonsense) is refused
+with `invalid_params` and what to write instead, unless it is the value already
+stored. Blank means none.
 
 `nextRecurrenceAt` is the next occurrence, a calendar date (`YYYY-MM-DD`, like
 `hardDeadline`). The task is Ready from the start of that local day. Null means
@@ -78,13 +80,23 @@ instant, read by its leading date. Ending a repeat clears it. Changing the
 cadence keeps it.
 
 Completing a repeating task (`complete_task`) records one `task_completions`
-occurrence and returns the task to Todo for its next date: one interval after
-the scheduled occurrence (today when none was set), stepped in whole intervals
-to the first day after today. Done early, the next one is still a full interval
-on. Done late, missed occurrences are skipped and the rhythm holds, with no
-backlog. A deadline moves to its next date by the same rule, so it never stays
-behind as a stale overdue date, and a snooze ends with the occurrence it
-deferred. Consider tasks can't repeat (`CONSIDER_FORBIDDEN_FIELDS`).
+occurrence and returns the task to Todo for its next date
+(`scheduleNextOccurrence`):
+
+- Without a deadline, the next date is one interval after the scheduled
+  occurrence (today when none was set), stepped in whole intervals to the first
+  day after today. Done early, the next one is still a full interval on. Done
+  late, missed occurrences are skipped and the rhythm holds, with no backlog.
+- With a deadline, an occurrence is missed only once its deadline passes. The
+  deadline moves to its first date after today, and the scheduled day moves by
+  the same number of intervals, so the lead between them holds. Done late, the
+  next occurrence can already be open (its day has come, its deadline is still
+  ahead), so the task stays Ready and the toast says so. With no scheduled day
+  yet, the first completion sets one a full interval on, but never after the
+  next deadline.
+
+A snooze ends with the occurrence it deferred. Consider tasks can't repeat
+(`CONSIDER_FORBIDDEN_FIELDS`).
 
 In the app: the task page has Repeat (type a cadence or pick a common one,
 `TaskRecurrencePicker`) and Next (the shared date picker). A row shows the

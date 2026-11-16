@@ -67,7 +67,7 @@ import { CHAT_MESSAGE_SENT, chatMessagePreview } from '@/lib/sessions/chat-messa
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
 import { normalizeIntegrationScopes } from '@/lib/integrations/scope-pins';
 import { normalizeTaskStatus, canApply, targetState, transitionLabel, availableCommands, considerBlockers, CONSIDER_FORBIDDEN_FIELDS, isTerminal, TaskLifecycleError, type TransitionCommand, type LifecycleCommand, type TaskStatus as LifecycleTaskStatus } from '@/lib/tasks/lifecycle';
-import { nextOccurrence, occurrenceDate, parseRecurrence, recurrenceProblem } from '@/lib/tasks/recurrence';
+import { occurrenceDate, parseRecurrence, recurrenceProblem, scheduleNextOccurrence } from '@/lib/tasks/recurrence';
 import type { LifecycleCommandResult } from '@/lib/db/schema';
 import { camelizeKeys, snakeizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
@@ -1662,18 +1662,20 @@ function completeTaskInTx(id: string, idempotencyKey: string, input: CompleteTas
       // done tonight is Ready from the start of tomorrow, not tomorrow night.
       // The cadence steps from the SCHEDULED occurrence (nextRecurrenceAt, or
       // today when none was set), not the completion instant, in whole
-      // intervals to the first FUTURE day, so completing late (even several
-      // intervals late) holds the rhythm and never schedules an overdue
-      // occurrence. A cadence Ri can't read (only rows written before writes
-      // were checked) keeps the old weekly fallback rather than failing.
+      // intervals, so completing late (even several intervals late) holds the
+      // rhythm with no backlog. A cadence Ri can't read (only rows written
+      // before writes were checked) keeps the old weekly fallback.
+      // A deadline belongs to the occurrence just finished, so it moves to the
+      // next one with it, keeping the lead between them, and an occurrence
+      // whose deadline is still ahead isn't missed (scheduleNextOccurrence).
+      // A snooze was for the finished occurrence too, and ends with it.
       const today = todayLocalDate(new Date(now));
       const step = parseRecurrence(task.recurrence) ?? { every: 1, unit: 'week' as const };
-      const nextDate = nextOccurrence(step, occurrenceDate(task.nextRecurrenceAt) ?? today, today);
-      // A deadline belongs to the occurrence just finished, so it moves to the
-      // next one by the same rhythm, never left behind as a stale overdue date.
-      // A snooze was for the finished occurrence too, and ends with it.
-      const deadline = occurrenceDate(task.hardDeadline);
-      const nextDeadline = deadline ? nextOccurrence(step, deadline, today) : null;
+      const { next: nextDate, deadline: nextDeadline } = scheduleNextOccurrence(step, {
+        scheduled: occurrenceDate(task.nextRecurrenceAt),
+        deadline: occurrenceDate(task.hardDeadline),
+        today,
+      });
       // Every successful recurring completion advances the monotonic lifecycle
       // revision, even a Todo->Todo occurrence, so concurrent/duplicate
       // completions are detectable. The status-age stamp only moves when the

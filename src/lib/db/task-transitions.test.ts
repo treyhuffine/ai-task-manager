@@ -461,6 +461,20 @@ describe('repeating tasks', () => {
     expect(deadline.slice(8)).toBe('12');
   });
 
+  it('done late with its next deadline still ahead, it stays Ready and keeps its lead', async () => {
+    const { q } = await setup();
+    const { isReady } = await import('@/lib/tasks/lifecycle');
+    const today = todayLocalDate();
+    // Scheduled 9 days ago, due 5 days ago: last week's occurrence is late, and
+    // this week's opened 2 days ago with its deadline 2 days ahead.
+    const t = q.createTask({ title: 'Weekly report', rawInput: 'x', recurrence: 'weekly', nextRecurrenceAt: addDays(today, -9), hardDeadline: addDays(today, -5) });
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
+    expect(c!.nextRecurrenceAt).toBe(addDays(today, -2));
+    const after = q.getTask(t.id)!;
+    expect(after.hardDeadline).toBe(addDays(today, 2));
+    expect(isReady({ status: after.status, hasUnresolvedBlocker: false, resurfaceAfter: null, recurrence: after.recurrence, nextRecurrenceAt: after.nextRecurrenceAt, now: new Date().toISOString() })).toBe(true);
+  });
+
   it('follows the cadence in agent-written wording, not a weekly guess', async () => {
     const { q } = await setup();
     const t = q.createTask({ title: 'Renew library card', rawInput: 'x', recurrence: 'Every 2 years, verify', nextRecurrenceAt: '2027-03-01' });

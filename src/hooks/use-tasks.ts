@@ -4,7 +4,7 @@ import { apiErrorCode, apiErrorDetails, apiErrorText } from '@/lib/api/client';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import { tasksApi } from '@/lib/api/tasks';
 import { documentSaves } from '@/lib/client/document-saves';
-import { describeLocalDate } from '@/lib/dates';
+import { nextOccurrenceNote } from '@/lib/tasks/recurrence';
 import { entityKeys } from '@/lib/query/entity-keys';
 import {
 	optimisticPatch,
@@ -165,7 +165,7 @@ export function useCompleteTask() {
     // like it did nothing. Say when it comes back.
     onSuccess: (result) => {
       if (!result.recurring || !result.nextRecurrenceAt) return;
-      toast.success(`Done. Next one ${describeLocalDate(result.nextRecurrenceAt)}`);
+      toast.success(`Done. ${nextOccurrenceNote(result.nextRecurrenceAt)}`);
     },
     onError: (err, vars, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);

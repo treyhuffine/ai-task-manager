@@ -10,7 +10,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, Bot, ListTree } from 'lucide-react';
 import { tasksApi } from '@/lib/api/tasks';
-import { describeLocalDate } from '@/lib/dates';
+import { nextOccurrenceNote } from '@/lib/tasks/recurrence';
 import { apiErrorText, apiErrorCode, apiErrorDetails } from '@/lib/api/client';
 
 /** A genuinely-running workstream disclosed by the server, with the other live
@@ -124,7 +124,7 @@ export function LifecycleGuardProvider({ children }: { children: ReactNode }) {
                 ? `Kept the workstream running and ${VERB[cmd.command].done}`
                 : `${VERB[cmd.command].done[0].toUpperCase()}${VERB[cmd.command].done.slice(1)}`,
             // A repeating task stays in Todo: say when it comes back.
-            next ? { description: `Next one ${describeLocalDate(next)}` } : undefined,
+            next ? { description: nextOccurrenceNote(next) } : undefined,
           );
           return true;
         } catch (e) {

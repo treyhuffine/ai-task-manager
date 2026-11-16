@@ -21,7 +21,7 @@
  * the client (the Repeat editor, labels, the deck) share it so they agree.
  */
 
-import { toDateOnly } from '@/lib/dates';
+import { describeLocalDate, toDateOnly } from '@/lib/dates';
 import { todayLocalDate } from '@/lib/deck/date';
 
 export const RECURRENCE_UNITS = ['day', 'week', 'month', 'year'] as const;
@@ -55,12 +55,27 @@ const RRULE_FREQ: Record<string, RecurrenceUnit> = { daily: 'day', weekly: 'week
 const KEYWORDS: [RegExp, RecurrenceRule][] = [
   [/\b(?:bi-?weekly|fortnightly)\b/, { every: 2, unit: 'week' }],
   [/\bquarterly\b/, { every: 3, unit: 'month' }],
-  [/\b(?:semi-?annual(?:ly)?|half-?yearly|twice a year)\b/, { every: 6, unit: 'month' }],
+  [/\b(?:semi-?annual(?:ly)?|half[\s-]?yearly|twice a year)\b/, { every: 6, unit: 'month' }],
   [/\bdaily\b/, { every: 1, unit: 'day' }],
   [/\bweekly\b/, { every: 1, unit: 'week' }],
   [/\bmonthly\b/, { every: 1, unit: 'month' }],
   [/\b(?:yearly|annual(?:ly)?)\b/, { every: 1, unit: 'year' }],
 ];
+
+/**
+ * Words that change what a cadence word means: "twice weekly" isn't weekly,
+ * "every week and a half" isn't every week, and "bi-monthly" is either twice a
+ * month or every two months. Text with one has no cadence Ri can follow,
+ * rather than the wrong one. "Twice a year" stays readable (every 6 months).
+ */
+const MODIFIERS = new RegExp([
+  `\\b(?:twice|thrice)\\b(?!\\s+a\\s+year)`,
+  `\\b(?:${NUMBER_PATTERN})\\s+times\\b`,
+  `\\bbi-?(?:monthly|annual(?:ly)?)\\b`,
+  `\\bsemi-?(?:weekly|monthly)\\b`,
+  `\\bhalf\\b(?![\\s-]?yearly)`,
+  `\\d\\.\\d`,
+].join('|'));
 
 function rule(every: number, unit: RecurrenceUnit): RecurrenceRule | null {
   return Number.isInteger(every) && every >= 1 && every <= MAX_RECURRENCE_EVERY ? { every, unit } : null;
@@ -89,6 +104,8 @@ export function parseRecurrence(text: string | null | undefined): RecurrenceRule
     const interval = /\binterval=(\d+)\b/.exec(lower);
     return rule(interval ? Number(interval[1]) : 1, RRULE_FREQ[freq[1]]);
   }
+
+  if (MODIFIERS.test(lower)) return null;
 
   const everyN = new RegExp(`\\bevery\\s+(${NUMBER_PATTERN})\\s+(${UNIT_PATTERN})\\b`).exec(lower);
   if (everyN) return rule(count(everyN[1]), UNIT_WORDS[everyN[2]]);
@@ -194,18 +211,56 @@ export function addRecurrence(date: string, cadence: RecurrenceRule): string {
   return format(new Date(Date.UTC(ty, tm, day)));
 }
 
+/** A date `steps` intervals after another. */
+function stepRecurrence(date: string, cadence: RecurrenceRule, steps: number): string {
+  let next = date;
+  for (let i = 0; i < steps; i += 1) next = addRecurrence(next, cadence);
+  return next;
+}
+
 /**
  * The first scheduled date after `today`, stepping from `anchor` in whole
- * intervals. At least one step is always taken, since the anchor is the
- * occurrence being finished: done early, the next one is still a full
- * interval on, and done late, missed occurrences are skipped and the rhythm
- * holds (a daily task three days late comes back tomorrow).
+ * intervals, and how many it took. At least one step is always taken, since
+ * the anchor is the occurrence being finished: done early, the next one is
+ * still a full interval on, and done late, missed occurrences are skipped and
+ * the rhythm holds (a daily task three days late comes back tomorrow).
  */
-export function nextOccurrence(cadence: RecurrenceRule, anchor: string, today: string): string {
-  let next = addRecurrence(anchor, cadence);
+export function nextOccurrenceSteps(cadence: RecurrenceRule, anchor: string, today: string): { date: string; steps: number } {
+  let date = addRecurrence(anchor, cadence);
+  let steps = 1;
   // Bounded so a corrupt anchor can never spin. 100k daily steps is 270 years.
-  for (let guard = 0; next <= today && guard < 100_000; guard += 1) next = addRecurrence(next, cadence);
-  return next;
+  while (date <= today && steps < 100_000) {
+    date = addRecurrence(date, cadence);
+    steps += 1;
+  }
+  return { date, steps };
+}
+
+export function nextOccurrence(cadence: RecurrenceRule, anchor: string, today: string): string {
+  return nextOccurrenceSteps(cadence, anchor, today).date;
+}
+
+/**
+ * Where a repeating task goes when one occurrence is done: its next
+ * occurrence, and its deadline when it has one.
+ *
+ * Without a deadline, an occurrence is missed once its day passes, so the next
+ * one is the first scheduled day after today.
+ *
+ * With a deadline, an occurrence is missed only once its deadline passes. The
+ * deadline moves to its first date after today, and the scheduled day moves by
+ * the same number of intervals, so the lead between them holds (ready Monday,
+ * due Friday stays that way). Done late, that day can already have come: the
+ * next occurrence is open now, with its deadline still ahead. With no
+ * scheduled day yet, the first completion sets one, never after the deadline.
+ */
+export function scheduleNextOccurrence(cadence: RecurrenceRule, { scheduled, deadline, today }: {
+  scheduled: string | null; deadline: string | null; today: string;
+}): { next: string; deadline: string | null } {
+  if (!deadline) return { next: nextOccurrence(cadence, scheduled ?? today, today), deadline: null };
+  const due = nextOccurrenceSteps(cadence, deadline, today);
+  const next = scheduled ? stepRecurrence(scheduled, cadence, due.steps) : addRecurrence(today, cadence);
+  return { next: next > due.date ? due.date : next, deadline: due.date };
 }
 
 /** The calendar date of a stored or typed date or instant, or null. */
@@ -228,4 +283,12 @@ export function isRestingUntilNext(
   if (!task.recurrence) return false;
   const next = toDateOnly(task.nextRecurrenceAt);
   return !!next && next > todayLocalDate(now);
+}
+
+/**
+ * What to say once an occurrence is done: when the next one comes, or that it
+ * is already open (done late, with its deadline still ahead).
+ */
+export function nextOccurrenceNote(next: string, now: Date = new Date()): string {
+  return next > todayLocalDate(now) ? `Next one ${describeLocalDate(next)}` : 'The next one is ready now';
 }

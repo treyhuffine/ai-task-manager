@@ -5,12 +5,14 @@ import {
   describeRecurrence,
   isRestingUntilNext,
   nextOccurrence,
+  nextOccurrenceNote,
   occurrenceDate,
   parseRecurrence,
   recurrenceHasDetail,
   recurrenceLabel,
   recurrenceProblem,
   recurrenceValue,
+  scheduleNextOccurrence,
 } from './recurrence';
 
 const day = (every: number) => ({ every, unit: 'day' as const });
@@ -28,7 +30,7 @@ describe('parseRecurrence', () => {
     ['every 3 days', day(3)], ['every 2 weeks', week(2)], ['every two weeks', week(2)], ['Every 6 months', month(6)],
     ['every other week', week(2)], ['every other month', month(2)],
     ['biweekly', week(2)], ['bi-weekly', week(2)], ['fortnightly', week(2)],
-    ['quarterly', month(3)], ['semi-annually', month(6)], ['twice a year', month(6)],
+    ['quarterly', month(3)], ['semi-annually', month(6)], ['twice a year', month(6)], ['half-yearly', month(6)], ['half yearly', month(6)],
     ['FREQ=DAILY', day(1)], ['FREQ=WEEKLY;INTERVAL=2', week(2)], ['RRULE:FREQ=MONTHLY;INTERVAL=3', month(3)],
   ])('reads %j', (text, expected) => {
     expect(parseRecurrence(text)).toEqual(expected);
@@ -63,6 +65,9 @@ describe('parseRecurrence', () => {
   it.each([
     '', '   ', null, undefined, 'every Monday', 'every Monday and Thursday', 'every weekday', 'whenever', 'soon',
     'FREQ=WEEKLY;BYDAY=MO,TH', '0d', 'every 0 days', '1000d',
+    // A word that changes what the cadence word means: refused, never read as that word.
+    'twice weekly', 'twice a week', 'three times a week', 'every week and a half', 'every 1.5 weeks',
+    'bi-monthly', 'bimonthly', 'bi-annually', 'semi-monthly', 'semi-weekly', 'monthly, twice if busy',
   ])('finds no cadence Ri can follow in %j', (text) => {
     expect(parseRecurrence(text)).toBeNull();
   });
@@ -141,6 +146,54 @@ describe('calendar math', () => {
     expect(nextOccurrence(week(1), '2026-10-01', '2026-11-16')).toBe('2026-11-19');
     expect(nextOccurrence(month(1), '2026-01-31', '2026-11-16')).toBe('2026-11-30');
     expect(nextOccurrence(year(1), '2024-01-21', '2026-11-16')).toBe('2027-01-21');
+  });
+
+  describe('with a deadline', () => {
+    it('keeps the lead between the scheduled day and the deadline, done on time', () => {
+      expect(scheduleNextOccurrence(week(1), { scheduled: '2026-11-16', deadline: '2026-11-20', today: '2026-11-18' }))
+        .toEqual({ next: '2026-11-23', deadline: '2026-11-27' });
+    });
+
+    it('done late with the next deadline still ahead, the next one is open now and stays due on time', () => {
+      // Scheduled Nov 16, due Nov 20, done Nov 25: the Nov 23 occurrence isn't
+      // missed, its deadline is Nov 27. Never a deadline before its occurrence.
+      expect(scheduleNextOccurrence(week(1), { scheduled: '2026-11-16', deadline: '2026-11-20', today: '2026-11-25' }))
+        .toEqual({ next: '2026-11-23', deadline: '2026-11-27' });
+    });
+
+    it('done early, both move one interval', () => {
+      expect(scheduleNextOccurrence(week(1), { scheduled: '2026-11-21', deadline: '2026-11-23', today: '2026-11-18' }))
+        .toEqual({ next: '2026-11-28', deadline: '2026-11-30' });
+    });
+
+    it('with no scheduled day, the first completion sets one, never after the deadline', () => {
+      // A yearly tax paid on time comes back a year from today, before next year's deadline.
+      expect(scheduleNextOccurrence(year(1), { scheduled: null, deadline: '2027-01-21', today: '2027-01-10' }))
+        .toEqual({ next: '2028-01-10', deadline: '2028-01-21' });
+      // Paid late, it still comes back by next year's deadline, not after it.
+      expect(scheduleNextOccurrence(year(1), { scheduled: null, deadline: '2027-01-21', today: '2027-02-15' }))
+        .toEqual({ next: '2028-01-21', deadline: '2028-01-21' });
+    });
+
+    it('a long-stale deadline lands on its first future date', () => {
+      expect(scheduleNextOccurrence(month(3), { scheduled: null, deadline: '2024-01-12', today: '2026-11-16' }))
+        .toEqual({ next: '2027-01-12', deadline: '2027-01-12' });
+    });
+
+    it('without one, only the scheduled day moves', () => {
+      expect(scheduleNextOccurrence(week(1), { scheduled: '2026-11-13', deadline: null, today: '2026-11-16' }))
+        .toEqual({ next: '2026-11-20', deadline: null });
+      expect(scheduleNextOccurrence(day(1), { scheduled: null, deadline: null, today: '2026-11-16' }))
+        .toEqual({ next: '2026-11-17', deadline: null });
+    });
+  });
+
+  it('says when the next one comes, or that it is already open', () => {
+    const now = new Date(2026, 10, 25, 9);
+    expect(nextOccurrenceNote('2026-11-30', now)).toBe('Next one Mon, Nov 30');
+    expect(nextOccurrenceNote('2027-01-04', now)).toBe('Next one Mon, Jan 4, 2027');
+    expect(nextOccurrenceNote('2026-11-23', now)).toBe('The next one is ready now');
+    expect(nextOccurrenceNote('2026-11-25', now)).toBe('The next one is ready now');
   });
 
   it('never returns today or earlier', () => {

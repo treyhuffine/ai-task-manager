@@ -102,7 +102,8 @@ export async function change(task: ViewTask, command: Command, where?: { list: s
     const result = (outcome.result ?? {}) as { toStatus?: ViewTask['status']; statusChangedCount?: number; nextRecurrenceAt?: string | null };
     if (result.toStatus) task.status = result.toStatus;
     if (typeof result.statusChangedCount === 'number') task.statusChangedCount = result.statusChangedCount;
-    if (result.nextRecurrenceAt) task.nextOccurrence = result.nextRecurrenceAt;
+    // Done late with its deadline still ahead, the next one is already open: not resting.
+    if (result.nextRecurrenceAt) task.nextOccurrence = localDay(result.nextRecurrenceAt) > new Date() ? result.nextRecurrenceAt : null;
     if (isFinished(task) && where) kept.set(task.id, { task, ...where });
     else kept.delete(task.id);
     tell(`In the Ri app, the person ${COMMANDS[command].done} the task "${task.title}" (${task.id}).`);
