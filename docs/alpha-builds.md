@@ -95,6 +95,37 @@ speed and browser interaction timing, passed in focused reruns on both trees.
 No reproducible new source-test failure was found. Installer qualification is
 recorded separately for the actual uploaded bytes.
 
+### Qualified Mac installers
+
+Both native Mac targets passed all nine installer checks in
+[alpha run 43919521165](https://github.com/treyhuffine/ai-task-manager/actions/runs/43919521165),
+built from `dc7be024` on November 16, 2026. The checks installed the real DMGs,
+verified signatures and native modules, completed GUI setup, installed Codex,
+edited tasks and notes, dispatched a stand-in harness chat, and preserved data
+after replacing and reopening the app. Each runtime inventory checked 100,091
+payload files with no private Home, environment or Git files or update policy.
+Reports and reopened-note screenshots were reviewed.
+
+| Target | Installer download | Qualification report |
+| --- | --- | --- |
+| Mac Apple silicon | [Artifact ZIP](https://github.com/treyhuffine/ai-task-manager/actions/runs/43919521165/artifacts/14255978938) | [9 checks passed](https://github.com/treyhuffine/ai-task-manager/actions/runs/43919521165/artifacts/14256919540) |
+| Mac Intel | [Artifact ZIP](https://github.com/treyhuffine/ai-task-manager/actions/runs/43919521165/artifacts/14257126088) | [9 checks passed](https://github.com/treyhuffine/ai-task-manager/actions/runs/43919521165/artifacts/14258135144) |
+
+| Installer | SHA-256 |
+| --- | --- |
+| `Ri-0.1.0-arm64.dmg` | `9d14b8c8d1ad662ed480079dc2f28b7ead438c6acc69d210682abf26ab44da77` |
+| `Ri-0.1.0.dmg` | `a26aa1ba1e2522d4ec7969b34514372bfabf259b148ce54668c918775d47d4df` |
+
+Sign into GitHub, extract the artifact ZIP, open the DMG in its `desktop` folder
+and drag Ri into Applications. Open it once. If blocked, use System Settings,
+Privacy & Security, Open Anyway. Complete setup and test a real provider sign-in
+and chat. Browser-downloaded Gatekeeper handling, real accounts and recipient
+hardware remain manual checks. These builds require macOS 13.5 or newer.
+
+The combined run is marked failed because its original Windows attempt failed
+before producing an installer. All four Mac and Linux jobs succeeded. Windows
+qualification uses a targeted retry instead of rebuilding those unchanged apps.
+
 ### Qualified Linux installers
 
 Both native Linux targets passed all 11 installer lifecycle checks in
