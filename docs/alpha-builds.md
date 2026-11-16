@@ -88,8 +88,8 @@ native SQLite/vector, canvas, sharp and PTY probes, 626 desktop tests, and 17
 focused service/runtime tests. Frozen installation applied the combined agentex
 patch successfully.
 
-After merging newer main through `ac386cba`, the combined source also passed
-typecheck, all 626 desktop tests and 204 focused service/runtime and task
+After merging newer main through `52f52c33`, the combined source also passed
+typecheck, all 626 desktop tests and 225 focused service/runtime and task
 lifecycle tests. This preserves the newer chat, recurrence and feedback work.
 
 The complete source suite was not green: the branch had 46 failing tests and
@@ -156,3 +156,49 @@ Debian package in its `desktop` folder on Ubuntu or Debian. Complete setup,
 sign into a real coding tool, create a task and note in chat, and check them
 after quitting and reopening. Actual provider accounts, recipient hardware,
 other distributions and FUSE mounting were not exercised by these runner checks.
+
+### Qualified Windows installer
+
+Windows x64 passed all 21 native lifecycle checks in
+[alpha run 43925855602](https://github.com/treyhuffine/ai-task-manager/actions/runs/43925855602),
+built from `0ac849d7` on November 16, 2026.
+[Download the normal installer artifact](https://github.com/treyhuffine/ai-task-manager/actions/runs/43925855602/artifacts/14259216413).
+The [qualification report and screenshot](https://github.com/treyhuffine/ai-task-manager/actions/runs/43925855602/artifacts/14258849897)
+were reviewed. The separate upgrade fixture is for CI only.
+
+The checks installed NSIS into a path with spaces and Unicode, completed GUI
+setup and migrations, verified NTFS access, installed real Codex 0.169.0 and
+Claude Code 2.1.325, dispatched a stand-in chat, edited tasks and notes, and ran
+the signed CLI in the PowerShell terminal. Windows used the installed bundle
+directly without staging a shared runtime release. Quit stopped all owned
+processes. Reopen and a higher-version installer kept the data, and uninstall
+kept the Home database.
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| `Ri-Setup-0.1.0-x64.exe` | 282,709,813 | `11d344fd66c2dc0955bc6caf1ce77f05d7b4a7b0d904e114ae88bab288ae3d1d` |
+| `ri-runtime-0.1.0-win32-x64.tar.gz` | 457,276,514 | `9523e6bf80969da666c27843d20a51d53443bc8a7fc152c5dc23934effa59e62` |
+
+An independent read-only audit of the downloaded artifact checked 85,345
+runtime archive files, including 85,344 manifest entries. It found no private
+Home databases, environment files, Git metadata, private configuration or update
+policy. The runtime payload is 1,902,869,682 bytes. The downloaded installer hash
+matches the one exercised by the runner. No packaged app was started locally.
+
+For the HP, no terminal commands are needed:
+
+1. In Settings, System, About, confirm 64-bit Intel/AMD Windows 10 version 1809
+   or newer, or Windows 11. Windows 7 and 8 cannot run this build.
+2. Sign into GitHub, download the normal artifact ZIP, extract it and open the
+   `.exe` in `desktop`. If Windows blocks it, choose **More info**, then
+   **Run anyway**. Installation can take several minutes.
+3. Start a new Ri, install Claude Code or Codex using its button, and sign in.
+   Ask it to create a task and a note. Open and edit the note, then complete the task.
+4. Close and reopen Ri and confirm both remain. Try a replacement installer
+   when supplied, then check the same records again. Report the Windows version,
+   coding tool and first step that failed. A photo is enough.
+
+Real provider sign-in and model requests, Codex's account-dependent Windows
+sandbox, SmartScreen interaction and the HP's hardware remain manual checks.
+The preview's app-open lifetime, manual updates and unsigned installation remain
+intentional limits. Native Windows supervision and signing can follow separately.
