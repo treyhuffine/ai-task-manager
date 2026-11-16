@@ -11,7 +11,8 @@ branch to share. `target: all` builds native installers for all five targets:
 | linux-arm64 | ubuntu-22.04-arm | ri-alpha-linux-arm64 | Debian package and AppImage |
 | windows-x64 | windows-2025 | ri-alpha-win32-x64 | NSIS .exe |
 
-Each artifact also contains its headless runtime tarball. End users open the
+Each artifact also contains its runtime tarball. On Windows, this is the packaged
+runtime payload, not an always-on headless installation. End users open the
 installer under `desktop/`. GitHub requires sign-in to download Actions artifacts,
 even from a public repository. Artifacts expire after 14 days.
 

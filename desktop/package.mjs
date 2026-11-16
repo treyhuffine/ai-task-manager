@@ -92,7 +92,9 @@ if (!fs.existsSync(cache)) {
 }
 if (createHash('sha256').update(fs.readFileSync(cache)).digest('hex') !== expected) throw new Error('Node download checksum mismatch');
 fs.mkdirSync(node);
-run(process.platform === 'win32' ? 'tar.exe' : '/usr/bin/tar', ['-xf', cache, '--strip-components=1', '-C', node]);
+// Git Bash also puts a tar.exe on PATH. Its remote-archive syntax treats a
+// Windows drive letter as a host, so use Windows' own ZIP-capable tar.
+run(process.platform === 'win32' ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/tar.exe') : '/usr/bin/tar', ['-xf', cache, '--strip-components=1', '-C', node]);
 
 // Scripts were disabled in deploy, so preserve the already-built native artifacts
 // from this exact Node ABI. Do not rebuild these libraries for Electron.
