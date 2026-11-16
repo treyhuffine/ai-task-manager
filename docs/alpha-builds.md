@@ -94,3 +94,30 @@ cases covering the differences, including first-message recovery, heartbeat
 speed and browser interaction timing, passed in focused reruns on both trees.
 No reproducible new source-test failure was found. Installer qualification is
 recorded separately for the actual uploaded bytes.
+
+### Qualified Linux installers
+
+Both native Linux targets passed all 11 installer lifecycle checks in
+[alpha run 43919521165](https://github.com/treyhuffine/ai-task-manager/actions/runs/43919521165),
+built from `dc7be024` on November 16, 2026. The runtime inventory checked 85,805
+payload files per target and found no private Home, environment or Git files
+and no configured update feed. The reports and screenshots show the authored
+note after reinstalling and reopening.
+
+| Target | Installer download | Qualification report |
+| --- | --- | --- |
+| Linux x64 | [Artifact ZIP](https://github.com/treyhuffine/ai-task-manager/actions/runs/43919521165/artifacts/14253733119) | [11 checks passed](https://github.com/treyhuffine/ai-task-manager/actions/runs/43919521165/artifacts/14255370755) |
+| Linux arm64 | [Artifact ZIP](https://github.com/treyhuffine/ai-task-manager/actions/runs/43919521165/artifacts/14255275247) | [11 checks passed](https://github.com/treyhuffine/ai-task-manager/actions/runs/43919521165/artifacts/14254608151) |
+
+| Installer | SHA-256 |
+| --- | --- |
+| `ri-desktop_0.1.0_amd64.deb` | `588951d21bc2be78d8a3cd65625619dfcf70cbb5677010d39fac45af86dbd5b5` |
+| x64 `Ri-0.1.0.AppImage` | `860ba9ca6f2d91d94c0f498865122b7c6abfa359570b74cfab250c7380f28b35` |
+| `ri-desktop_0.1.0_arm64.deb` | `73523bdd125c0540af68817152e7ad237e6d2b5a4328cc8bba5b9b2626393161` |
+| arm64 `Ri-0.1.0-arm64.AppImage` | `c79420c7612abc5dac01eb7ff456eae10676e476141c8475264009b979e66161` |
+
+Sign into GitHub, download and extract the matching artifact ZIP, then open the
+Debian package in its `desktop` folder on Ubuntu or Debian. Complete setup,
+sign into a real coding tool, create a task and note in chat, and check them
+after quitting and reopening. Actual provider accounts, recipient hardware,
+other distributions and FUSE mounting were not exercised by these runner checks.
