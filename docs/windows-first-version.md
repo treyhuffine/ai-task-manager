@@ -1,5 +1,9 @@
 # First Windows version
 
+The build entry point is now [Alpha desktop builds](alpha-builds.md). Select
+`windows-x64` and enable `installer_checks` for the complete native lifecycle.
+The verification below records the original November 2026 preview bytes.
+
 Native Windows x64 preview, built on GitHub Actions. No public release or
 download is published. The installer is unsigned and installs for the current
 user. Ri runs while its desktop app is open.
@@ -119,17 +123,19 @@ to its own server and Home. Session instructions use PowerShell CLI syntax on
 Windows. Global shipped skills are copies and skill mirrors use junctions.
 
 The owned agentex library needs Windows npm shim parsing and skill junction
-fixes. Source is on local branch `ri/windows-first-version` in the separate
-`agentex-windows-first-version` worktree, commits `09495b2` and `0c0a78b`. Ri carries those
-fixes in its existing pnpm patch until an approved library release includes
-them. No agentex version was published.
+fixes. Source is pushed to agentex's `ri/windows-first-version` branch, commits
+`09495b2` and `0c0a78b`. Ri carries those fixes in its 0.0.50 pnpm patch alongside
+main's OpenCode isolation fix until an approved library release includes them.
+No agentex version was published.
 
 ## Runner checks
 
-Dispatch Desktop and headless runtime with **Build only the Windows preview**.
-The Windows job uploads only the `.exe` and small qualification reports. It
-never creates a release or an update feed. Native SQLite, sqlite-vec and PTY
-probes run under the bundled Node before packaging.
+Dispatch **Alpha desktop builds** with target `windows-x64` and enable
+`installer_checks`. It uploads the `.exe` and runtime tarball in
+`ri-alpha-win32-x64`, plus separate qualification reports and an upgrade
+fixture. It never creates a release or an update feed. Native SQLite,
+sqlite-vec, canvas, sharp and PTY probes run under the bundled Node before
+packaging. The heavy lifecycle checks are manual and do not run on pull requests.
 
 `desktop/windows-smoke.ts` installs the NSIS output on a disposable hosted
 Windows account, chooses a fresh Home without a Unix HOME variable, tests real
@@ -184,7 +190,8 @@ with six skips, and its typecheck passed.
 1. In Windows Settings, open System, then About. Confirm an x64-based processor
    and 64-bit Windows 10 version 1809 or newer, or Windows 11.
 2. Open the supplied Actions run while signed into GitHub. Under Artifacts,
-   download `ri-windows-x64-preview`. Extract the ZIP and open `Ri-Setup-…-x64.exe`.
+   download `ri-alpha-win32-x64`. Extract the ZIP, open its `desktop` folder,
+   and open `Ri-Setup-…-x64.exe`. The separate upgrade fixture is for CI only.
 3. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
    The preview is unsigned. Install for your account and open Ri.
    Installation can take 10 minutes or longer. Let it finish.

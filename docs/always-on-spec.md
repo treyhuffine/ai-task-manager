@@ -571,7 +571,7 @@ Built. Section 13.4 says what ran.
 
 Acceptance: an SSH-only Linux server goes from `curl … | sh` and `ri start` to a paired Home that updates itself.
 
-Built, except Windows, which has its own branch and runs while its window is open for now. Nothing has been published yet, so the workflow and Linux haven't run (section 13.4).
+The Windows desktop port runs its Home while its window is open. Its Scheduled Task adapter and headless launcher remain future work. The shared [alpha workflow](alpha-builds.md) builds native installers for all five targets without publishing a release or update feed. The dated release verification remains in section 13.4.
 
 ## 13. Decisions, open questions and review
 

@@ -68,7 +68,7 @@ The Slack account Connector in **Plugins** lets Ri search, read and send message
 
 Run `pnpm desktop:demo` to build and open Ri in Electron, or `pnpm desktop:dev` for hot reload. The demo uses its own data home and serves the existing Next app over HTTP/2, with certificate trust confined to Electron. No OS certificate installation is needed. After the first production build, `node desktop/launch.mjs --skip-build` opens it again without rebuilding.
 
-Build an unsigned app with `pnpm desktop:package`. On macOS arm64 the output is `release/desktop/mac-arm64/Ri.app`, with its own Node runtime and Ri CLI. `pnpm runtime:package` builds the headless runtime on matching macOS/Linux hosts.
+Build an unsigned app with `pnpm desktop:package`. On macOS arm64 the output is `release/desktop/mac-arm64/Ri.app`, with its own Node runtime and Ri CLI. `pnpm runtime:package` builds the headless runtime on matching macOS/Linux hosts. The manual [Alpha desktop builds](docs/alpha-builds.md) workflow builds installers and runtime archives for Mac arm64/x64, Linux arm64/x64, and Windows x64, with optional installer lifecycle checks.
 
 The [Windows x64 preview](docs/windows-first-version.md) builds an unsigned
 `.exe` installer on GitHub Actions. It runs while the desktop app is open and
