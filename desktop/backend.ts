@@ -26,7 +26,8 @@ import { DesktopSessionError } from './session-auth';
  */
 function offerOwnRelease() {
   const resources = process.env.RI_DESKTOP_RESOURCES;
-  if (!resources) return;
+  // Windows runs its installer bundle directly until OS supervision is added.
+  if (!resources || process.platform === 'win32') return;
   const version = (folder: string) => JSON.parse(fs.readFileSync(path.join(folder, 'server/package.json'), 'utf8')).version as string;
   const latest = latestRelease();
   const needsPublisher = !fs.existsSync(releasePolicyFile()) && fs.existsSync(path.join(resources, 'release-policy.json'));

@@ -55,7 +55,9 @@ if (!fs.existsSync(path.join(repo, '.next-desktop/BUILD_ID'))) throw new Error('
 // pnpm deploy copies the package allowlist and a self-contained production graph.
 // Explicitly copy Next runtime assets afterwards. Never copy .env or a data home.
 const deployed = path.join(stage, 'deployed');
-run('pnpm', ['--config.allow-unused-patches=true', '--filter', 'ai-task-manager', 'deploy', '--prod', '--legacy', '--ignore-scripts', deployed]);
+// Windows packages materialize junctions for NSIS, so dependencies must be
+// hoisted instead of depending on pnpm's linked per-package resolution.
+run('pnpm', ['--config.allow-unused-patches=true', '--filter', 'ai-task-manager', 'deploy', '--prod', '--legacy', '--ignore-scripts', ...(process.platform === 'win32' ? ['--config.node-linker=hoisted'] : []), deployed]);
 // Workspace packages may be hardlinked to the checkout. Freeze their bytes so
 // editing source while packaging cannot change a manifest that was just made.
 // On macOS `cp -c` clones: the bytes are frozen but share disk until either

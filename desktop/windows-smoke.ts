@@ -14,6 +14,7 @@ import { serviceStatus } from '../src/lib/service/client';
 import { windowsProcesses } from '../src/lib/utils/windows-processes';
 import { servicePaths } from '../src/lib/service/paths';
 import { redactServiceLine } from '../src/lib/service/logging';
+import { digestFile } from '../src/lib/service/runtime-manifest';
 import { PAIRING_TOKEN_FRAGMENT_KEY } from '../src/constants/app';
 import { copyNextVectorExtension } from './package-files.mjs';
 import type { HarnessAuthResponse } from '../src/lib/server/operations/harness/auth';
@@ -27,8 +28,8 @@ assert(fs.existsSync(installer));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-windows-install-'));
 const installation = path.join(temporary, 'Program Files', 'Ri preview é');
 const unpacked = process.env.RI_WINDOWS_UNPACKED === '1';
-const report: { checks: string[]; startupWindows: string[]; output: string[]; harnessVersions: Record<string, string>; diagnostics?: unknown; error?: string; cleanupError?: string; passed?: boolean; startedAt: string; finishedAt?: string; installer: string; limitations: string[] } = {
-  checks: [], startupWindows: [], output: [], harnessVersions: {}, startedAt: new Date().toISOString(), installer: path.basename(installer),
+const report: { checks: string[]; startupWindows: string[]; output: string[]; harnessVersions: Record<string, string>; diagnostics?: unknown; error?: string; cleanupError?: string; passed?: boolean; startedAt: string; finishedAt?: string; installer: string; sha256: string; limitations: string[] } = {
+  checks: [], startupWindows: [], output: [], harnessVersions: {}, startedAt: new Date().toISOString(), installer: path.basename(installer), sha256: digestFile(installer),
   limitations: ['Hosted Windows runner, not the old HP', 'Stand-in Claude protocol, no real provider account', 'Higher installer version uses the same server build to isolate installer upgrade behavior'],
 };
 if (unpacked) report.limitations.push('Current desktop shell and agentex resolver over an unpacked retained runtime, exact installer and NSIS installation/upgrade/uninstall not qualified');
@@ -264,6 +265,9 @@ $rules = $acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIden
   fs.mkdirSync(path.join(repository, 'release/qualification'), { recursive: true });
   await page.screenshot({ path: path.join(repository, 'release/qualification/windows-home.png') });
   const controller = (await serviceStatus())!;
+  assert.equal(fs.realpathSync(controller.repo), fs.realpathSync(server));
+  assert(!fs.existsSync(path.join(fixture.env.RI_INSTALL_ROOT, 'releases')), 'Windows must run its installed bundle without staging a background-service release');
+  pass('Windows runs the installed bundle directly without staging a shared runtime release');
   const beforeQuit = await windowsProcesses();
   const ownedPids = new Set([controller.pid]);
   let previousSize = 0;
