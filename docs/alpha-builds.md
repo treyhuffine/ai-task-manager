@@ -80,3 +80,17 @@ of the earlier bytes. Windows edits to the removed in-repository app kit and
 included-app staging scripts are left behind because personal apps now live in
 their own repositories. The public runtime metadata permission fix is retained,
 while Home credentials remain private.
+
+## Consolidation validation
+
+On November 16, 2026, the consolidated branch passed typecheck, scoped lint,
+native SQLite/vector, canvas, sharp and PTY probes, 626 desktop tests, and 17
+focused service/runtime tests. Frozen installation applied the combined agentex
+patch successfully.
+
+The complete source suite was not green: the branch had 46 failing tests and
+clean main at `7533ab91` had 43. The stable failures reproduced on main. Six
+cases covering the differences, including first-message recovery, heartbeat
+speed and browser interaction timing, passed in focused reruns on both trees.
+No reproducible new source-test failure was found. Installer qualification is
+recorded separately for the actual uploaded bytes.
