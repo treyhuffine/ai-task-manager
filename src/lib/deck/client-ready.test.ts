@@ -28,8 +28,13 @@ describe('isClientReadyTodo', () => {
     expect(isClientReadyTodo({ status: 'todo', resurfaceAfter: past }, NOW)).toBe(true);
   });
 
-  it('hides a future recurrence but shows a due one', () => {
-    expect(isClientReadyTodo({ status: 'todo', recurrence: 'FREQ=DAILY', nextRecurrenceAt: future }, NOW)).toBe(false);
-    expect(isClientReadyTodo({ status: 'todo', recurrence: 'FREQ=DAILY', nextRecurrenceAt: past }, NOW)).toBe(true);
+  it('hides a future recurrence but shows a due one, by local calendar day', () => {
+    // A next occurrence is a calendar date, due from the start of its local day.
+    const evening = new Date(2026, 8, 10, 21, 30).getTime();
+    expect(isClientReadyTodo({ status: 'todo', recurrence: 'FREQ=DAILY', nextRecurrenceAt: '2026-09-11' }, evening)).toBe(false);
+    expect(isClientReadyTodo({ status: 'todo', recurrence: 'FREQ=DAILY', nextRecurrenceAt: '2026-09-10' }, evening)).toBe(true);
+    expect(isClientReadyTodo({ status: 'todo', recurrence: 'FREQ=DAILY', nextRecurrenceAt: '2026-09-11' }, new Date(2026, 8, 11, 0, 5).getTime())).toBe(true);
+    // A next date without a repeat holds nothing back.
+    expect(isClientReadyTodo({ status: 'todo', recurrence: null, nextRecurrenceAt: '2026-09-11' }, evening)).toBe(true);
   });
 });

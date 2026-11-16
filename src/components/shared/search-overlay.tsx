@@ -7,6 +7,7 @@ import { parseSearchQuery } from '@/lib/client/search-query';
 import { SearchPalette } from './search-palette';
 import { CommandSearchItems } from './command-search-items';
 import { openSettings } from '@/components/settings/settings-store';
+import { openFeedback } from '@/components/feedback/feedback-store';
 import { PLUGIN_CREATE_ANCHORS } from '@/components/settings/sections/plugins/navigation';
 
 
@@ -130,6 +131,10 @@ export function SearchOverlay() {
       case 'open-settings':
         setOpen(false);
         openSettings();
+        break;
+      case 'send-feedback':
+        setOpen(false);
+        openFeedback();
         break;
       case 'create-skill':
         if (!newSkill.isPending) { setOpen(false); newSkill.start(); }

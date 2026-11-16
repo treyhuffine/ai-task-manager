@@ -29,7 +29,7 @@ const MODULES: Record<string, string> = {
     ];
     const idle={mutate:()=>{},isPending:false};
     export const useWorkspaces=()=>({data:agents});export const useWorkspace=id=>({data:agents.find(a=>a.id===id)});export const useRunOn=()=>({data:undefined});export const useSetDefaultDevice=()=>idle;
-    export const useWorkspacePRs=()=>({data:[]});export const useWorkspaceBranches=()=>({data:[],isLoading:false});
+    export const useWorkspacePRs=()=>({data:[]});export const useWorkspaceIssues=()=>({data:[]});export const useWorkspaceBranches=()=>({data:[],isLoading:false});
     export const useSetUpAgent=()=>idle;export const useSetupPlan=()=>({data:undefined});
     export const useMentionAgents=enabled=>enabled && !new URLSearchParams(location.search).has('noAgents') ? agents.map(a=>({kind:'agent',id:a.id,name:a.name,slug:a.id,purpose:'Helps with '+a.name,picture:{image:null,emoji:a.emoji}})) : [];`,
   'hooks/use-devices': `export const useRunsOnSeveralDevices=()=>false;`,
@@ -217,7 +217,7 @@ it('loads skills before creating a chat and updates an open /f picker when disco
     await page.keyboard.press('Escape');
     await page.evaluate(() => (window as unknown as { openLauncher: (seed: { workspaceId: string }) => void }).openLauncher({ workspaceId: 'roast' }));
     await editor(page).pressSequentially('/f');
-    await page.getByText('No matching skills', { exact: true }).waitFor();
+    await page.locator('.chat-slash-menu[aria-busy="true"] [data-slot="skeleton"]').first().waitFor();
     await expect.poll(() => skills.requests).toEqual([{ workspaceId: 'roast', harness: 'claude' }]);
     expect(await page.evaluate(() => 'started' in window)).toBe(false);
 
@@ -261,7 +261,8 @@ it('changes the skill list with the chosen agent and harness and opens it from +
     await page.getByRole('button', { name: 'Add to this chat' }).click();
     await page.getByRole('menuitem', { name: 'Skills' }).click();
     await page.locator('.chat-slash-menu').getByRole('button', { name: /first-principles-codex/ }).click();
-    expect(await editor(page).innerText()).toBe('/first-principles-codex ');
+    await editor(page).locator('[data-slash-command="first-principles-codex"]').waitFor();
+    expect(await editor(page).textContent()).toBe('/first-principles-codex ');
     expect(await page.evaluate(() => 'started' in window)).toBe(false);
   } finally { await context.close(); }
 }, 60_000);

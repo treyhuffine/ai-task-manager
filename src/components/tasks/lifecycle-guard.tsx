@@ -10,6 +10,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, Bot, ListTree } from 'lucide-react';
 import { tasksApi } from '@/lib/api/tasks';
+import { describeLocalDate } from '@/lib/dates';
 import { apiErrorText, apiErrorCode, apiErrorDetails } from '@/lib/api/client';
 
 /** A genuinely-running workstream disclosed by the server, with the other live
@@ -104,10 +105,12 @@ export function LifecycleGuardProvider({ children }: { children: ReactNode }) {
       for (let attempt = 0; attempt < 4; attempt++) {
         const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now());
         try {
+          let next: string | null = null;
           if (operation) {
             await operation(acks);
           } else if (cmd.command === 'complete') {
-            await tasksApi.complete(cmd.taskId, { ...acks, idempotencyKey: key });
+            const done = await tasksApi.complete(cmd.taskId, { ...acks, idempotencyKey: key });
+            if (done.recurring) next = done.nextRecurrenceAt ?? null;
           } else {
             await tasksApi.transition(cmd.taskId, cmd.command, { ...acks, idempotencyKey: key });
           }
@@ -120,6 +123,8 @@ export function LifecycleGuardProvider({ children }: { children: ReactNode }) {
               : acks.runtimeChoice === 'keep_running'
                 ? `Kept the workstream running and ${VERB[cmd.command].done}`
                 : `${VERB[cmd.command].done[0].toUpperCase()}${VERB[cmd.command].done.slice(1)}`,
+            // A repeating task stays in Todo: say when it comes back.
+            next ? { description: `Next one ${describeLocalDate(next)}` } : undefined,
           );
           return true;
         } catch (e) {

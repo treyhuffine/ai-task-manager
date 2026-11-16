@@ -6,16 +6,11 @@ import { Calendar } from '@/components/ui/calendar';
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@/components/ui/input-group';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { parseTypedDate } from '@/lib/date-input';
-import { formatLocalDate, isPastDate, parseLocalDate, toDateOnly } from '@/lib/dates';
+import { describeLocalDate, formatLocalDate, isPastDate, parseLocalDate, toDateOnly } from '@/lib/dates';
 import { todayLocalDate } from '@/lib/deck/date';
 import { cn } from '@/lib/utils';
 
 const FULL_DATE: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' };
-
-function describeDate(date: string) {
-  const thisYear = date.startsWith(String(new Date().getFullYear()));
-  return formatLocalDate(date, { weekday: 'short', month: 'short', day: 'numeric', ...(thisYear ? {} : { year: 'numeric' }) });
-}
 
 /** Clicks inside reach the row behind through React's portal bubbling, and a held touch would start dragging it. */
 function keepFromRow(event: SyntheticEvent) {
@@ -110,7 +105,7 @@ function DatePanel({ label, value, onChange, onClose }: {
           {edited && !empty && (
             <InputGroupAddon align="inline-end" className="py-0 pr-2">
               <InputGroupText aria-live="polite" className={cn('whitespace-nowrap text-xs', unreadable && 'text-destructive')}>
-                {unreadable ? 'Not a date' : describeDate(picked!)}
+                {unreadable ? 'Not a date' : describeLocalDate(picked!)}
               </InputGroupText>
             </InputGroupAddon>
           )}
@@ -138,16 +133,16 @@ function DatePanel({ label, value, onChange, onClose }: {
   );
 }
 
-/** A task date as a labeled field, for the task page's properties. */
-export function TaskDateField({ label, value, onChange, highlightOverdue = false }: {
-  label: string; value: string | null; onChange: (date: string | null) => void; highlightOverdue?: boolean;
+/** A task date as a labeled field, for the task page's properties. `emptyLabel` says what no date means here. */
+export function TaskDateField({ label, value, onChange, highlightOverdue = false, emptyLabel }: {
+  label: string; value: string | null; onChange: (date: string | null) => void; highlightOverdue?: boolean; emptyLabel?: string;
 }) {
   const shown = formatLocalDate(value, FULL_DATE);
   return (
     <TaskDatePicker label={label} value={value} onChange={onChange}>
       <button
         type="button"
-        aria-label={`${label}: ${shown ?? 'not set'}`}
+        aria-label={`${label}: ${shown ?? emptyLabel?.toLowerCase() ?? 'not set'}`}
         className={cn(
           'inline-flex w-fit items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-muted',
           !shown && 'text-muted-foreground',
@@ -155,7 +150,7 @@ export function TaskDateField({ label, value, onChange, highlightOverdue = false
         )}
       >
         <CalendarIcon size={12} />
-        {shown ?? 'Set date'}
+        {shown ?? emptyLabel ?? 'Set date'}
       </button>
     </TaskDatePicker>
   );

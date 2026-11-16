@@ -23,6 +23,7 @@ import {
   FileText,
 } from 'lucide-react'
 import { INTEGRATION_LABELS } from '@/constants/integrations'
+import { Skeleton } from '@/components/ui/skeleton'
 import { FileIcon } from '@/components/file-icon'
 import { SourceMark } from '@/components/chat-ui/references/source-mark'
 import { McpIconImage } from '@/components/mcp-apps/mcp-icon'
@@ -39,6 +40,7 @@ interface MentionMenuListProps {
   items: MentionItem[]
   command: (item: MentionItem) => void
   query?: string
+  loading?: boolean
 }
 
 /** In a list narrowed to one kind, "how many more" is a caption, not a row. */
@@ -121,19 +123,29 @@ function keyFor(item: MentionItem): string {
  * says what it is when it's empty.
  */
 export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListProps>(
-  function MentionMenuList({ items: allItems, command, query = '' }, ref) {
-    const [selection, setSelection] = useState<{ items: MentionItem[] | null; index: number }>({ items: null, index: 0 })
-    const selectedIndex = selection.items === allItems ? selection.index : 0
+  function MentionMenuList({ items: allItems, command, query = '', loading = false }, ref) {
+    const items = useMemo(() => allItems.filter((item) => !isCaption(item)), [allItems])
+    const [selection, setSelection] = useState<{ query: string; key: string | null }>({ query, key: null })
+    const selectedIndex = selection.query === query ? Math.max(0, items.findIndex(item => keyFor(item) === selection.key)) : 0
     const setSelectedIndex = useCallback((next: number | ((previous: number) => number)) => {
-      setSelection(previous => ({ items: allItems, index: typeof next === 'function' ? next(previous.items === allItems ? previous.index : 0) : next }))
-    }, [allItems])
+      setSelection(previous => {
+        const previousIndex = previous.query === query ? Math.max(0, items.findIndex(item => keyFor(item) === previous.key)) : 0
+        const item = items[typeof next === 'function' ? next(previousIndex) : next]
+        return { query, key: item ? keyFor(item) : null }
+      })
+    }, [items, query])
     // The chip the arrow keys are on, for this list only. Null: the
     // keyboard is in the results.
-    const [chipFocus, setChipFocus] = useState<{ items: MentionItem[]; index: number } | null>(null)
-    const focusedChip = chipFocus?.items === allItems ? chipFocus.index : null
+    const [chipFocus, setChipFocus] = useState<{ query: string; index: number } | null>(null)
+    const focusedChip = chipFocus?.query === query ? chipFocus.index : null
+    // A changed query starts over. Progressive results for the same query
+    // keep the item or kind the user has already picked with the arrows.
+    if (selection.query !== query) {
+      setSelection({ query, key: null })
+      setChipFocus(null)
+    }
     const listRef = useRef<HTMLDivElement>(null)
     const chipsRef = useRef<HTMLDivElement>(null)
-    const items = useMemo(() => allItems.filter((item) => !isCaption(item)), [allItems])
     const caption = allItems.find(isCaption)
     const parsed = parseMentionQuery(query)
     const activeChip = KIND_CHIPS.indexOf(parsed.filter)
@@ -149,7 +161,7 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
         | HTMLElement
         | undefined
       el?.scrollIntoView({ block: 'nearest' })
-    }, [selectedIndex])
+    }, [selectedIndex, items])
 
     // Keep the current or focused chip in view on a narrow composer. Only
     // the chip row scrolls, never the page around the popup.
@@ -188,7 +200,7 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
       onKeyDown: ({ event }) => {
         const kindStep = arrowsPickKind ? suggestionKindDelta(event) : 0
         if (kindStep !== 0) {
-          setChipFocus({ items: allItems, index: (shownChip + kindStep + KIND_CHIPS.length) % KIND_CHIPS.length })
+          setChipFocus({ query, index: (shownChip + kindStep + KIND_CHIPS.length) % KIND_CHIPS.length })
           return true
         }
         if (focusedChip !== null) {
@@ -229,6 +241,15 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
     ) : null
 
     if (items.length === 0) {
+      if (loading) {
+        return (
+          <div className="slash-command-menu chat-slash-menu" aria-busy="true" aria-label="Loading mentions">
+            {chips}
+            <MentionSkeletonRows count={3} />
+            {footer}
+          </div>
+        )
+      }
       // `@task:` takes spaces, so prose typed after a search that found
       // nothing would drag an empty box along. Show nothing instead.
       if (parsed.filter && /\s/.test(parsed.text)) return null
@@ -283,6 +304,7 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
         {chips}
         <div ref={listRef} className="flex min-h-0 flex-col gap-px overflow-y-auto">
           {rows}
+          {loading && <MentionSkeletonRows count={2} />}
           {caption && (
             <div className="px-2.5 pt-1 pb-0.5 text-[10.5px] text-muted-foreground/70">
               Showing {caption.shown} of {caption.total}. Type more to narrow.
@@ -294,6 +316,20 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
     )
   },
 )
+
+function MentionSkeletonRows({ count }: { count: number }) {
+  const widths = ['w-28', 'w-36', 'w-24'] as const
+  return (
+    <div className="flex flex-col gap-0.5 py-0.5" aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="flex items-center gap-2 px-2.5 py-1">
+          <Skeleton className="h-3.5 w-3.5 shrink-0 rounded" />
+          <Skeleton className={`h-3 ${widths[i % widths.length]} rounded`} />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 /**
  * One chip per kind, plus All. Buttons, not a tab list: the keyboard stays

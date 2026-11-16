@@ -25,7 +25,10 @@ import { useClaudeAuthStatus, useClaudeLogin } from '@/hooks/use-claude-login';
 import type { ClientEventStatus } from '@/hooks/use-execution';
 import { useCancelDelivery, useDeliveries, useRetrySend, useScratchpad, useSendMessage, useSessionEntities, useSessionEvents } from '@/hooks/use-execution';
 import { useHarnessConnection, useRecheckHarnessConnection } from '@/hooks/use-harness-connection';
+import { useSlashCommands } from '@/hooks/use-slash-commands';
 import { useWorkspaces } from '@/hooks/use-workspaces';
+import { splitLeadingSlashCommand } from '@/lib/agent-skills/parse-invocation';
+import { Tip } from '@/components/ui/tip';
 import { hot } from '@/lib/_debug/hot-path';
 import type { ChatEventRecord } from '@/lib/api/dto/records';
 import { sessionsApi } from '@/lib/api/sessions';
@@ -205,7 +208,13 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
                 isFailed && 'opacity-70 border border-destructive/40',
               )}
             >
-              {origin ? <CoordinationText text={content}>{hasMarkers ? <RenderMessageSegments segments={segments} attachments={event.attachments ?? []} sessionId={sessionId} tone="surface" /> : undefined}</CoordinationText> : hasMarkers ? <RenderMessageSegments segments={segments} attachments={event.attachments ?? []} sessionId={sessionId} tone="bubble" /> : content}
+              {origin ? (
+                <CoordinationText text={content}>
+                  {hasMarkers ? <RenderMessageSegments segments={segments} attachments={event.attachments ?? []} sessionId={sessionId} tone="surface" /> : undefined}
+                </CoordinationText>
+              ) : (
+                <UserMessageBody content={content} segments={segments} hasMarkers={hasMarkers} attachments={event.attachments ?? []} sessionId={sessionId} />
+              )}
             </MessageContent>
           </Message>
           {origin?.originalRequest && <details className="mx-3 mb-2 text-[11px] text-muted-foreground">
@@ -1352,6 +1361,71 @@ function extractQuestions(input: unknown): MinimalQuestion[] {
   );
 }
 
+function UserMessageBody({
+  content,
+  segments,
+  hasMarkers,
+  attachments,
+  sessionId,
+}: {
+  content: string;
+  segments: EntitySegment[];
+  hasMarkers: boolean;
+  attachments: Attachment[];
+  sessionId?: string;
+}) {
+  const leadingSlash = splitLeadingSlashCommand(content);
+  const slashCommandsQuery = useSlashCommands(leadingSlash ? sessionId : null);
+  const matchedCommand = leadingSlash
+    ? slashCommandsQuery.data?.commands.find((c) => c.name.toLowerCase() === leadingSlash.name.toLowerCase())
+    : undefined;
+
+  if (!leadingSlash || !matchedCommand) {
+    return hasMarkers ? (
+      <RenderMessageSegments segments={segments} attachments={attachments} sessionId={sessionId} tone="bubble" />
+    ) : (
+      content
+    );
+  }
+
+  const rest = leadingSlash.rest;
+  const restSegments = parseEntitySegments(rest);
+  const restHasMarkers = restSegments.some((s) => s.kind === 'marker') || rest.includes('[[source:');
+  const badge = (
+    <>
+      {leadingSlash.leadingSpace}
+      <Tip label={matchedCommand.description?.trim() || `/${matchedCommand.name}`} onlyWhenTextHidden={!matchedCommand.description?.trim()}>
+        <span
+          data-slash-command={matchedCommand.name}
+          className="inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mr-0.5 rounded-md border border-current/20 bg-current/10 text-[12px] font-medium select-none"
+        >
+          <Terminal size={11} className="shrink-0 opacity-75" />
+          <span className="self-baseline font-mono text-[11px]">{`/${matchedCommand.name}`}</span>
+        </span>
+      </Tip>
+    </>
+  );
+
+  if (restHasMarkers) {
+    return (
+      <RenderMessageSegments
+        prefix={badge}
+        segments={restSegments}
+        attachments={attachments}
+        sessionId={sessionId}
+        tone="bubble"
+      />
+    );
+  }
+
+  return (
+    <div className="min-w-0">
+      {badge}
+      {rest}
+    </div>
+  );
+}
+
 /**
  * Render a message body that contains entity markers. Splits the
  * string into segments, swaps file markers for `MessageFileChip` (kept
@@ -1360,11 +1434,13 @@ function extractQuestions(input: unknown): MinimalQuestion[] {
  * `useSessionEntities`; the scratchpad text comes from `useScratchpad`.
  */
 function RenderMessageSegments({
+  prefix,
   segments,
   attachments,
   sessionId,
   tone,
 }: {
+  prefix?: React.ReactNode;
   segments: EntitySegment[];
   attachments: Attachment[];
   sessionId?: string;
@@ -1389,6 +1465,7 @@ function RenderMessageSegments({
     <SourceMetadataProvider chatId={sessionId} refs={segments.flatMap(segment => segment.kind === 'text' ? parseSourceMarkers(segment.text).flatMap(part => part.type === 'source' && part.valid ? [part.encoded] : []) : [])}>
       {/* One flowing block: the bubble is a flex column, and chips belong inline with the words around them. */}
       <div className="min-w-0">
+      {prefix}
       {segments.map((seg, i) => {
         if (seg.kind === 'text') {
           return <SourceText key={i} text={seg.text} resolve={false} tone={tone} />;

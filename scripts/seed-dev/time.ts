@@ -7,7 +7,7 @@
  *   - Instants (`createdAt`, `reminderAt`, `completedAt`, chat events): ISO
  *     strings with a time, from `daysAgo` / `daysFromNow` / `hoursAgo` /
  *     `minutesAgo`.
- *   - Calendar dates (`hardDeadline`, `resurfaceAfter`): bare `YYYY-MM-DD` on
+ *   - Calendar dates (`hardDeadline`, `resurfaceAfter`, `nextRecurrenceAt`): bare `YYYY-MM-DD` on
  *     the local calendar, from `dateIn`. A date carries no time or zone (see
  *     `src/lib/dates.ts`).
  */

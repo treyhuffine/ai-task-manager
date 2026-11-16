@@ -54,6 +54,7 @@ Both surfaces share the same action registry — same names, same params, same r
 - **Status values:** tasks are `consider | todo | in_progress | done | archived`. Notes are `active | archived`. "Current" (or "active") work is the derived union of `todo` plus `in_progress`, not a stored state. New tasks default to `todo`, use `consider` only for a tentative user-owned possibility.
 - **Change lifecycle with `transition_task`** (move to todo, move to consider, start, return to todo, reopen, archive, restore). `update_task` changes content and metadata only and cannot set status. Runtime and agent-run events never change a task's lifecycle on their own.
 - **Always use `complete_task` to mark done**, never `update_task`. Completion records a `task_completions` row and rolls recurring tasks to their next occurrence.
+- **Repeats:** `recurrence` is a cadence: `daily`, `weekly`, `monthly`, `yearly`, or an interval (`3d`, `2w`, "every 6 months"). `nextRecurrenceAt` is the next date as `YYYY-MM-DD` (null = due now). Particular weekdays are refused: use `weekly` with `nextRecurrenceAt` on that weekday. Put conditions ("only if the plan is active") in the body.
 - **Prefer archive over delete.** There is no delete action in the agent surface, this is intentional.
 - **Task vs. note:** if there's an action implied ("do X", "follow up with Y"), it's a task. If it's pure capture (an idea, a link, a quote, a reference), it's a note.
 - **Link notes to tasks** when the note is context for a specific task — pass `task_id` on create.

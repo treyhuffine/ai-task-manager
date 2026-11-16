@@ -161,6 +161,12 @@ describe('isReady / isDeckEligible', () => {
     expect(isReady({ ...base, recurrence: 'weekly', nextRecurrenceAt: '2026-09-05T00:00:00.000Z' })).toBe(false);
     expect(isReady({ ...base, recurrence: 'weekly', nextRecurrenceAt: '2026-08-30T00:00:00.000Z' })).toBe(true);
   });
+  it('a next occurrence is due from the start of its local day, not a UTC instant', () => {
+    const lateEvening = new Date(2026, 8, 4, 23, 0).toISOString();
+    const justAfterMidnight = new Date(2026, 8, 5, 0, 1).toISOString();
+    expect(isReady({ ...base, recurrence: 'daily', nextRecurrenceAt: '2026-09-05', now: lateEvening })).toBe(false);
+    expect(isReady({ ...base, recurrence: 'daily', nextRecurrenceAt: '2026-09-05', now: justAfterMidnight })).toBe(true);
+  });
 });
 
 describe('considerBlockers (Todo -> Consider preconditions)', () => {

@@ -9,6 +9,7 @@ import {
   forwardRef,
 } from 'react'
 import type { SuggestionKeyDownProps } from '@tiptap/suggestion'
+import { Skeleton } from '@/components/ui/skeleton'
 import { isSuggestionCommitKey, suggestionNavDelta } from '../suggestion/keys'
 import { highlightSegments, type CommandMatch } from './ranking'
 
@@ -19,6 +20,7 @@ export interface SlashMenuListRef {
 interface SlashMenuListProps {
   items: CommandMatch[]
   command: (item: CommandMatch) => void
+  loading?: boolean
 }
 
 /**
@@ -56,7 +58,7 @@ function Highlighted({ text, matches }: { text: string; matches: number[] }) {
  * the overall width to the composer.
  */
 export const SlashMenuList = forwardRef<SlashMenuListRef, SlashMenuListProps>(
-  ({ items, command }, ref) => {
+  ({ items, command, loading = false }, ref) => {
     const [selectedIndex, setSelectedIndex] = useState(0)
     const listRef = useRef<HTMLDivElement>(null)
 
@@ -99,6 +101,13 @@ export const SlashMenuList = forwardRef<SlashMenuListRef, SlashMenuListProps>(
     }))
 
     if (items.length === 0) {
+      if (loading) {
+        return (
+          <div className="slash-command-menu chat-slash-menu" aria-busy="true" aria-label="Loading skills">
+            <SlashSkeletonRows />
+          </div>
+        )
+      }
       return (
         <div className="slash-command-menu px-3 py-2 text-xs text-muted-foreground">
           No matching skills
@@ -138,3 +147,21 @@ export const SlashMenuList = forwardRef<SlashMenuListRef, SlashMenuListProps>(
 )
 
 SlashMenuList.displayName = 'SlashMenuList'
+
+function SlashSkeletonRows() {
+  const widths = [
+    ['w-20', 'w-40'],
+    ['w-24', 'w-32'],
+    ['w-16', 'w-44'],
+  ] as const
+  return (
+    <div className="flex flex-col gap-0.5 py-0.5" aria-hidden="true">
+      {widths.map(([nameWidth, descWidth], i) => (
+        <div key={i} className="flex items-center gap-2 px-2.5 py-1.5">
+          <Skeleton className={`h-3 ${nameWidth} rounded`} />
+          <Skeleton className={`h-2.5 ${descWidth} max-w-[55%] rounded`} />
+        </div>
+      ))}
+    </div>
+  )
+}

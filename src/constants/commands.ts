@@ -164,6 +164,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
 
   // Settings
   { id: 'open-settings', label: 'Settings', keywords: 'settings preferences config profile account voice notifications billing devices', icon: 'Settings', group: 'settings' },
+  { id: 'send-feedback', label: 'Feedback & bugs', keywords: 'feedback bug report issue suggestion question', icon: 'MessageSquarePlus', group: 'settings' },
   { id: 'toggle-theme', label: 'Toggle theme', keywords: 'theme dark light mode switch', icon: 'Sun', group: 'settings' },
 ];
 

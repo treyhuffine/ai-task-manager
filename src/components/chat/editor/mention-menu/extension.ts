@@ -7,7 +7,7 @@ import Suggestion, {
   type SuggestionOptions,
   type SuggestionProps,
 } from '@tiptap/suggestion'
-import { createSuggestionPopupRenderer, settledItems } from '../suggestion/renderer'
+import { createSuggestionPopupRenderer, type SuggestionRenderProps } from '../suggestion/renderer'
 import { MentionMenuList } from './popup'
 import {
   buildItems,
@@ -22,6 +22,7 @@ import {
   toReferenceFileItems,
 } from './ranking'
 import type {
+  AppMentionResults,
   MentionItem,
   AgentMentionItem,
   FileMentionItem,
@@ -32,6 +33,7 @@ import type {
   SearchMentionSources,
 } from './types'
 import { appMentionItems, shouldSearchAppMentions } from './app-mentions'
+import type { SourceSearchResult } from '@/lib/chat-sources/types'
 import type { IssueMentionItem, PrMentionItem } from '../github-refs/types'
 import { createReferenceMentionPlugin } from './reference-mention'
 
@@ -40,6 +42,31 @@ import { createReferenceMentionPlugin } from './reference-mention'
 // `suggestion$` key, which ProseMirror rejects when more than one
 // instance lives in the same editor.
 const MENTION_MENU_PLUGIN_KEY = new PluginKey('mentionMenuSuggestion')
+
+const CACHE_TTL_MS = 15_000
+const CACHE_MAX_ENTRIES = 50
+
+class TtlCache<V> {
+  private map = new Map<string, { at: number; value: V }>()
+
+  get(key: string): V | undefined {
+    const entry = this.map.get(key)
+    if (!entry) return undefined
+    if (Date.now() - entry.at >= CACHE_TTL_MS) {
+      this.map.delete(key)
+      return undefined
+    }
+    return entry.value
+  }
+
+  set(key: string, value: V): void {
+    this.map.delete(key)
+    this.map.set(key, { at: Date.now(), value })
+    while (this.map.size > CACHE_MAX_ENTRIES) {
+      this.map.delete(this.map.keys().next().value!)
+    }
+  }
+}
 
 interface MentionMenuOptions {
   searchSources?: SearchMentionSources
@@ -138,6 +165,13 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
   addProseMirrorPlugins() {
     let accountGroup: { id: string; prefix: string } | null = null
     let pending: AbortController | null = null
+    let activeProps: SuggestionProps<MentionItem> | null = null
+    let activeLoading = false
+    const refTreeCache = new TtlCache<FileMentionItem[]>()
+    const entityCache = new TtlCache<MentionEntityResults>()
+    const sourceCache = new TtlCache<SourceSearchResult>()
+    const appMentionCache = new TtlCache<AppMentionResults>()
+
     const getFiles = () => this.options.getFileEntries?.() ?? []
     const searchEntities = this.options.searchEntities
     const getAgents = () => this.options.getAgents?.() ?? []
@@ -145,7 +179,83 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
     const getPrs = () => this.options.getPrs?.() ?? []
     const getIssues = () => this.options.getIssues?.() ?? []
     const loadReferenceTree = this.options.loadReferenceTree
-    const renderPopup = createSuggestionPopupRenderer<MentionItem>(MentionMenuList, { asyncItems: true })
+    const renderPopup = createSuggestionPopupRenderer<MentionItem>(MentionMenuList)
+    let popupRenderer: ReturnType<typeof renderPopup> | null = null
+
+    const isCurrent = (props: SuggestionProps<MentionItem>) => {
+      const current = MENTION_MENU_PLUGIN_KEY.getState(props.editor.state)
+      return current?.active && current.query === props.query
+        && current.range.from === props.range.from && current.range.to === props.range.to
+    }
+
+    const compose = (query: string, scope: string | undefined) => {
+      const parsed = parseMentionQuery(query)
+      if (accountGroup && !parsed.text.startsWith(accountGroup.prefix)) accountGroup = null
+      const references = getReferences()
+      const drillDown = parsed.filter ? null : parseReferenceDrillDown(query, references)
+      const search = entitySearchFor(parsed, drillDown !== null)
+      const appText = accountGroup ? '' : parsed.text
+      const scopeKey = scope ?? ''
+
+      const refKey = drillDown && canBrowseReference(drillDown.reference) && loadReferenceTree
+        ? `${scopeKey}::${drillDown.reference.id}`
+        : null
+      const entityKey = search && searchEntities
+        ? `${scopeKey}::${search.kind ?? 'any'}::${search.limit}::${search.q.trim()}`
+        : null
+      const sourceQuery = accountGroup ? parsed.text.slice(accountGroup.prefix.length).trim() : parsed.text
+      const sourceKey = !drillDown && (!parsed.filter || parsed.filter === 'app' || parsed.filter === 'connector') && this.options.searchSources
+        ? `${scopeKey}::${parsed.filter ?? 'all'}::${accountGroup?.id ?? ''}::${sourceQuery}`
+        : null
+      const appKey = this.options.searchAppMentions && shouldSearchAppMentions(parsed.filter, appText, !!drillDown || !!accountGroup)
+        ? `${scopeKey}::${appText}`
+        : null
+
+      const cachedRefEntries = refKey ? refTreeCache.get(refKey) : undefined
+      const referenceFiles = drillDown && cachedRefEntries
+        ? toReferenceFileItems(drillDown.reference, cachedRefEntries)
+        : null
+      const entities = entityKey ? (entityCache.get(entityKey) ?? null) : null
+      const sources = sourceKey ? (sourceCache.get(sourceKey) ?? null) : null
+      const appMentions = appKey ? (appMentionCache.get(appKey) ?? null) : null
+
+      const sourceItems: MentionItem[] = sources ? [...sources.items] : []
+      if (sources && sources.total > sources.items.length) {
+        sourceItems.push({ kind: 'more', of: 'app', total: sources.total, shown: sources.items.length, query: parsed.text, narrowed: !!parsed.filter })
+      }
+      const items = [
+        ...kindSuggestions(query),
+        ...sourceItems,
+        ...appMentionItems(appMentions, parsed.filter === 'app'),
+        ...buildItems({
+          files: getFiles(),
+          agents: getAgents(),
+          entities,
+          references,
+          referenceFiles,
+          prs: getPrs(),
+          issues: getIssues(),
+          drillDown,
+          query,
+        }),
+      ]
+      return {
+        items,
+        parsed,
+        drillDown,
+        search,
+        appText,
+        sourceQuery,
+        refKey,
+        entityKey,
+        sourceKey,
+        appKey,
+        needsRefTree: refKey !== null && cachedRefEntries === undefined,
+        needsEntities: entityKey !== null && entities === null,
+        needsSources: sourceKey !== null && sources === null,
+        needsAppMentions: appKey !== null && appMentions === null,
+      }
+    }
 
     const suggestion: Partial<SuggestionOptions<MentionItem, MentionItem>> = {
       pluginKey: MENTION_MENU_PLUGIN_KEY,
@@ -160,57 +270,73 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
       },
       // `@` can appear mid-sentence; the picker fires from any position.
       startOfLine: false,
-      // Async: tasks and notes are a server search, and a drill-down
-      // fetches that reference's file list on demand. Tiptap awaits this and
-      // only re-runs it when the query actually changes. The renderer keeps
-      // the last list up until this one lands (`asyncItems`).
-      items: async ({ query }: { query: string }) => {
+      // Synchronous: return local + cached items immediately so the popup opens
+      // with a loading skeleton instead of freezing on slow server/MCP calls.
+      items: ({ query }: { query: string }) => {
         pending?.abort()
         const request = new AbortController()
         pending = request
         const scope = this.options.getScopeKey?.()
-        const parsed = parseMentionQuery(query)
-        if (accountGroup && !parsed.text.startsWith(accountGroup.prefix)) accountGroup = null
-        const references = getReferences()
-        const drillDown = parsed.filter ? null : parseReferenceDrillDown(query, references)
-        const search = entitySearchFor(parsed, drillDown !== null)
-        const appText = accountGroup ? '' : parsed.text
-        const [referenceFiles, entities, sources, appMentions] = await Promise.all([
-          drillDown && canBrowseReference(drillDown.reference) && loadReferenceTree
-            ? loadReferenceTree(drillDown.reference.id)
-                .then((entries) => toReferenceFileItems(drillDown.reference, entries))
-                // A failed tree fetch degrades to worktree-only matches rather
-                // than emptying the picker mid-keystroke.
-                .catch(() => null)
-            : null,
-          // Same for a failed search: files and the rest still show.
-          search && searchEntities
-            ? searchEntities(search).catch((): MentionEntityResults | null => null)
-            : null,
-          !drillDown && (!parsed.filter || parsed.filter === 'app' || parsed.filter === 'connector') && this.options.searchSources
-            ? this.options.searchSources(accountGroup ? parsed.text.slice(accountGroup.prefix.length).trim() : parsed.text, parsed.filter ?? undefined, accountGroup?.id, request.signal).catch(() => null)
-            : null,
-          // Apps' own items (one part from a parts library, say). A slow or failed
-          // search only leaves its app out.
-          this.options.searchAppMentions && shouldSearchAppMentions(parsed.filter, appText, !!drillDown || !!accountGroup)
-            ? this.options.searchAppMentions(appText, request.signal).catch(() => null)
-            : null,
-        ])
-        if (request.signal.aborted || scope !== this.options.getScopeKey?.()) return settledItems([])
-        const sourceItems: MentionItem[] = sources ? [...sources.items] : []
-        if (sources && sources.total > sources.items.length) sourceItems.push({ kind: 'more', of: 'app', total: sources.total, shown: sources.items.length, query: parsed.text, narrowed: !!parsed.filter })
-        // A kind whose name is being typed leads, so Tab or Enter narrows to it.
-        return settledItems([...kindSuggestions(query), ...sourceItems, ...appMentionItems(appMentions, parsed.filter === 'app'), ...buildItems({
-          files: getFiles(),
-          agents: getAgents(),
-          entities,
-          references,
-          referenceFiles,
-          prs: getPrs(),
-          issues: getIssues(),
-          drillDown,
-          query,
-        })])
+        const state = compose(query, scope)
+        let inFlight =
+          (state.needsRefTree ? 1 : 0) +
+          (state.needsEntities ? 1 : 0) +
+          (state.needsSources ? 1 : 0) +
+          (state.needsAppMentions ? 1 : 0)
+        activeLoading = inFlight > 0
+
+        const finishOne = () => {
+          inFlight = Math.max(0, inFlight - 1)
+          if (request.signal.aborted || scope !== this.options.getScopeKey?.()) return
+          if (!activeProps || activeProps.query !== query || !isCurrent(activeProps)) return
+          const next = compose(query, scope)
+          activeLoading = inFlight > 0
+          popupRenderer?.onUpdate?.({
+            ...activeProps,
+            items: next.items,
+            loading: activeLoading,
+          } as SuggestionRenderProps<MentionItem>)
+        }
+
+        if (state.needsRefTree && state.drillDown && loadReferenceTree && state.refKey) {
+          const refKey = state.refKey
+          void loadReferenceTree(state.drillDown.reference.id)
+            .then((entries) => {
+              if (!request.signal.aborted && scope === this.options.getScopeKey?.()) refTreeCache.set(refKey, entries)
+            })
+            .catch(() => null)
+            .finally(finishOne)
+        }
+        if (state.needsEntities && state.search && searchEntities && state.entityKey) {
+          const entityKey = state.entityKey
+          void searchEntities(state.search)
+            .then((result) => {
+              if (!request.signal.aborted && scope === this.options.getScopeKey?.()) entityCache.set(entityKey, result)
+            })
+            .catch(() => null)
+            .finally(finishOne)
+        }
+        if (state.needsSources && this.options.searchSources && state.sourceKey) {
+          const sourceKey = state.sourceKey
+          const sourceFilter = state.parsed.filter === 'app' || state.parsed.filter === 'connector' ? state.parsed.filter : undefined
+          void this.options.searchSources(state.sourceQuery, sourceFilter, accountGroup?.id, request.signal)
+            .then((result) => {
+              if (!request.signal.aborted && scope === this.options.getScopeKey?.()) sourceCache.set(sourceKey, result)
+            })
+            .catch(() => null)
+            .finally(finishOne)
+        }
+        if (state.needsAppMentions && this.options.searchAppMentions && state.appKey) {
+          const appKey = state.appKey
+          void this.options.searchAppMentions(state.appText, request.signal)
+            .then((result) => {
+              if (!request.signal.aborted && scope === this.options.getScopeKey?.() && result) appMentionCache.set(appKey, result)
+            })
+            .catch(() => null)
+            .finally(finishOne)
+        }
+
+        return state.items
       },
       command: ({
         editor,
@@ -282,17 +408,26 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
       },
       render: () => {
         const renderer = renderPopup()
-        // A selected repo can become a chip while the preceding query is
-        // still awaiting server results. Those results must not reopen it.
-        const isCurrent = (props: SuggestionProps<MentionItem>) => {
-          const current = MENTION_MENU_PLUGIN_KEY.getState(props.editor.state)
-          return current?.active && current.query === props.query
-            && current.range.from === props.range.from && current.range.to === props.range.to
-        }
+        popupRenderer = renderer
         return {
           ...renderer,
-          onStart: (props: SuggestionProps<MentionItem>) => { if (isCurrent(props)) renderer.onStart(props) },
-          onUpdate: (props: SuggestionProps<MentionItem>) => { if (isCurrent(props)) renderer.onUpdate(props) },
+          onStart: (props: SuggestionProps<MentionItem>) => {
+            if (!isCurrent(props)) return
+            activeProps = props
+            renderer.onStart({ ...props, loading: activeLoading })
+          },
+          onUpdate: (props: SuggestionProps<MentionItem>) => {
+            if (!isCurrent(props)) return
+            activeProps = props
+            renderer.onUpdate({ ...props, loading: activeLoading })
+          },
+          onExit: () => {
+            activeProps = null
+            activeLoading = false
+            pending?.abort()
+            pending = null
+            renderer.onExit()
+          },
         }
       },
     }

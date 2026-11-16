@@ -21,8 +21,11 @@
  *
  * This module has no imports from the schema or the DB so it stays a pure,
  * cheaply-testable leaf that both the schema (for its column enum) and the
- * query layer can depend on without a cycle.
+ * query layer can depend on without a cycle. Its one import, the recurrence
+ * calendar math, is just as pure.
  */
+
+import { isRestingUntilNext } from './recurrence';
 
 export const TASK_STATUSES = ['consider', 'todo', 'in_progress', 'done', 'archived'] as const;
 
@@ -196,7 +199,8 @@ export interface ReadyInputs {
   resurfaceAfter: string | null;
   /** Recurrence cadence string, when the task is recurring. */
   recurrence: string | null;
-  /** ISO timestamp of the next scheduled occurrence, when recurring. */
+  /** Calendar date (`YYYY-MM-DD`) of the next scheduled occurrence, when
+   * recurring. Ready from the start of that local day. */
   nextRecurrenceAt: string | null;
   /** ISO "now" for temporal comparisons. */
   now: string;
@@ -213,7 +217,7 @@ export function isReady(i: ReadyInputs): boolean {
   if (i.status !== 'todo') return false;
   if (i.hasUnresolvedBlocker) return false;
   if (i.resurfaceAfter && i.resurfaceAfter > i.now) return false;
-  if (i.recurrence && i.nextRecurrenceAt && i.nextRecurrenceAt > i.now) return false;
+  if (isRestingUntilNext(i, new Date(i.now))) return false;
   return true;
 }
 

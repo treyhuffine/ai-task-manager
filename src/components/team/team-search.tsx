@@ -13,6 +13,7 @@ import { trpc } from '@/lib/trpc/client';
 import { apiErrorText } from '@/lib/api/client';
 import { useTeamCreateRecord } from './use-team-create-record';
 import { useTeamNav } from './team-context';
+import { openFeedback } from '@/components/feedback/feedback-store';
 
 /** Team context supplies destinations and its shared chat search to the common palette. */
 export function TeamSearch() {
@@ -53,9 +54,10 @@ export function TeamSearch() {
       case 'go-notes': nav.show('notes'); break;
       case 'go-chat': nav.show('chat'); break;
       case 'open-settings': nav.openPanel('settings'); break;
+      case 'send-feedback': openFeedback(); break;
     }
   };
-  const commands = PALETTE_COMMANDS.filter(command => ['create-task', 'create-note', 'go-tasks', 'open-board', 'go-notes', 'go-chat', 'open-settings'].includes(command.id));
+  const commands = PALETTE_COMMANDS.filter(command => ['create-task', 'create-note', 'go-tasks', 'open-board', 'go-notes', 'go-chat', 'open-settings', 'send-feedback'].includes(command.id));
   return <SearchPalette inputRef={inputRef} open={open} onOpenChange={next => { if (!next) close(); }} query={query} onQueryChange={setQuery}
     placeholder={parsed.isCommand ? 'Type a command...' : 'Search or type > for commands...'} searchQuery={parsed.isCommand ? '' : parsed.searchQuery} typeFilter={parsed.typeFilter} results={(results.data ?? []).filter(result => !parsed.typeFilter || result.entityType === (parsed.typeFilter === 'decision' ? 'note' : parsed.typeFilter))} chats={parsed.typeFilter ? [] : chats.data ?? []}
     beforeResults={parsed.isCommand ? <CommandSearchItems commands={commands} query={parsed.searchQuery} onSelect={execute}/> : !parsed.searchQuery && <RecentSearchItems items={(recent.data ?? []).filter(item => !parsed.typeFilter || item.entityType === parsed.typeFilter)} onSelect={(type, id) => { close(); if (type === 'task') nav.openTask(id); else nav.openNote(id); }} />}

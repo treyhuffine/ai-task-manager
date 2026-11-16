@@ -4,6 +4,7 @@ import { apiErrorCode, apiErrorDetails, apiErrorText } from '@/lib/api/client';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import { tasksApi } from '@/lib/api/tasks';
 import { documentSaves } from '@/lib/client/document-saves';
+import { describeLocalDate } from '@/lib/dates';
 import { entityKeys } from '@/lib/query/entity-keys';
 import {
 	optimisticPatch,
@@ -159,6 +160,12 @@ export function useCompleteTask() {
       return {
         snapshot: await optimisticTransition(qc, id, 'done', { completedAt: new Date().toISOString() }),
       };
+    },
+    // A repeating task stays in Todo, so without a word the click would look
+    // like it did nothing. Say when it comes back.
+    onSuccess: (result) => {
+      if (!result.recurring || !result.nextRecurrenceAt) return;
+      toast.success(`Done. Next one ${describeLocalDate(result.nextRecurrenceAt)}`);
     },
     onError: (err, vars, ctx) => {
       rollbackOptimistic(qc, ctx?.snapshot);

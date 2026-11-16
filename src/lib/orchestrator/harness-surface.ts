@@ -143,8 +143,9 @@ const domainModelSection = (
 - **Tasks** are action items: title, description, body (markdown), outcome
   (definition of done), status (\`consider | todo | in_progress | done | archived\`), energy
   (\`deep | light\`), effort (\`trivial | small | medium | large | epic\`),
-  hardDeadline, recurrence ("daily", "weekly", "monthly", "yearly", or "3d"),
-  blockedOn, parentId (subtasks), areaId, contextTags, userContext.
+  hardDeadline, recurrence ("daily", "weekly", "monthly", "yearly", or an
+  interval like "3d" or "2w") with nextRecurrenceAt (its next date,
+  YYYY-MM-DD), blockedOn, parentId (subtasks), areaId, contextTags, userContext.
 - **Notes**: freeform markdown (ideas, meeting notes, research): body,
   optional title, optional area/task link, and a kind (\`note | decision\`).
   A decision is a note with \`kind: "decision"\` whose title says what was

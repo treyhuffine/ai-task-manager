@@ -67,6 +67,7 @@ import { CHAT_MESSAGE_SENT, chatMessagePreview } from '@/lib/sessions/chat-messa
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
 import { normalizeIntegrationScopes } from '@/lib/integrations/scope-pins';
 import { normalizeTaskStatus, canApply, targetState, transitionLabel, availableCommands, considerBlockers, CONSIDER_FORBIDDEN_FIELDS, isTerminal, TaskLifecycleError, type TransitionCommand, type LifecycleCommand, type TaskStatus as LifecycleTaskStatus } from '@/lib/tasks/lifecycle';
+import { nextOccurrence, occurrenceDate, parseRecurrence, recurrenceProblem } from '@/lib/tasks/recurrence';
 import type { LifecycleCommandResult } from '@/lib/db/schema';
 import { camelizeKeys, snakeizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
@@ -733,6 +734,7 @@ export function createTask(
   createdBy?: EntityVersionMeta,
 ): TaskRecord {
   assertNoProjectionFields(input);
+  input = normalizeRecurrenceWrite(input);
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -800,6 +802,38 @@ const CONSIDER_FIELD_LABELS: Record<(typeof CONSIDER_FORBIDDEN_FIELDS)[number], 
 };
 
 /**
+ * Check and tidy the repeat fields of a task write (src/lib/tasks/recurrence.ts).
+ * A recurrence Ri can't follow is refused with what to write instead, rather
+ * than saved and silently misread, unless it is the one already stored (a
+ * content restore or an echoed field). Blank means none. The next occurrence is
+ * kept as a calendar date. Ending a repeat drops its next occurrence too, so a
+ * later repeat starts fresh instead of from a stale date.
+ */
+function normalizeRecurrenceWrite<T extends { recurrence?: string | null; nextRecurrenceAt?: string | null }>(input: T, existing?: TaskRecord): T {
+  const sets = (field: 'recurrence' | 'nextRecurrenceAt') => Object.prototype.hasOwnProperty.call(input, field) && input[field] !== undefined;
+  if (!sets('recurrence') && !sets('nextRecurrenceAt')) return input;
+  const out = { ...input };
+  if (sets('recurrence')) {
+    const recurrence = input.recurrence?.trim() || null;
+    if (recurrence && recurrence !== existing?.recurrence) {
+      const problem = recurrenceProblem(recurrence);
+      if (problem) throw new TaskLifecycleError('invalid_params', problem, { field: 'recurrence' });
+    }
+    out.recurrence = recurrence;
+    if (!recurrence && existing?.recurrence && !sets('nextRecurrenceAt')) out.nextRecurrenceAt = null;
+  }
+  if (sets('nextRecurrenceAt')) {
+    const raw = input.nextRecurrenceAt?.trim() || null;
+    const date = raw ? occurrenceDate(raw) : null;
+    if (raw && !date) {
+      throw new TaskLifecycleError('invalid_params', `"${raw}" isn't a date. Give the next occurrence as YYYY-MM-DD.`, { field: 'nextRecurrenceAt' });
+    }
+    out.nextRecurrenceAt = date;
+  }
+  return out;
+}
+
+/**
  * A body write may name the body revision it edited (docs/homes-spec.md
  * §9.3, P6.4). When the body moved on since, the write is refused whole with
  * the current body, never applied over it. Without one, the last write wins,
@@ -833,6 +867,7 @@ export function updateTask(id: string, input: UpdateTaskInput, meta: EntityVersi
   const existing = normalizeTaskRow(existingRaw);
   // A shared task's shared fields are its team's (docs/homes-spec.md §9.4).
   if (existing.sourceTeamId) assertPrivateTaskPatch(input);
+  input = normalizeRecurrenceWrite(input, existing);
 
   // Reject a parent assignment that would create a cycle, at the query boundary
   // so no surface can build one.
@@ -1623,12 +1658,22 @@ function completeTaskInTx(id: string, idempotencyKey: string, input: CompleteTas
 
     if (task.recurrence) {
       // Recurring: record the occurrence, advance the schedule, end WIP -> Todo.
-      // The cadence anchors to the SCHEDULED occurrence (nextRecurrenceAt), not
-      // the completion instant, and advances in whole intervals until the first
-      // FUTURE occurrence — so completing late (even several intervals late)
-      // preserves phase and never schedules an already-overdue occurrence.
-      const anchor = task.nextRecurrenceAt ?? now;
-      const nextDate = nextFutureRecurrence(task.recurrence, anchor, now);
+      // Occurrences are calendar days on the local calendar, so a daily task
+      // done tonight is Ready from the start of tomorrow, not tomorrow night.
+      // The cadence steps from the SCHEDULED occurrence (nextRecurrenceAt, or
+      // today when none was set), not the completion instant, in whole
+      // intervals to the first FUTURE day, so completing late (even several
+      // intervals late) holds the rhythm and never schedules an overdue
+      // occurrence. A cadence Ri can't read (only rows written before writes
+      // were checked) keeps the old weekly fallback rather than failing.
+      const today = todayLocalDate(new Date(now));
+      const step = parseRecurrence(task.recurrence) ?? { every: 1, unit: 'week' as const };
+      const nextDate = nextOccurrence(step, occurrenceDate(task.nextRecurrenceAt) ?? today, today);
+      // A deadline belongs to the occurrence just finished, so it moves to the
+      // next one by the same rhythm, never left behind as a stale overdue date.
+      // A snooze was for the finished occurrence too, and ends with it.
+      const deadline = occurrenceDate(task.hardDeadline);
+      const nextDeadline = deadline ? nextOccurrence(step, deadline, today) : null;
       // Every successful recurring completion advances the monotonic lifecycle
       // revision, even a Todo->Todo occurrence, so concurrent/duplicate
       // completions are detectable. The status-age stamp only moves when the
@@ -1641,6 +1686,8 @@ function completeTaskInTx(id: string, idempotencyKey: string, input: CompleteTas
           .set({
             status: 'todo',
             nextRecurrenceAt: nextDate,
+            ...(nextDeadline ? { hardDeadline: nextDeadline } : {}),
+            ...(task.resurfaceAfter ? { resurfaceAfter: null } : {}),
             lastProgressAt: now,
             updatedAt: now,
             statusChangedCount: nextCount,
@@ -1676,67 +1723,6 @@ function completeTaskInTx(id: string, idempotencyKey: string, input: CompleteTas
     recordLifecycleCommand(id, idempotencyKey, 'complete', from, 'done', nextCount, input.meta, result);
     void syncEntity('task', id);
     return { task: normalizeTaskRow(updated), fromStatus: from, toStatus: 'done', statusChangedCount: nextCount, recurring: false, replayed: false };
-}
-
-/**
- * Advance a date by one recurrence interval. UTC throughout (the values are ISO
- * UTC instants) so cadence never drifts by a timezone offset. Month/year steps
- * clamp to the last valid day of the target month, so Jan 31 monthly lands on
- * Feb 28/29 and stays end-of-month instead of skidding into March.
- */
-function computeNextRecurrence(recurrence: string, fromDate: string): string {
-  const date = new Date(fromDate);
-  const lower = recurrence.toLowerCase().trim();
-
-  const addDays = (n: number) => date.setUTCDate(date.getUTCDate() + n);
-  const addMonths = (n: number) => {
-    const day = date.getUTCDate();
-    // If the anchor is the last day of its month, keep the cadence end-of-month
-    // (Jan 31 -> Feb 28 -> Mar 31), rather than sticking at the 28th once a short
-    // month clamps it. Otherwise clamp the day into the target month.
-    const origLastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
-    const wasEndOfMonth = day === origLastDay;
-    date.setUTCDate(1); // avoid overflow while we change the month
-    date.setUTCMonth(date.getUTCMonth() + n);
-    const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
-    date.setUTCDate(wasEndOfMonth ? lastDay : Math.min(day, lastDay));
-  };
-
-  if (lower.includes('daily') || lower === '1d') addDays(1);
-  else if (lower.includes('weekly') || lower === '1w') addDays(7);
-  else if (lower.includes('monthly') || lower === '1m') addMonths(1);
-  else if (lower.includes('yearly') || lower === '1y') addMonths(12);
-  else {
-    const match = lower.match(/^(\d+)\s*([dwmy])$/);
-    if (match) {
-      const n = parseInt(match[1], 10);
-      const unit = match[2];
-      if (unit === 'd') addDays(n);
-      else if (unit === 'w') addDays(n * 7);
-      else if (unit === 'm') addMonths(n);
-      else addMonths(n * 12);
-    } else {
-      addDays(7); // safe default for an unrecognized pattern
-    }
-  }
-
-  return date.toISOString();
-}
-
-/**
- * The next occurrence at or after "now", advancing from the SCHEDULED occurrence
- * in whole intervals so the cadence's phase is preserved even when a completion
- * is several intervals late (a 3-days-late daily task lands tomorrow, not in 3
- * days). Bounded so a degenerate pattern can never loop forever.
- */
-function nextFutureRecurrence(recurrence: string, scheduledAnchor: string, now: string): string {
-  let next = computeNextRecurrence(recurrence, scheduledAnchor);
-  let guard = 0;
-  while (next <= now && guard < 5000) {
-    next = computeNextRecurrence(recurrence, next);
-    guard += 1;
-  }
-  return next;
 }
 
 // ─── Task↔execution associations & review ─────────────────────

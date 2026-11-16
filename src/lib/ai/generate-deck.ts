@@ -143,7 +143,11 @@ export function readyDeckCandidates(now: Date) {
   // next-occurrence-due check below.
   const db = getDb();
   const nowIso = now.toISOString();
-  const todayStr = now.toISOString().slice(0, 10);
+  // A next occurrence is a calendar date, due from the start of its local day
+  // (src/lib/tasks/recurrence.ts). Older rows may hold an instant, so compare
+  // only its leading date.
+  const localToday = todayLocalDate(now);
+  const occurrenceDue = sql`substr(${tasks.nextRecurrenceAt}, 1, 10) <= ${localToday}`;
   const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   // SQL PREFILTER — cheap and loose. The authoritative Ready check is the
   // canonical `isReady` predicate applied in JS below, so blocker-resolution
@@ -154,7 +158,7 @@ export function readyDeckCandidates(now: Date) {
   const readyGate = and(
     eq(tasks.status, 'todo'),
     or(isNull(tasks.resurfaceAfter), lte(tasks.resurfaceAfter, nowIso)),
-    or(isNull(tasks.recurrence), isNull(tasks.nextRecurrenceAt), lte(tasks.nextRecurrenceAt, nowIso)),
+    or(isNull(tasks.recurrence), isNull(tasks.nextRecurrenceAt), occurrenceDue),
   );
 
   const activeTasks = db
@@ -180,7 +184,7 @@ export function readyDeckCandidates(now: Date) {
         eq(tasks.status, 'todo'),
         isNull(tasks.blockedOn),
         isNotNull(tasks.recurrence),
-        lte(tasks.nextRecurrenceAt, todayStr),
+        occurrenceDue,
       ),
     )
     .all();

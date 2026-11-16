@@ -30,7 +30,7 @@ Unblocks all area dropdowns across tasks, notes, and stream.
   - [x] Effort pill (`trivial` / `small` / `medium` / `large` / `epic`)
   - [x] Hard deadline (calendar icon + relative date via `formatDate`)
   - [x] Boomerang/resurface date (timer icon + relative date, only if `resurface_after` is set)
-  - [x] Recurrence indicator (repeat icon, only if `recurrence` is set)
+  - [x] Recurrence indicator (repeat icon + cadence, and when it comes back while it rests until its next occurrence, only if `recurrence` is set)
   - [x] Blocked indicator (lock icon + `blocked_on` text, only if set)
 - [x] **Status styling** — done tasks: dimmed + strikethrough title. Archived: hidden by default via filter.
 
@@ -41,6 +41,7 @@ Unblocks all area dropdowns across tasks, notes, and stream.
 - [x] **Effort pill click** → cycles: trivial → small → medium → large → epic → unset → PATCH `effort`
 - [x] **Deadline click** → date picker (type a date or pick a day, `TaskDatePicker`) → PATCH `hard_deadline`
 - [x] **Boomerang click** → same date picker → PATCH `resurface_after`
+- [x] **Recurrence click** → repeat picker (type a cadence or pick a common one, `TaskRecurrencePicker`) → PATCH `recurrence`. The row menu's Repeat opens it on a task without one.
 
 All mutations use `useUpdateTask()` which auto-invalidates the task list cache.
 
@@ -55,9 +56,9 @@ All mutations use `useUpdateTask()` which auto-invalidates the task list cache.
 - [x] **One-time task completion** — click checkbox → POST to complete endpoint → marks `done`, `completed_at: now`. Row dims with strikethrough.
 - [x] **Recurring task completion** — click checkbox → POST to `/api/tasks/[id]/complete`:
   - Insert `task_completion` record
-  - Calculate next occurrence from `recurrence` pattern
-  - Update `next_recurrence_at` on the task
-  - Task stays `active`
+  - Calculate the next occurrence, a calendar date, from the `recurrence` cadence (`src/lib/tasks/recurrence.ts`)
+  - Update `next_recurrence_at` on the task, and move a deadline to its next date
+  - Task returns to `todo`, and a toast says when the next one is (see docs/task-lifecycle.md, "Repeating tasks")
 - [x] **API endpoint: `POST /api/tasks/[id]/complete`** — handles both one-time and recurring completion logic server-side
 
 ### 2e: Drag and Drop Reorder

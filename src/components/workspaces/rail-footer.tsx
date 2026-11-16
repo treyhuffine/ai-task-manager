@@ -12,6 +12,7 @@ import { TeamRailFooter } from '@/components/team/team-rail-footer';
 import { useOptionalHomeContext } from '@/components/home/home-context';
 import { RailIconButton } from './rail-icon-button';
 import { RailUpdateRow } from './rail-update-row';
+import { FeedbackRailButton } from '@/components/feedback/feedback-trigger';
 
 // The bottom of the rail: what you set up rather than visit. Settings, and
 // connecting accounts (where agents can act). Both are occasional, so they
@@ -79,6 +80,7 @@ function PersonalRailFooter({ collapsed }: { collapsed: boolean }) {
         <SpaceSelector variant="collapsed" />
         {reconnect && <RailIconButton icon={Plug} label={reconnect} onClick={connectAccounts} badge={<RailDot tone="attention" />} />}
         <RailUpdateRow collapsed />
+        <FeedbackRailButton collapsed />
         <Tip label="Settings">
           <button
             type="button"
@@ -97,6 +99,7 @@ function PersonalRailFooter({ collapsed }: { collapsed: boolean }) {
       {/* My Ri and its teams, once one is connected (docs/homes-spec.md §3.2). */}
       <SpaceSelector variant="wide" />
       <RailUpdateRow collapsed={false} />
+      <FeedbackRailButton collapsed={false} />
       <div className="flex items-stretch gap-1.5">
       <Tip label="Settings">
         <button

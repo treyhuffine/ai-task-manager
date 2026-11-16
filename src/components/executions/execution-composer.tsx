@@ -756,6 +756,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
                   onHotkeyTargetChange={setHotkeyTarget}
                   slashCommands={slashCommandsQuery.data?.commands}
+                  slashCommandsLoading={Boolean(sessionId) && slashCommandsQuery.isLoading}
                   mentionFiles={mentionFiles}
                   mentionReferenceFolders={mentionReferenceFolders}
                   loadReferenceTree={loadReferenceTree}

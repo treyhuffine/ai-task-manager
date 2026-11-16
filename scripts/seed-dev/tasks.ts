@@ -321,7 +321,7 @@ export const tasks: SeedTask[] = [
     energy: 'light',
     effort: 'small',
     recurrence: 'Weekly',
-    nextRecurrenceAt: daysFromNow(2, 7),
+    nextRecurrenceAt: dateIn(2),
     createdAt: daysAgo(56, 19, 0),
     body: md`
       - [ ] Pull standing wholesale orders and anything off-cycle
@@ -340,7 +340,7 @@ export const tasks: SeedTask[] = [
     energy: 'light',
     effort: 'small',
     recurrence: 'Monthly',
-    nextRecurrenceAt: daysFromNow(25, 9),
+    nextRecurrenceAt: dateIn(25),
     createdAt: daysAgo(55, 9, 0),
   },
   {
@@ -878,7 +878,7 @@ export const tasks: SeedTask[] = [
     energy: 'light',
     effort: 'small',
     recurrence: 'Weekly',
-    nextRecurrenceAt: daysFromNow(1, 6, 30),
+    nextRecurrenceAt: dateIn(1),
     createdAt: daysAgo(36, 6, 30),
     body: md`
       20 minutes. Twice a week if I'm honest, once if I'm realistic.
@@ -1126,7 +1126,7 @@ export const tasks: SeedTask[] = [
     energy: 'light',
     effort: 'trivial',
     recurrence: 'Weekly',
-    nextRecurrenceAt: daysFromNow(4, 8),
+    nextRecurrenceAt: dateIn(4),
     createdAt: daysAgo(56, 9, 0),
   },
   {
@@ -1293,7 +1293,7 @@ export const tasks: SeedTask[] = [
     energy: 'light',
     effort: 'small',
     recurrence: 'Weekly',
-    nextRecurrenceAt: daysFromNow(1, 19),
+    nextRecurrenceAt: dateIn(1),
     createdAt: daysAgo(56, 20, 0),
   },
   {

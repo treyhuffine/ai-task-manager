@@ -8,14 +8,16 @@ import { Tip } from '@/components/ui/tip';
 import { cn } from '@/lib/utils';
 import { MemberAvatar } from './member-avatar';
 import { useTeam, useTeamNav } from './team-context';
+import { FeedbackRailButton } from '@/components/feedback/feedback-trigger';
 export function TeamRailFooter({ collapsed }: { collapsed: boolean }) {
   const { member } = useTeam();
   const nav = useTeamNav();
   const space = useSpace();
   const account = () => nav.openSettings('access');
   return (
-    <footer className="flex shrink-0 flex-col gap-1.5 border-t border-border/40 px-2 py-2">
+    <footer className={cn('flex shrink-0 flex-col gap-1.5 border-t border-border/40 py-2', collapsed ? 'items-center px-0' : 'px-2')}>
       <SpaceSelector variant={collapsed ? 'collapsed' : 'wide'} onOpenSettings={() => nav.openPanel('settings')} onOpenAccount={account} />
+      <FeedbackRailButton collapsed={collapsed} />
       <div className={cn('flex items-center gap-1.5', collapsed && 'flex-col')}>
         <RailIconButton icon={Settings} label="Settings" onClick={() => nav.openPanel('settings')} />
         <Tip label="Your account">

@@ -66,3 +66,14 @@ export function isPastDate(value: string | null | undefined, now?: Date): boolea
   const days = calendarDaysUntil(value, now);
   return days !== null && days < 0;
 }
+
+/**
+ * A calendar date as a short day: "Mon, Nov 23", with the year only when it
+ * isn't this year ("Tue, Nov 16, 2027"). Null when unset.
+ */
+export function describeLocalDate(value: string | null | undefined, now: Date = new Date()): string | null {
+  const date = parseLocalDate(value);
+  if (!date) return null;
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+}

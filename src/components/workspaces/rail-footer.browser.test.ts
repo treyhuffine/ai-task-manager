@@ -15,6 +15,7 @@ let attention: unknown[] = [];
 const IDLE = { phase: 'running', canManage: true, canUseUpdates: true, update: { format: 1, phase: 'idle', changedAt: '' } };
 let service: unknown = IDLE;
 let serviceCalls = 0;
+let preparedFeedback: unknown = null;
 
 beforeAll(async () => {
   const require = createRequire(import.meta.url);
@@ -45,9 +46,13 @@ beforeAll(async () => {
   server = http.createServer(async (req, res) => {
     const url = new URL(req.url!, 'http://fixture');
     if (url.pathname.startsWith('/api/trpc/')) {
-      for await (const chunk of req) void chunk;
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
       const procedure = url.pathname.slice('/api/trpc/'.length);
-      const data = procedure === 'integrations.attentionGet' ? attention : procedure === 'spaces.list' ? [] : procedure === 'service.list' ? (serviceCalls++, service) : undefined;
+      if (procedure === 'feedback.preparePublicIssue') {
+        preparedFeedback = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      }
+      const data = procedure === 'integrations.attentionGet' ? attention : procedure === 'spaces.list' ? [] : procedure === 'service.list' ? (serviceCalls++, service) : procedure === 'feedback.preparePublicIssue' ? { githubIssueUrl: base + '/github-draft', body: 'Test bug note', needsBodyPaste: false } : undefined;
       res.setHeader('content-type', 'application/json');
       if (data === undefined) { res.statusCode = 500; res.end(JSON.stringify({ error: { message: `Unexpected request: ${procedure}`, code: -32603, data: { code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 } } })); }
       else res.end(JSON.stringify({ result: { data } }));
@@ -98,11 +103,11 @@ it('counts accounts only you can fix, names them, and goes to the page that fixe
     await connect.click();
     expect(await settings(page)).toBe('plugins integrations:google');
 
-    // The collapsed rail shows the same accounts as a plug with a dot, above Settings.
+    // The collapsed rail shows the same accounts as a plug with a dot, above Feedback & bugs and Settings.
     const plug = strip(page).getByRole('button', { name: 'Reconnect Google (Work) and Google (Home)' });
     await plug.waitFor();
     expect(await strip(page).getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))))
-      .toEqual(['Reconnect Google (Work) and Google (Home)', 'Settings']);
+      .toEqual(['Reconnect Google (Work) and Google (Home)', 'Feedback & bugs', 'Settings']);
     expect(await plug.locator('.bg-amber-500').count()).toBe(1);
     expect(errors).toEqual([]);
   } finally {
@@ -120,7 +125,7 @@ it('stays quiet while every account works', async () => {
     // The plug and the three fanned tiles, not a count.
     expect(await connect.locator('svg').count()).toBe(4);
     expect(await connect.getByLabel(/waiting on you/).count()).toBe(0);
-    expect(await strip(page).getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))).toEqual(['Settings']);
+    expect(await strip(page).getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))).toEqual(['Feedback & bugs', 'Settings']);
     await page.screenshot({ path: '/tmp/ri-rail-footer-quiet.png' });
     await connect.click();
     expect(await settings(page)).toBe('plugins integrations');
@@ -148,7 +153,7 @@ it('shows an update waiting on running work near Settings, and leads to Settings
     const icon = strip(page).getByRole('button', { name: 'Update ready. Waiting for 8 chats, 2 background tasks to finish' });
     await icon.waitFor();
     expect(await strip(page).getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))))
-      .toEqual(['Update ready. Waiting for 8 chats, 2 background tasks to finish', 'Settings']);
+      .toEqual(['Update ready. Waiting for 8 chats, 2 background tasks to finish', 'Feedback & bugs', 'Settings']);
     expect(errors).toEqual([]);
   } finally {
     await page.close();
@@ -166,7 +171,38 @@ it('says nothing about a waiting update to someone who can\'t act on it', async 
     await expect.poll(() => serviceCalls).toBeGreaterThan(before);
     await page.waitForTimeout(300);
     expect(await page.getByRole('button', { name: /Update ready/ }).count()).toBe(0);
-    expect(await strip(page).getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))).toEqual(['Settings']);
+    expect(await strip(page).getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))).toEqual(['Feedback & bugs', 'Settings']);
+  } finally {
+    await page.close();
+  }
+});
+
+it('prepares a GitHub issue from wide and collapsed feedback rails', async () => {
+  attention = [];
+  service = IDLE;
+  preparedFeedback = null;
+  const page = await open();
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  try {
+    const feedback = wide(page).getByRole('button', { name: 'Feedback & bugs', exact: true });
+    await feedback.waitFor();
+    await feedback.click();
+    await page.getByRole('heading', { name: 'Feedback & bugs' }).waitFor();
+    await page.getByText('Bug', { exact: true }).click();
+    await page.getByRole('textbox', { name: 'Feedback details' }).fill('Test bug note');
+    const popup = page.waitForEvent('popup');
+    await page.getByRole('button', { name: 'Continue on GitHub', exact: true }).click();
+    const tab = await popup;
+    await page.getByText('Finish on GitHub', { exact: true }).waitFor();
+    await tab.close();
+    expect(preparedFeedback).toMatchObject({ kind: 'bug', message: 'Test bug note', includeDiagnostics: true });
+    await page.getByRole('button', { name: 'Close feedback', exact: true }).click();
+    await page.getByRole('heading', { name: 'Feedback & bugs' }).waitFor({ state: 'detached' });
+
+    const stripFeedback = strip(page).getByRole('button', { name: 'Feedback & bugs', exact: true });
+    await stripFeedback.click();
+    await page.getByRole('heading', { name: 'Feedback & bugs' }).waitFor();
+    expect(errors).toEqual([]);
   } finally {
     await page.close();
   }

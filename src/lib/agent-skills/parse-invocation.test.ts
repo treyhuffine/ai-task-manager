@@ -5,7 +5,7 @@
  * common in a coding composer.
  */
 import { describe, it, expect } from 'vitest';
-import { parseSlashInvocation } from './parse-invocation';
+import { parseSlashInvocation, splitLeadingSlashCommand } from './parse-invocation';
 
 describe('parseSlashInvocation', () => {
   it('reads a bare command', () => {
@@ -51,5 +51,21 @@ describe('parseSlashInvocation', () => {
   it('ignores ordinary prose', () => {
     expect(parseSlashInvocation('fix the login bug')).toBeNull();
     expect(parseSlashInvocation('')).toBeNull();
+  });
+
+  it('splits leading whitespace, slash token, and remaining args', () => {
+    expect(splitLeadingSlashCommand('  /review fix login')).toEqual({
+      leadingSpace: '  ',
+      token: '/review',
+      name: 'review',
+      rest: ' fix login',
+    });
+    expect(splitLeadingSlashCommand('/ship')).toEqual({
+      leadingSpace: '',
+      token: '/ship',
+      name: 'ship',
+      rest: '',
+    });
+    expect(splitLeadingSlashCommand('please /ship')).toBeNull();
   });
 });

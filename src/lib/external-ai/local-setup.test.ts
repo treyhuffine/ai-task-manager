@@ -110,6 +110,53 @@ describe.skipIf(!CLAUDE)('Claude Code, through its own CLI', () => {
   });
 });
 
+/**
+ * A `claude` whose `mcp add` fails: `remove` and `add-json` work on its file
+ * the way Claude Code's do, so a failed add after the remove is visible.
+ */
+const FAILING_CLAUDE = `#!/usr/bin/env node
+const fs = require('fs');
+const file = require('path').join(process.env.CLAUDE_CONFIG_DIR, '.claude.json');
+const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return {}; } };
+const rest = process.argv.slice(4).filter((arg, i, all) => arg !== '--scope' && all[i - 1] !== '--scope');
+const config = read();
+if (process.argv[3] === 'remove') { delete (config.mcpServers ?? {})[rest[0]]; fs.writeFileSync(file, JSON.stringify(config)); process.exit(0); }
+if (process.argv[3] === 'add-json') { config.mcpServers = { ...config.mcpServers, [rest[0]]: JSON.parse(rest[1]) }; fs.writeFileSync(file, JSON.stringify(config)); process.exit(0); }
+console.error('add failed');
+process.exit(1);
+`;
+
+describe('Claude Code, when adding Ri’s entry fails', () => {
+  async function brokenClaude() {
+    const fake = path.join(folder, 'claude');
+    fs.writeFileSync(fake, FAILING_CLAUDE, { mode: 0o755 });
+    harnesses({ CLAUDE: fake });
+    const { client, token } = (await queries()).createPersonalAiClient('Claude Code on Test Mac', 'claude_code');
+    // What Set up wrote before: the HTTPS address no outside agent trusts.
+    const original = { type: 'http', url: 'https://localhost:42242/api/orchestrator/mcp', headers: { Authorization: `Bearer ${token.plaintext}` } };
+    fs.mkdirSync(path.join(folder, '.claude-config'), { recursive: true });
+    fs.writeFileSync(path.join(folder, '.claude-config/.claude.json'), JSON.stringify({ mcpServers: { ri: original } }));
+    return { original, keyId: client.keyId };
+  }
+
+  it('puts the entry back as it was, so the next start tries the move again', async () => {
+    const { original } = await brokenClaude();
+    const { localAgentState, repairLocalAgents } = await setup();
+    expect(await repairLocalAgents()).toEqual([]);
+    expect(read('.claude-config/.claude.json').mcpServers.ri).toEqual(original);
+    expect(await localAgentState('claude_code')).toMatchObject({ connection: null, stale: 'moved' });
+  });
+
+  it('leaves the earlier entry and its key working when Set up fails', async () => {
+    const { original, keyId } = await brokenClaude();
+    const { connectLocalAgent } = await setup();
+    await expect(connectLocalAgent('claude_code')).rejects.toMatchObject({ code: 'failed', message: 'add failed' });
+    expect(read('.claude-config/.claude.json').mcpServers.ri).toEqual(original);
+    // The new key is revoked again and the earlier one still works.
+    expect((await activeKeys()).map(key => key.keyId)).toEqual([keyId]);
+  });
+});
+
 describe.skipIf(!CODEX)('Codex, through its own CLI', () => {
   it('adds the key as a static header Codex reads, and leaves the rest of the file byte for byte', async () => {
     // Formatting `codex mcp add` would rewrite: an empty array, an integer timeout, unsorted env.

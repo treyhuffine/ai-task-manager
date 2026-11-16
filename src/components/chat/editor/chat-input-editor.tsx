@@ -72,6 +72,7 @@ import {
 } from './draft-storage';
 import { recallStep, textToDocJSON, type RecallDirection } from './history-recall';
 import { SlashMenuExtension } from './slash-menu/extension';
+import { SlashChipNode, SLASH_CHIP_NAME, type SlashChipAttrs } from './slash-menu/slash-chip-node';
 import type { SlashCommand } from './slash-menu/types';
 import { MentionMenuExtension } from './mention-menu/extension';
 import { debouncedAppMentionSearch } from './mention-menu/app-mentions';
@@ -234,6 +235,8 @@ export interface ChatInputEditorProps {
    * Each command also carries its `frecency` for ranking.
    */
   slashCommands?: SlashCommand[];
+  /** True while `slashCommands` is still loading from the server. */
+  slashCommandsLoading?: boolean;
   /**
    * Optional worktree files/folders for the `@`-mention menu. Sourced
    * from `useSessionTree` on the consumer side. When omitted, typing
@@ -410,6 +413,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       onHotkeyTargetChange,
       className,
       slashCommands,
+      slashCommandsLoading,
       mentionFiles,
       searchMentionEntities,
       mentionAgents,
@@ -450,6 +454,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     // editor when TanStack Query refreshes the data.
     const slashCommandsRef = useRef(slashCommands);
     slashCommandsRef.current = slashCommands;
+    const slashCommandsLoadingRef = useRef(slashCommandsLoading);
+    slashCommandsLoadingRef.current = slashCommandsLoading;
     const mentionFilesRef = useRef(mentionFiles);
     mentionFilesRef.current = mentionFiles;
     const sourceChatIdRef = useRef(sourceChatId);
@@ -812,9 +818,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         EntityChipNode,
         AppSnippetNode,
         SourceChipNode,
+        SlashChipNode,
         PasteDropExtension,
         SlashMenuExtension.configure({
           getCommands: () => slashCommandsRef.current ?? [],
+          isLoading: () => slashCommandsLoadingRef.current ?? false,
         }),
         MentionMenuExtension.configure({
           getScopeKey: () => sourceChatIdRef.current,
@@ -960,7 +968,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
 
     useEffect(() => {
       editor?.storage.slashMenu?.refresh();
-    }, [editor, slashCommands]);
+    }, [editor, slashCommands, slashCommandsLoading]);
 
     // A reload verifies the same retained JSON used on mount. Failed storage
     // or an uploading chip leaves the live editor open, never silently lost.
@@ -1120,6 +1128,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         openSkillMenu: () => {
           if (!editor) return;
           editor.view.focus();
+          const firstNode = editor.state.doc.firstChild?.firstChild;
+          if (firstNode?.type.name === SLASH_CHIP_NAME) {
+            editor.chain().deleteRange({ from: 1, to: 1 + firstNode.nodeSize }).insertContentAt(1, '/').run();
+            return;
+          }
           // A command already there is the search, so a pick replaces it.
           const typed = /^\/\S*/.exec(editor.state.doc.firstChild?.textContent ?? '')?.[0];
           if (typed) {
@@ -1286,6 +1299,13 @@ export function buildMarkerOutput(editor: Pick<Editor, 'state'> | null): { text:
       lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + sourceMarker(node.attrs.sourceRef);
       return false;
     }
+    if (node.type.name === SLASH_CHIP_NAME) {
+      const attrs = node.attrs as SlashChipAttrs;
+      if (attrs.name) {
+        lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + `/${attrs.name}`;
+      }
+      return false;
+    }
     if (node.type.name === APP_SNIPPET_NAME) {
       // A titled app item sends as its text. Its title is only for the person.
       lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + (node.attrs as AppSnippetAttrs).text;
@@ -1381,6 +1401,11 @@ export function buildUiMessageParts(editor: Pick<Editor, 'state'> | null): {
     }
     if (node.type.name === SOURCE_CHIP_NAME) {
       textBuf += sourceMarker(node.attrs.sourceRef);
+      return false;
+    }
+    if (node.type.name === SLASH_CHIP_NAME) {
+      const attrs = node.attrs as SlashChipAttrs;
+      if (attrs.name) textBuf += `/${attrs.name}`;
       return false;
     }
     if (node.type.name === APP_SNIPPET_NAME) {

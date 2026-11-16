@@ -30,8 +30,10 @@ import { AreaSelect } from '@/components/shared/area-select';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { TaskBadges } from '@/components/tasks/task-badges';
 import { cn } from '@/lib/utils';
-import { calendarDaysUntil, formatLocalDate, isPastDate } from '@/lib/dates';
+import { calendarDaysUntil, describeLocalDate, formatLocalDate, isPastDate, toDateOnly } from '@/lib/dates';
 import { TaskDatePicker } from './task-date-field';
+import { TaskRecurrencePicker } from './task-recurrence-picker';
+import { isRestingUntilNext, recurrenceHasDetail, recurrenceLabel } from '@/lib/tasks/recurrence';
 import type { Energy, Effort, TaskAttentionSignals } from '@/db/types';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 import { Tip } from '@/components/ui/tip';
@@ -65,7 +67,9 @@ function formatDate(iso: string | null): string | null {
   if (days === -1) return 'Yesterday';
   if (days > 0 && days <= 7) return `In ${days}d`;
   if (days < 0 && days >= -7) return `${Math.abs(days)}d ago`;
-  return formatLocalDate(iso, { month: 'short', day: 'numeric' });
+  // Another year's date says so: a yearly task's "Nov 16" next year would read as today.
+  const sameYear = toDateOnly(iso)?.startsWith(String(new Date().getFullYear()));
+  return formatLocalDate(iso, { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
 }
 
 interface TaskRowProps {
@@ -92,6 +96,7 @@ export function TaskRow({
   const home = useOptionalHomeContext();
   const space = useSpace();
   const [editingDeadline, setEditingDeadline] = useState(false);
+  const [editingRecurrence, setEditingRecurrence] = useState(false);
   const [blockPopoverOpen, setBlockPopoverOpen] = useState(false);
   const afterMenu = useRef<(() => void) | null>(null);
   const blockInputRef = useRef<HTMLInputElement>(null);
@@ -123,6 +128,25 @@ export function TaskRow({
 
   const deadline = formatDate(task.hardDeadline);
   const boomerang = formatDate(task.resurfaceAfter);
+  // A repeat is private planning on personal work: a team's task carries none.
+  const canRepeat = privatePlanning && !task.sourceTeamId && task.status !== 'consider';
+  const repeat = recurrenceLabel(task.recurrence);
+  const resting = isRestingUntilNext(task);
+  const nextOne = resting ? `Next one ${describeLocalDate(task.nextRecurrenceAt)}` : null;
+  const repeatTip = [
+    // Resting means done for now or not started yet: the date is true of both.
+    nextOne,
+    recurrenceHasDetail(task.recurrence) ? `Saved as “${task.recurrence}”` : null,
+  ].filter(Boolean).join('. ');
+  const repeatChip = (
+    <button
+      onClick={(e) => e.stopPropagation()}
+      aria-label={repeat ? `Repeats ${repeat.toLowerCase()}${nextOne ? `. ${nextOne}` : ''}` : 'Repeat'}
+      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold text-primary/60 uppercase tracking-wider transition-colors hover:bg-muted"
+    >
+      <Repeat size={8} /> {repeat ?? 'Repeat'}{resting && <> · {formatDate(task.nextRecurrenceAt)}</>}
+    </button>
+  );
 
   const cycleEnergy = () => {
     const idx = ENERGY_CYCLE.indexOf(task.energy);
@@ -301,12 +325,21 @@ export function TaskRow({
             </TaskDatePicker>
           )}
 
-          {/* Recurrence */}
-          {task.recurrence && (
+          {/* Recurrence. Waiting for its next occurrence, it says when. */}
+          {(task.recurrence || editingRecurrence) && (canRepeat ? (
+            <TaskRecurrencePicker
+              value={task.recurrence}
+              open={editingRecurrence}
+              onOpenChange={setEditingRecurrence}
+              onChange={(recurrence) => onUpdate(task.id, 'recurrence', recurrence)}
+            >
+              {repeatTip ? <Tip label={repeatTip}>{repeatChip}</Tip> : repeatChip}
+            </TaskRecurrencePicker>
+          ) : (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8.5px] font-bold text-primary/60 uppercase tracking-wider">
-              <Repeat size={8} /> {task.recurrence}
+              <Repeat size={8} /> {repeat}{resting && <> · {formatDate(task.nextRecurrenceAt)}</>}
             </span>
-          )}
+          ))}
 
           {/* Blocked */}
           {task.blockedOn && (
@@ -422,6 +455,11 @@ export function TaskRow({
             {!task.hardDeadline && (
               <DropdownMenuItem onClick={() => { afterMenu.current = () => setEditingDeadline(true); }} className="text-xs">
                 <Clock size={12} className="mr-2" /> Set deadline
+              </DropdownMenuItem>
+            )}
+            {canRepeat && !task.recurrence && task.status !== 'done' && task.status !== 'archived' && (
+              <DropdownMenuItem onClick={() => { afterMenu.current = () => setEditingRecurrence(true); }} className="text-xs">
+                <Repeat size={12} className="mr-2" /> Repeat
               </DropdownMenuItem>
             )}
             {privatePlanning && !task.blockedOn && (

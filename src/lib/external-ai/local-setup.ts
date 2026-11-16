@@ -251,8 +251,17 @@ function claudeAdapter(client: AiClientDef): Adapter {
       return entry ? config.read(entry) : null;
     },
     write: async (server, url, token, command) => {
+      // `claude mcp add` refuses a name that's taken, so Ri's entry goes first.
+      // It's kept as it was and put back if the add fails, so a failed move
+      // leaves the agent as it found it and the next start tries again.
+      const previous = serverEntry(readJsonFile(file()).value, 'mcpServers', server);
       await run(command, ['mcp', 'remove', '--scope', 'user', server]).catch(() => undefined);
-      await run(command, ['mcp', 'add', '--transport', 'http', '--scope', 'user', server, url, '--header', `Authorization: Bearer ${token}`]);
+      try {
+        await run(command, ['mcp', 'add', '--transport', 'http', '--scope', 'user', server, url, '--header', `Authorization: Bearer ${token}`]);
+      } catch (error) {
+        if (previous) await run(command, ['mcp', 'add-json', '--scope', 'user', server, JSON.stringify(previous)]).catch(() => undefined);
+        throw error;
+      }
     },
     remove: async (server, command) => {
       await run(command, ['mcp', 'remove', '--scope', 'user', server]);

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { eq } from 'drizzle-orm';
+import { todayLocalDate } from '@/lib/deck/date';
 
 const TEST_DB = path.join(os.tmpdir(), `ri-task-transitions-test-${process.pid}.db`);
 
@@ -18,6 +19,12 @@ beforeEach(() => {
   process.env.RI_MIRROR_DISABLED = '1';
 });
 afterAll(cleanup);
+
+/** A calendar date `n` days after another, by day math. */
+function addDays(date: string, n: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
 
 async function setup() {
   const dbmod = await import('@/lib/db');
@@ -86,7 +93,8 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     expect(c!.recurring).toBe(true);
     expect(c!.toStatus).toBe('todo');
     expect(q.getTask(t.id)!.status).toBe('todo');
-    expect(q.getTask(t.id)!.nextRecurrenceAt).toBeTruthy();
+    // No schedule yet: the first completion sets it, one week from local today.
+    expect(q.getTask(t.id)!.nextRecurrenceAt).toBe(addDays(todayLocalDate(), 7));
     const completions = db.select().from(schema.taskCompletions).where(eq(schema.taskCompletions.taskId, t.id)).all();
     expect(completions).toHaveLength(1);
   });
@@ -110,12 +118,15 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     const anchor = '2024-01-03T09:00:00.000Z';
     db.update(schema.tasks).set({ nextRecurrenceAt: anchor }).where(eq(schema.tasks.id, t.id)).run();
     const c = q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
-    const next = new Date(c!.nextRecurrenceAt!);
-    expect(next.getTime()).toBeGreaterThan(Date.now()); // landed in the future
-    expect(next.getUTCDay()).toBe(new Date(anchor).getUTCDay()); // same weekday (phase kept)
+    // A calendar date after local today, never an overdue one.
+    expect(c!.nextRecurrenceAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(c!.nextRecurrenceAt! > todayLocalDate()).toBe(true);
+    const next = new Date(`${c!.nextRecurrenceAt}T00:00:00Z`);
+    expect(next.getUTCDay()).toBe(3); // same weekday as the anchor (phase kept)
     // And it is a whole number of weeks from the anchor, not reset to now+7.
-    const days = Math.round((next.getTime() - new Date(anchor).getTime()) / 86_400_000);
+    const days = Math.round((next.getTime() - Date.UTC(2024, 0, 3)) / 86_400_000);
     expect(days % 7).toBe(0);
+    expect(c!.nextRecurrenceAt! <= addDays(todayLocalDate(), 7)).toBe(true);
   });
 
   it('monthly recurrence clamps to the last day of the month (Jan 31 -> Feb 28)', async () => {
@@ -124,7 +135,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     // A future scheduled occurrence so it advances exactly once.
     db.update(schema.tasks).set({ nextRecurrenceAt: '2027-01-31T12:00:00.000Z' }).where(eq(schema.tasks.id, t.id)).run();
     const c = q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
-    expect(c!.nextRecurrenceAt!.startsWith('2027-02-28')).toBe(true);
+    expect(c!.nextRecurrenceAt).toBe('2027-02-28');
   });
 
   it('completing/archiving a parent with open children needs an exact acknowledgement', async () => {
@@ -195,7 +206,7 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     // last day of the next month, not stick at the 28th.
     db.update(schema.tasks).set({ nextRecurrenceAt: '2027-02-28T12:00:00.000Z' }).where(eq(schema.tasks.id, t.id)).run();
     const c = q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
-    expect(c!.nextRecurrenceAt!.startsWith('2027-03-31')).toBe(true);
+    expect(c!.nextRecurrenceAt).toBe('2027-03-31');
   });
 
   it('review gating compares timestamps as instants, not strings, across formats', async () => {
@@ -411,5 +422,116 @@ describe('lifecycle command chokepoint (transitionTask / completeTask)', () => {
     expect(q.deleteTask(task.id)).toBe(true);
     expect(history()).toHaveLength(0);
     expect(q.getTask(task.id)).toBeUndefined();
+  });
+});
+
+describe('repeating tasks', () => {
+  it('a daily task done tonight is Ready from the start of tomorrow, on the local calendar', async () => {
+    const { q } = await setup();
+    const { isReady } = await import('@/lib/tasks/lifecycle');
+    const t = q.createTask({ title: 'Stretch', rawInput: 'x', recurrence: 'daily' });
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
+    const tomorrow = addDays(todayLocalDate(), 1);
+    expect(c!.nextRecurrenceAt).toBe(tomorrow);
+    const after = q.getTask(t.id)!;
+    const readyAt = (now: Date) => isReady({ status: after.status, hasUnresolvedBlocker: false, resurfaceAfter: null, recurrence: after.recurrence, nextRecurrenceAt: after.nextRecurrenceAt, now: now.toISOString() });
+    const [y, m, d] = tomorrow.split('-').map(Number);
+    expect(readyAt(new Date(y, m - 1, d - 1, 23, 59))).toBe(false);
+    expect(readyAt(new Date(y, m - 1, d, 0, 1))).toBe(true);
+  });
+
+  it('moves the deadline to the next occurrence and ends a snooze', async () => {
+    const { q, db, schema } = await setup();
+    const t = q.createTask({ title: 'Pay property tax', rawInput: 'x', recurrence: 'Yearly' });
+    // The Notion import wrote some deadlines as instants.
+    db.update(schema.tasks).set({ hardDeadline: '2027-01-21T00:00:00.000Z', resurfaceAfter: addDays(todayLocalDate(), 3) }).where(eq(schema.tasks.id, t.id)).run();
+    q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
+    const after = q.getTask(t.id)!;
+    expect(after.hardDeadline).toBe('2028-01-21');
+    expect(after.resurfaceAfter).toBeNull();
+  });
+
+  it('a long-stale deadline lands on its first future date, not still overdue', async () => {
+    const { q } = await setup();
+    const t = q.createTask({ title: 'Quarterly filing', rawInput: 'x', recurrence: 'Quarterly', hardDeadline: '2024-01-12' });
+    q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
+    const deadline = q.getTask(t.id)!.hardDeadline!;
+    expect(deadline > todayLocalDate()).toBe(true);
+    expect(deadline <= addDays(todayLocalDate(), 92)).toBe(true);
+    expect(deadline.slice(8)).toBe('12');
+  });
+
+  it('follows the cadence in agent-written wording, not a weekly guess', async () => {
+    const { q } = await setup();
+    const t = q.createTask({ title: 'Renew library card', rawInput: 'x', recurrence: 'Every 2 years, verify', nextRecurrenceAt: '2027-03-01' });
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
+    expect(c!.nextRecurrenceAt).toBe('2029-03-01');
+  });
+
+  it('done early, the next occurrence is still a full interval after the scheduled one', async () => {
+    const { q } = await setup();
+    const scheduled = addDays(todayLocalDate(), 5);
+    const t = q.createTask({ title: 'Water', rawInput: 'x', recurrence: 'weekly', nextRecurrenceAt: scheduled });
+    const c = q.completeTask(t.id, { idempotencyKey: 'k1', meta: { source: 'human' } });
+    expect(c!.nextRecurrenceAt).toBe(addDays(scheduled, 7));
+  });
+});
+
+describe('repeat writes', () => {
+  const code = (fn: () => unknown) => {
+    try {
+      fn();
+    } catch (e) {
+      return { code: (e as { code?: string }).code, message: (e as Error).message };
+    }
+    return null;
+  };
+
+  it('refuses a cadence Ri cannot follow, with what to write instead', async () => {
+    const { q } = await setup();
+    expect(code(() => q.createTask({ title: 'X', rawInput: 'x', recurrence: 'every Monday and Thursday' })))
+      .toMatchObject({ code: 'invalid_params', message: expect.stringMatching(/use weekly/) });
+    const t = q.createTask({ title: 'X', rawInput: 'x' });
+    expect(code(() => q.updateTask(t.id, { recurrence: 'FREQ=WEEKLY;BYDAY=MO' }, { source: 'ai' }))).toMatchObject({ code: 'invalid_params' });
+    expect(q.getTask(t.id)!.recurrence).toBeNull();
+  });
+
+  it('keeps an unreadable recurrence already stored, so a restore or an echoed field still saves', async () => {
+    const { q, db, schema } = await setup();
+    const t = q.createTask({ title: 'X', rawInput: 'x' });
+    db.update(schema.tasks).set({ recurrence: 'every Tuesday' }).where(eq(schema.tasks.id, t.id)).run();
+    expect(q.updateTask(t.id, { title: 'Y', recurrence: 'every Tuesday' }, { source: 'ai' })!.title).toBe('Y');
+  });
+
+  it('stores the text as written, trimmed, and blank as none', async () => {
+    const { q } = await setup();
+    const t = q.createTask({ title: 'X', rawInput: 'x', recurrence: '  Yearly, only if applicable ' });
+    expect(t.recurrence).toBe('Yearly, only if applicable');
+    expect(q.updateTask(t.id, { recurrence: '   ' }, { source: 'human' })!.recurrence).toBeNull();
+  });
+
+  it('keeps the next occurrence as a calendar date and refuses one that is not a date', async () => {
+    const { q } = await setup();
+    const t = q.createTask({ title: 'X', rawInput: 'x', recurrence: 'weekly', nextRecurrenceAt: '2026-12-05T09:00:00.000Z' });
+    expect(t.nextRecurrenceAt).toBe('2026-12-05');
+    expect(code(() => q.updateTask(t.id, { nextRecurrenceAt: 'next friday' }, { source: 'ai' }))).toMatchObject({ code: 'invalid_params' });
+    expect(code(() => q.updateTask(t.id, { nextRecurrenceAt: '2026-02-30' }, { source: 'ai' }))).toMatchObject({ code: 'invalid_params' });
+    expect(q.updateTask(t.id, { nextRecurrenceAt: '' }, { source: 'human' })!.nextRecurrenceAt).toBeNull();
+  });
+
+  it('ending a repeat drops its next occurrence, and changing the cadence keeps it', async () => {
+    const { q } = await setup();
+    const t = q.createTask({ title: 'X', rawInput: 'x', recurrence: 'weekly', nextRecurrenceAt: '2026-12-05' });
+    expect(q.updateTask(t.id, { recurrence: '2w' }, { source: 'human' })!.nextRecurrenceAt).toBe('2026-12-05');
+    const ended = q.updateTask(t.id, { recurrence: null }, { source: 'human' })!;
+    expect(ended.recurrence).toBeNull();
+    expect(ended.nextRecurrenceAt).toBeNull();
+  });
+
+  it('a Consider task still cannot repeat', async () => {
+    const { q } = await setup();
+    const t = q.createTask({ title: 'Maybe', rawInput: 'x', status: 'consider' });
+    expect(code(() => q.updateTask(t.id, { recurrence: 'weekly' }, { source: 'human' }))).toMatchObject({ code: 'consider_precondition' });
+    expect(q.updateTask(t.id, { recurrence: '' }, { source: 'human' })!.recurrence).toBeNull();
   });
 });

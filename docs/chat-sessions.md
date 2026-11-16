@@ -308,6 +308,19 @@ Incomplete links stay inactive, and Markdown's existing URL sanitization still
 runs before rendering. Image, PDF and HTML artifact previews keep their own
 renderers. This changes presentation only, leaving saved and copied replies intact.
 
+### Composer suggestions
+
+The `@` picker opens with local results immediately and shows skeleton rows
+while tasks, notes and connected sources load. Results appear as each search
+finishes. A selected result or focused kind stays selected while results arrive
+for the same query. Editing the query starts selection over.
+
+The `/` picker shows skeleton rows while skills load. Picking a skill or
+completing a known leading `/command` with a space creates an inline badge.
+The badge sends and copies as `/command`, including in plain text and HTML.
+Reopening Skills replaces the command and leaves the caret after its separator,
+ready to edit the existing arguments. Mid-sentence slashes stay ordinary text.
+
 ### Attachments (multimodal content)
 
 **Local documents and source files.** Alongside the existing image, PDF and HTML

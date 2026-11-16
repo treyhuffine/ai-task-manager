@@ -19,7 +19,7 @@ const immutable = { id: true, createdAt: true, updatedAt: true } as const;
 const projection = { sourceTeamId: true, sourceState: true, source: true } as const;
 const taskFields = createInsertSchema(tasks).omit({
   ...immutable, ...projection, sourceTaskId: true, bodyRevision: true, statusChangedCount: true, statusChangedAt: true,
-  completedAt: true, nextRecurrenceAt: true,
+  completedAt: true,
 }).extend(jsonFields);
 export const createTaskSchema = taskFields.extend({
   title: z.string().min(1), rawInput: z.string().min(1),

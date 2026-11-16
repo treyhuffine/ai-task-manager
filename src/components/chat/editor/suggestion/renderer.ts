@@ -38,8 +38,14 @@ export type SuggestionPopupComponent<TItem> = ForwardRefExoticComponent<
     command: (item: TItem) => void
     /** The text after the trigger character that produced `items`. */
     query?: string
+    /** True while async items for this query are still loading. */
+    loading?: boolean
   } & RefAttributes<SuggestionPopupRef>
 >
+
+export type SuggestionRenderProps<TItem> = SuggestionProps<TItem> & {
+  loading?: boolean
+}
 
 // What async `items` functions returned, told apart by identity from the
 // `[]` Tiptap puts on a query's props before its items land.
@@ -112,7 +118,7 @@ export function createSuggestionPopupRenderer<TItem>(
         newest = props
       },
 
-      onStart(props: SuggestionProps<TItem>) {
+      onStart(props: SuggestionRenderProps<TItem>) {
         cleanup()
         dismissed = false
         latestProps = props
@@ -141,7 +147,7 @@ export function createSuggestionPopupRenderer<TItem>(
         })
       },
 
-      onUpdate(props: SuggestionProps<TItem>) {
+      onUpdate(props: SuggestionRenderProps<TItem>) {
         if (dismissed) return
         latestProps = props
         renderList(props)
@@ -167,7 +173,7 @@ export function createSuggestionPopupRenderer<TItem>(
       },
     }
 
-    function renderList(props: SuggestionProps<TItem>) {
+    function renderList(props: SuggestionRenderProps<TItem>) {
       if (options?.asyncItems && !landed.has(props.items)) return
       root?.render(
         React.createElement(Component, {
@@ -177,6 +183,7 @@ export function createSuggestionPopupRenderer<TItem>(
           items: props.items,
           command: (item: TItem) => (newest ?? props).command(item),
           query: props.query,
+          loading: props.loading,
         }),
       )
     }

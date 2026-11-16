@@ -21,6 +21,7 @@ import { TriggersModal } from '@/components/triggers/triggers-modal';
 import { AreaSlideout } from '@/components/dashboard/area-slideout';
 import { AreasSheet } from '@/components/dashboard/areas-sheet';
 import { SettingsModal } from '@/components/settings/settings-modal';
+import { FeedbackDialog } from '@/components/feedback/feedback-trigger';
 import { LaunchModal } from '@/components/workspaces/launcher/launch-modal';
 import { ChatSearchModal } from '@/components/workspaces/chat-search-modal';
 import { MobileLayout } from '@/components/mobile/mobile-layout';
@@ -197,6 +198,7 @@ export function DashboardShell() {
           onOpenChange={(open) => { if (!open) closeAllSlideouts() }}
         />
         {team ? <TeamSettings /> : <SettingsModal />}
+        <FeedbackDialog />
         <LaunchModal />
         {!team && <TaskLaunchIntent />}
         <ChatSearchModal />

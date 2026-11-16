@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import {
-  CheckSquare, FileText, Activity, Layers, LayoutGrid, Calendar, Sun, Moon, Settings, ChevronLeft, FileCheck2,
+  CheckSquare, FileText, Activity, Layers, LayoutGrid, Calendar, Sun, Moon, Settings, ChevronLeft, FileCheck2, MessageSquarePlus,
 } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { TaskList } from '@/components/tasks/task-list';
@@ -10,6 +10,7 @@ import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
 import { CalendarPanel } from '@/components/calendar/calendar-panel';
 import { openSettings } from '@/components/settings/settings-store';
+import { openFeedback } from '@/components/feedback/feedback-store';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useResultCapabilities } from '@/hooks/use-results';
@@ -111,6 +112,19 @@ export function MobileMoreView() {
             <Settings size={18} className="text-muted-foreground" />
           </div>
           <span className="text-sm font-medium text-foreground">Settings</span>
+        </button>
+
+        <button
+          onClick={() => openFeedback()}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left hover:bg-muted/50 active:bg-muted transition-colors"
+        >
+          <div className={cn(
+            'w-9 h-9 rounded-lg flex items-center justify-center',
+            isDark ? 'bg-secondary' : 'bg-muted'
+          )}>
+            <MessageSquarePlus size={18} className="text-muted-foreground" />
+          </div>
+          <span className="text-sm font-medium text-foreground">Feedback & bugs</span>
         </button>
       </div>
     </div>

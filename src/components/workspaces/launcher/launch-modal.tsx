@@ -779,6 +779,7 @@ function LaunchModalInner({
                   placeholder="What are we working on?"
                   disabled={launching}
                   slashCommands={runsHere && personalControls ? slashCommands.data?.commands : undefined}
+                  slashCommandsLoading={runsHere && personalControls && slashCommands.isLoading}
                   prs={prMentions}
                   issues={issueMentions}
                   mentionReferenceFolders={mentionReferenceFolders}

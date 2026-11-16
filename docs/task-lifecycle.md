@@ -59,6 +59,39 @@ is durable context, not ownership: it does not gate the task lifecycle and does
 not claim live work. It collapses cleanly back to a single column if that ever
 proves clunky. Reviews (`execution_reviews`) are keyed to the exact output event.
 
+## Repeating tasks
+
+A task repeats when `recurrence` holds a cadence: an interval of days, weeks,
+months or years. The app writes the short form (`daily`, `weekly`, `monthly`,
+`yearly`, or `<n>d|w|m|y` like `2w`). Agents may write it the way people say it
+("every 2 weeks", "Quarterly", "Yearly, only if applicable"), and every reader
+goes through `parseRecurrence` (`src/lib/tasks/recurrence.ts`), so the server,
+the Repeat editor, the Deck and the labels agree on what it means. A write Ri
+can't read a cadence from (a weekday schedule like "every Monday and Thursday",
+an RRULE with `BYDAY`, nonsense) is refused with `invalid_params` and what to
+write instead, unless it is the value already stored. Blank means none.
+
+`nextRecurrenceAt` is the next occurrence, a calendar date (`YYYY-MM-DD`, like
+`hardDeadline`). The task is Ready from the start of that local day. Null means
+due now, and the first completion sets the rhythm. Older rows may hold a full
+instant, read by its leading date. Ending a repeat clears it. Changing the
+cadence keeps it.
+
+Completing a repeating task (`complete_task`) records one `task_completions`
+occurrence and returns the task to Todo for its next date: one interval after
+the scheduled occurrence (today when none was set), stepped in whole intervals
+to the first day after today. Done early, the next one is still a full interval
+on. Done late, missed occurrences are skipped and the rhythm holds, with no
+backlog. A deadline moves to its next date by the same rule, so it never stays
+behind as a stale overdue date, and a snooze ends with the occurrence it
+deferred. Consider tasks can't repeat (`CONSIDER_FORBIDDEN_FIELDS`).
+
+In the app: the task page has Repeat (type a cadence or pick a common one,
+`TaskRecurrencePicker`) and Next (the shared date picker). A row shows the
+cadence, and while the task rests until a later day, when it comes back
+("Weekly · In 7d"). Its chip opens the same editor, and the row menu's Repeat
+adds one. Completing says when the next one is.
+
 ## Surfaces
 
 - REST: `POST /api/tasks/:id/transition` and `/complete`. Generic PATCH rejects
@@ -70,7 +103,7 @@ proves clunky. Reviews (`execution_reviews`) are keyed to the exact output event
   actions), `useTransitionTask`, transition-aware optimistic cache
   (`optimisticTransition`).
 - Deck: the generated daily stack selects only Ready Todo (status=todo,
-  unblocked, not snoozed past now, recurrence due); In progress belongs to
+  unblocked, not snoozed past now, next occurrence's day reached); In progress belongs to
   Current Work, not the stack.
 - Calendar: shows Todo + In progress deadlines; Consider stays off.
 - Stream: `promote_stream` can park an item in Consider or commit it to Todo.

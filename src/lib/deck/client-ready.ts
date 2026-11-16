@@ -1,3 +1,5 @@
+import { isRestingUntilNext } from '@/lib/tasks/recurrence';
+
 /**
  * Client-side Ready-Todo check, mirroring the server `isReady` predicate used by
  * deck generation, so every client Deck path (stack reconciliation, alternatives,
@@ -19,6 +21,6 @@ export function isClientReadyTodo(
   if (t.status !== 'todo') return false;
   if (t.blockedOn) return false;
   if (t.resurfaceAfter && new Date(t.resurfaceAfter).getTime() > nowMs) return false;
-  if (t.recurrence && t.nextRecurrenceAt && new Date(t.nextRecurrenceAt).getTime() > nowMs) return false;
+  if (isRestingUntilNext(t, new Date(nowMs))) return false;
   return true;
 }

@@ -6,6 +6,7 @@
 import { getRemoteBaseUrl } from '@/lib/auth/bootstrap';
 import { calendarDaysUntil } from '@/lib/dates';
 import { todayLocalDate } from '@/lib/deck/date';
+import { isRestingUntilNext } from '@/lib/tasks/recurrence';
 import { getActiveDeckForDate, getDeadlineTasks, getLatestDeck, getNote, getTask, listAreas, listNotes, listTasks } from '@/lib/db/queries';
 import { ftsSearch } from '@/lib/embeddings/search';
 import type { NoteRecord, TaskRecord } from '@/db/types';
@@ -82,7 +83,7 @@ export function viewTask(task: TaskLike, areas: Map<string, string>, base: strin
     daysUntil: calendarDaysUntil(task.hardDeadline, now),
     blocked: Boolean(task.blockedOn),
     recurring: Boolean(task.recurrence),
-    nextOccurrence: task.recurrence && task.nextRecurrenceAt && new Date(task.nextRecurrenceAt).getTime() > now.getTime() ? task.nextRecurrenceAt : null,
+    nextOccurrence: isRestingUntilNext(task, now) ? task.nextRecurrenceAt!.slice(0, 10) : null,
     reason,
     statusChangedCount: task.statusChangedCount,
     url: base ? `${base}/task/${encodeURIComponent(task.id)}` : null,
@@ -157,7 +158,7 @@ export function tasksView(input: TasksViewInput, now = new Date()): TasksView {
 
 function line(task: ViewTask): string {
   const finished = task.status === 'done' || task.nextOccurrence;
-  const meta = [task.nextOccurrence ? `done for now, next ${todayLocalDate(new Date(task.nextOccurrence))}` : task.status === 'in_progress' ? 'in progress' : task.status === 'todo' ? null : task.status, task.area,
+  const meta = [task.nextOccurrence ? `done for now, next ${task.nextOccurrence}` : task.status === 'in_progress' ? 'in progress' : task.status === 'todo' ? null : task.status, task.area,
     task.daysUntil === null || finished ? null : task.daysUntil < 0 ? `overdue ${-task.daysUntil}d` : task.daysUntil === 0 ? 'due today' : `due ${task.deadline}`,
     task.blocked ? 'blocked' : null].filter(Boolean);
   return `${task.title}${meta.length ? ` (${meta.join(', ')})` : ''} [${task.id}]`;

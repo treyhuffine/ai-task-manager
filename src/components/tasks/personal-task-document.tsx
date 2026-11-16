@@ -1,8 +1,10 @@
  'use client';
 import type { ComponentProps } from 'react';
 import type { TaskRecord, UpdateTaskInput } from '@/db/types';
-import { ChevronLeft, Repeat, Lock } from 'lucide-react';
+import { ChevronLeft, Lock } from 'lucide-react';
 import { TaskDocument } from './task-document';
+import { TaskDateField } from './task-date-field';
+import { TaskRecurrenceField } from './task-recurrence-picker';
 import { TaskPlanningProperties } from './task-planning-properties';
 import { SubtaskSection } from './subtask-section';
 import { TaskResults } from '@/components/results/task-results';
@@ -23,13 +25,16 @@ export function PersonalTaskDocument({ task, parentTask, openTask, save, autosav
                       properties={<>
                         <TaskPlanningProperties task={task} save={save} />
 
-                        {/* Recurrence */}
-                        {task.recurrence && (
+                        {/* Repeat. Consider is a possibility, not a commitment, so it can't repeat. */}
+                        <span className="text-muted-foreground font-medium">Repeat</span>
+                        {task.status === 'consider'
+                          ? <span className="text-muted-foreground/60">Move to Todo to set a repeat</span>
+                          : <TaskRecurrenceField value={task.recurrence} onChange={(recurrence) => save({ recurrence })} />}
+                        {task.recurrence && task.status !== 'consider' && (
                           <>
-                            <span className="text-muted-foreground font-medium">Recurrence</span>
-                            <span className="inline-flex items-center gap-1 text-primary/60 font-medium">
-                              <Repeat size={10} /> {task.recurrence}
-                            </span>
+                            <span className="text-muted-foreground font-medium">Next</span>
+                            <TaskDateField label="Next" value={task.nextRecurrenceAt} emptyLabel="Due now" highlightOverdue
+                              onChange={(nextRecurrenceAt) => save({ nextRecurrenceAt })} />
                           </>
                         )}
 

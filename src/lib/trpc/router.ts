@@ -42,6 +42,7 @@ import { artifactsRouter } from '@/lib/sessions/artifacts-router';
 import { resolveHomeExecutionChoices } from '@/lib/home/execution-choices';
 import { isTeamAuthority } from '@/lib/home/authority';
 import { SCRATCHPAD_MAX_LENGTH } from '@/lib/scratchpad/merge';
+import { feedbackRouter } from '@/lib/feedback/router';
 
 /** A run of days for the work view (docs/work-view.md). */
 const workRangeInput = z.object({
@@ -85,6 +86,7 @@ export const appRouter = router({
   homeContext: sp.query(({ ctx }) => resolveHomeContext(ctx.key)),
   homeExecutionChoices: sp.query(({ ctx }) => resolveHomeExecutionChoices(ctx.key)),
   coordination: coordinationRouter,
+  feedback: feedbackRouter,
   filePreviews: filePreviewsRouter,
   artifacts: artifactsRouter,
   email: emailRouter,

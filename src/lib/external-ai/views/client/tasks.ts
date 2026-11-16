@@ -35,7 +35,8 @@ export const STATUS_LABEL: Record<ViewTask['status'], string> = { consider: 'Con
 
 /** A repeating task finished for now: it looks done, with nothing to press until its next date. */
 export function restingUntil(task: ViewTask): string | null {
-  return task.nextOccurrence ? new Date(task.nextOccurrence).toLocaleDateString(locale(), { weekday: 'short', month: 'short', day: 'numeric' }) : null;
+  // A calendar date: read on the local calendar, never as UTC midnight.
+  return task.nextOccurrence ? dayLabel(task.nextOccurrence) : null;
 }
 
 export function isFinished(task: ViewTask): boolean {

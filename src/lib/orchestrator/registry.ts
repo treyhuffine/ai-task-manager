@@ -290,7 +290,12 @@ const taskCreateShape = {
   effort: taskEffort.nullable().optional(),
   hardDeadline: z.string().nullable().optional(),
   reminderAt: z.string().nullable().optional(),
-  recurrence: z.string().nullable().optional(),
+  recurrence: z.string().nullable().optional().describe(
+    'How often the task repeats: daily, weekly, monthly, yearly, or an interval like "every 3 days", "2w", "every 6 months". Null stops it repeating. Completing a repeating task records the occurrence and returns it to todo for its next date. Particular weekdays ("every Monday and Thursday") are refused: use weekly and set nextRecurrenceAt to that weekday. Put conditions in the body, not here.',
+  ),
+  nextRecurrenceAt: z.string().nullable().optional().describe(
+    'Next occurrence of a repeating task, as YYYY-MM-DD on the user\'s calendar. The task stays out of the ready queue until that day. Null means due now, and the first completion sets the rhythm. complete_task advances it.',
+  ),
   contextTags: z.array(z.string()).optional(),
   userContext: z.string().nullable().optional(),
   outcome: z.string().nullable().optional(),
@@ -393,7 +398,13 @@ const create_task_action = defineAction({
   description: 'Create a task. Embeddings + markdown mirror are updated automatically.',
   params: taskCreateShape,
   mutating: true,
-  handler: (_ctx, input) => createTask(input),
+  handler: (_ctx, input) => {
+    try {
+      return createTask(input);
+    } catch (err) {
+      throwSharedAsActionError(err);
+    }
+  },
 });
 
 const update_task_action = defineAction({
