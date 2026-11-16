@@ -88,6 +88,10 @@ native SQLite/vector, canvas, sharp and PTY probes, 626 desktop tests, and 17
 focused service/runtime tests. Frozen installation applied the combined agentex
 patch successfully.
 
+After merging newer main through `ac386cba`, the combined source also passed
+typecheck, all 626 desktop tests and 204 focused service/runtime and task
+lifecycle tests. This preserves the newer chat, recurrence and feedback work.
+
 The complete source suite was not green: the branch had 46 failing tests and
 clean main at `7533ab91` had 43. The stable failures reproduced on main. Six
 cases covering the differences, including first-message recovery, heartbeat
